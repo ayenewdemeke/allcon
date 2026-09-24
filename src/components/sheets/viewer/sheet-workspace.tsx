@@ -5,17 +5,21 @@ import { useRouter } from "next/navigation";
 import {
   ChevronLeft,
   ChevronRight,
+  ClipboardPaste,
   Cloud,
+  Copy,
   Hand,
   Hash,
   Loader2,
   Maximize,
   MousePointer2,
   MoveUpRight,
+  Pencil,
   Pentagon,
   Ruler,
   Spline,
   StickyNote,
+  Trash2,
   ZoomIn,
   ZoomOut,
   type LucideIcon,
@@ -24,10 +28,18 @@ import { toast } from "sonner";
 import { setMarkupLineItem } from "@/app/actions/mapping";
 import { createMarkup, deleteMarkup, setSheetScale, updateMarkup, type SavedMarkup } from "@/app/actions/sheets";
 import { Button } from "@/components/ui/button";
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuSeparator,
+  ContextMenuShortcut,
+  ContextMenuTrigger,
+} from "@/components/ui/context-menu";
 import { LinkButton } from "@/components/ui/link-button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { calibrate, distance, type Point, type UnitSystem } from "@/lib/takeoff";
-import { cn } from "@/lib/utils";
+import { cn, modKey } from "@/lib/utils";
 import { CalibrateDialog, NoteDialog } from "./dialogs";
 import { MarkupLayer, type Draft } from "./markup-layer";
 import { MarkupPanel } from "./markup-panel";
@@ -86,7 +98,7 @@ const DEFAULT_COLORS: Record<SavedMarkup["kind"], string> = {
 };
 
 const HINTS: Record<Tool, string> = {
-  select: "Click a shape to select it · drag its points to edit · Delete removes it",
+  select: "Click to select · drag to move, or drag points to reshape · right-click for Duplicate, Copy, Delete",
   pan: "Drag to pan · scroll to zoom",
   calibrate: "Click both ends of a dimension you know, then double-click · snaps to the drawing",
   length: "Click to add points · double-click to finish · snaps to the drawing",
@@ -137,6 +149,11 @@ export function SheetWorkspace({
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [calibrating, setCalibrating] = useState<number | null>(null);
   const [notePoint, setNotePoint] = useState<Point | null>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [contextId, setContextId] = useState<string | null>(null); // markup under the right-click
+  const clipboard = useRef<SavedMarkup | null>(null);
+  const [hasClipboard, setHasClipboard] = useState(false);
+  const lastPointer = useRef<Point | null>(null); // sheet point under the mouse, for paste
   // New measurements are assigned to this line item, as in Bluebeam/PlanSwift takeoff.
   const [activeLineItemId, setActiveLineItemId] = useState<string | null>(null);
   // Read through a ref: the Viewer controller holds on to the save callback it was created with.
@@ -219,6 +236,44 @@ export function SheetWorkspace({
       if (removed) setMarkups((list) => [...list, removed!]);
       toast.error("Could not delete that markup");
     }
+  }, []);
+
+  /**
+   * Copies a markup with all its properties (line item, depth, colour, name). It lands centred
+   * on `at` (paste at the mouse) or slightly offset from the original (duplicate).
+   */
+  const duplicate = useCallback(
+    async (source: SavedMarkup, at?: Point | null) => {
+      const xs = source.points.map((p) => p[0]);
+      const ys = source.points.map((p) => p[1]);
+      const offset = 24 / (view.zoom || 1); // ~24 screen px
+      const [dx, dy] = at
+        ? [at[0] - (Math.min(...xs) + Math.max(...xs)) / 2, at[1] - (Math.min(...ys) + Math.max(...ys)) / 2]
+        : [offset, offset];
+      const points = source.points.map(([x, y]) => [x + dx, y + dy] as Point);
+      try {
+        const saved = await createMarkup(sheet.id, {
+          kind: source.kind,
+          points,
+          color: source.color,
+          text: source.text,
+          label: source.label ? `${source.label} (copy)` : null,
+          depth: source.depth,
+        });
+        setMarkups((list) => [...list, saved]);
+        if (source.lineItemId) await assignLineItem(saved.id, source.lineItemId, true);
+        if (EDIT2D_KINDS.has(saved.kind)) controller.current?.loadShapes([saved]);
+        setSelectedId(saved.id);
+        controller.current?.select(saved.id);
+      } catch {
+        toast.error("Could not duplicate that markup");
+      }
+    },
+    [sheet.id, view.zoom, assignLineItem],
+  );
+
+  const moveMarkup = useCallback((id: string, points: Point[]) => {
+    setMarkups((list) => list.map((m) => (m.id === id ? { ...m, points } : m)));
   }, []);
 
   const applyScale = useCallback(
@@ -318,7 +373,26 @@ export function SheetWorkspace({
 
   useEffect(() => {
     const down = (e: KeyboardEvent) => {
-      if (isTyping(e.target) || e.metaKey || e.ctrlKey || e.altKey) return;
+      if (isTyping(e.target)) return;
+      if ((e.metaKey || e.ctrlKey) && !e.altKey) {
+        const key = e.key.toLowerCase();
+        const selected = markups.find((m) => m.id === selectedId);
+        if (key === "c" && selected) {
+          clipboard.current = selected;
+          setHasClipboard(true);
+          return;
+        }
+        if (key === "v" && clipboard.current) {
+          e.preventDefault();
+          return void duplicate(clipboard.current, lastPointer.current);
+        }
+        if (key === "d" && selected) {
+          e.preventDefault(); // browsers bookmark the page on Ctrl/Cmd+D
+          return void duplicate(selected);
+        }
+        return;
+      }
+      if (e.altKey) return;
       if (e.key === "Escape" && draft) return draft.kind === "count" ? finishDraft() : setDraft(null);
       if (e.key === "Enter" && draft) return finishDraft();
       if (e.key === "Backspace" && draft) {
@@ -339,7 +413,7 @@ export function SheetWorkspace({
     };
     window.addEventListener("keydown", down);
     return () => window.removeEventListener("keydown", down);
-  }, [draft, markups, selectedId, finishDraft, removeMarkup, chooseTool]);
+  }, [draft, markups, selectedId, finishDraft, removeMarkup, chooseTool, duplicate]);
 
   // --- selection from the panel ------------------------------------------------------
 
@@ -443,7 +517,26 @@ export function SheetWorkspace({
         </div>
 
         {/* Stage: the APS Viewer, with our overlay on top */}
-        <div className="relative flex-1 overflow-hidden bg-slate-200">
+        <ContextMenu>
+        <ContextMenuTrigger
+          render={
+            <div
+              className="relative flex-1 overflow-hidden bg-slate-200"
+              onPointerMove={(e) => (lastPointer.current = controller.current?.sheetPointAt(e.clientX, e.clientY) ?? null)}
+              onPointerLeave={() => (lastPointer.current = null)}
+              onContextMenu={(e) => {
+                // Which markup was right-clicked: an overlay shape, or a length/area under the cursor.
+                const overlay = (e.target as Element).closest?.("[data-markup-id]")?.getAttribute("data-markup-id");
+                const id = overlay ?? controller.current?.markupAt(e.clientX, e.clientY) ?? null;
+                setContextId(id);
+                if (id) {
+                  setSelectedId(id);
+                  controller.current?.select(id);
+                }
+              }}
+            />
+          }
+        >
           <div ref={stage} className="absolute inset-0" />
           {ready && (
             <MarkupLayer
@@ -459,6 +552,8 @@ export function SheetWorkspace({
                 setSelectedId(id);
                 controller.current?.select(id);
               }}
+              onMove={moveMarkup}
+              onMoveEnd={(id, points) => void patchMarkup(id, { points })}
             />
           )}
           {!ready && !loadError && (
@@ -479,7 +574,49 @@ export function SheetWorkspace({
               This sheet has no scale yet. Calibrate it (K) or pick a scale in the panel to see lengths and areas.
             </div>
           )}
-        </div>
+        </ContextMenuTrigger>
+        <ContextMenuContent className="min-w-48">
+          {(() => {
+            const target = markups.find((m) => m.id === contextId);
+            return (
+              <>
+                {target && (
+                  <>
+                    <ContextMenuItem onClick={() => void duplicate(target)}>
+                      <Copy /> Duplicate <ContextMenuShortcut>{modKey()}D</ContextMenuShortcut>
+                    </ContextMenuItem>
+                    <ContextMenuItem
+                      onClick={() => {
+                        clipboard.current = target;
+                        setHasClipboard(true);
+                      }}
+                    >
+                      <Copy /> Copy <ContextMenuShortcut>{modKey()}C</ContextMenuShortcut>
+                    </ContextMenuItem>
+                    <ContextMenuItem onClick={() => setEditingId(target.id)}>
+                      <Pencil /> Edit
+                    </ContextMenuItem>
+                  </>
+                )}
+                <ContextMenuItem
+                  disabled={!hasClipboard}
+                  onClick={() => clipboard.current && void duplicate(clipboard.current, lastPointer.current)}
+                >
+                  <ClipboardPaste /> Paste here <ContextMenuShortcut>{modKey()}V</ContextMenuShortcut>
+                </ContextMenuItem>
+                {target && (
+                  <>
+                    <ContextMenuSeparator />
+                    <ContextMenuItem variant="destructive" onClick={() => void removeMarkup(target.id)}>
+                      <Trash2 /> Delete
+                    </ContextMenuItem>
+                  </>
+                )}
+              </>
+            );
+          })()}
+        </ContextMenuContent>
+        </ContextMenu>
       </div>
 
       <MarkupPanel
@@ -499,6 +636,12 @@ export function SheetWorkspace({
         activeLineItemId={activeLineItemId}
         onActiveLineItemChange={setActiveLineItemId}
         onAssign={(id, lineItemId) => void assignLineItem(id, lineItemId)}
+        onDuplicate={(id) => {
+          const m = markups.find((x) => x.id === id);
+          if (m) void duplicate(m);
+        }}
+        editingId={editingId}
+        onEditingChange={setEditingId}
       />
 
       <CalibrateDialog

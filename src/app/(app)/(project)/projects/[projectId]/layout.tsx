@@ -12,7 +12,7 @@ export default async function ProjectLayout({ children, params }: LayoutProps<"/
 
   return (
     <AppShell
-      user={{ name: user.name, email: user.email }}
+      user={{ name: user.name || null, email: user.email }}
       project={{ id: project.id, name: project.name }}
       projects={projects}
     >

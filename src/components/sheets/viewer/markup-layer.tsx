@@ -1,5 +1,6 @@
 "use client";
 
+import { useRef } from "react";
 import type { SavedMarkup } from "@/app/actions/sheets";
 import { formatMeasure, measureMarkup, type Point, type UnitSystem } from "@/lib/takeoff";
 import type { View } from "./view";
@@ -19,7 +20,12 @@ type Props = {
   unitSystem: UnitSystem;
   selectable: boolean;
   onSelect: (id: string) => void;
+  /** Live position while an overlay markup is dragged, and the final one on release. */
+  onMove: (id: string, points: Point[]) => void;
+  onMoveEnd: (id: string, points: Point[]) => void;
 };
+
+const DRAG_SLOP = 3; // px before a press becomes a drag
 
 const toScreen = (p: Point, v: View): Point => [v.tx + p[0] * v.zoom, v.ty + p[1] * v.zoom];
 const pathOf = (pts: Point[], close = false) =>
@@ -176,8 +182,20 @@ function Shape({
   }
 }
 
-export function MarkupLayer({ markups, selectedId, draft, cursor, view, metersPerPoint, unitSystem, selectable, onSelect }: Props) {
+export function MarkupLayer({ markups, selectedId, draft, cursor, view, metersPerPoint, unitSystem, selectable, onSelect, onMove, onMoveEnd }: Props) {
   const draftPoints = draft ? (cursor ? [...draft.points, cursor] : draft.points) : [];
+  const drag = useRef<{ id: string; x: number; y: number; points: Point[]; moved: boolean; last: Point[] } | null>(null);
+
+  const dragTo = (clientX: number, clientY: number) => {
+    const d = drag.current;
+    if (!d) return;
+    const dx = clientX - d.x;
+    const dy = clientY - d.y;
+    if (!d.moved && Math.hypot(dx, dy) < DRAG_SLOP) return;
+    d.moved = true;
+    d.last = d.points.map(([x, y]) => [x + dx / view.zoom, y + dy / view.zoom] as Point);
+    onMove(d.id, d.last);
+  };
   return (
     // The root lets clicks through to the Viewer; only our own shapes can be clicked.
     <svg className="pointer-events-none absolute inset-0 z-10 h-full w-full overflow-hidden">
@@ -186,10 +204,20 @@ export function MarkupLayer({ markups, selectedId, draft, cursor, view, metersPe
         return (
           <g
             key={m.id}
-            style={{ cursor: selectable && !labelOnly ? "pointer" : undefined, pointerEvents: selectable && !labelOnly ? "visiblePainted" : "none" }}
+            data-markup-id={m.id}
+            style={{ cursor: selectable && !labelOnly ? "move" : undefined, pointerEvents: selectable && !labelOnly ? "visiblePainted" : "none" }}
             onPointerDown={(e) => {
+              if (e.button !== 0) return; // right-click opens the menu instead
               e.stopPropagation();
               onSelect(m.id);
+              e.currentTarget.setPointerCapture(e.pointerId);
+              drag.current = { id: m.id, x: e.clientX, y: e.clientY, points: m.points, moved: false, last: m.points };
+            }}
+            onPointerMove={(e) => dragTo(e.clientX, e.clientY)}
+            onPointerUp={() => {
+              const d = drag.current;
+              drag.current = null;
+              if (d?.moved) onMoveEnd(d.id, d.last);
             }}
           >
             <Shape m={m} view={view} selected={m.id === selectedId} mpp={metersPerPoint} units={unitSystem} labelOnly={labelOnly} />

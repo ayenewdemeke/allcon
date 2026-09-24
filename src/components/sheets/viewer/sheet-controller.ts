@@ -17,7 +17,13 @@ type E2DShape = { id: number; style: E2DStyle; getVertexCount(): number; getPoin
 
 const verticesOf = (shape: E2DShape) =>
   Array.from({ length: shape.getVertexCount() }, (_, i) => shape.getPoint(i));
-type E2DLayer = { shapes: E2DShape[]; addShape(s: E2DShape): void; removeShape(s: E2DShape): void; update(): void };
+type E2DLayer = {
+  shapes: E2DShape[];
+  addShape(s: E2DShape): void;
+  removeShape(s: E2DShape): void;
+  update(): void;
+  hitTest(x: number, y: number): E2DShape | null;
+};
 type E2DSelection = {
   addEventListener(type: string, cb: () => void): void;
   getSelectedShapes(): E2DShape[];
@@ -33,7 +39,7 @@ type E2DContext = {
 type Edit2DExtension = {
   registerDefaultTools(): void;
   defaultContext: E2DContext;
-  defaultTools: { polygonTool: E2DTool; polylineTool: E2DTool; polygonEditTool: E2DTool };
+  defaultTools: { polygonTool: E2DTool; polylineTool: E2DTool; polygonEditTool: E2DTool; copyTool: E2DTool };
 };
 type Edit2DNamespace = {
   Polygon: new (points: WorldPoint[], style?: E2DStyle) => E2DShape;
@@ -332,6 +338,25 @@ export class SheetController {
     for (const name of new Set(Object.values(names))) this.tools.deactivateTool(name);
     const next = names[tool];
     if (next) this.tools.activateTool(next);
+    // Copy/paste is ours (it keeps line items, depths and names, and works for every
+    // markup type), so Edit2D's own copy tool stays off.
+    this.tools.deactivateTool(edit2d.defaultTools.copyTool.getName());
+  }
+
+  /** The sheet point under a screen position. */
+  sheetPointAt(clientX: number, clientY: number): Point {
+    const rect = this.container.getBoundingClientRect();
+    return this.fromCanvas(clientX - rect.left, clientY - rect.top);
+  }
+
+  /** The markup whose length/area shape is under a screen position, if any. */
+  markupAt(clientX: number, clientY: number): string | null {
+    const layer = this.edit2d?.defaultContext.layer;
+    if (!layer) return null;
+    const w = this.toWorld(this.sheetPointAt(clientX, clientY));
+    const shape = layer.hitTest(w.x, w.y);
+    const id = shape ? this.shapeToMarkup.get(shape.id) : undefined;
+    return id && id !== "pending" ? id : null;
   }
 
   /** Zooms about the centre of the view by fitting the camera to a smaller/larger box. */

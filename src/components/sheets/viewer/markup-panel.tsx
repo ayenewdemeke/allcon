@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Pencil, Trash2 } from "lucide-react";
+import { Copy, Pencil, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { renameSheet, setProjectUnits, type SavedMarkup } from "@/app/actions/sheets";
 import { Badge } from "@/components/ui/badge";
@@ -10,7 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { formatMeasure, measureMarkup, SCALE_PRESETS, type UnitSystem } from "@/lib/takeoff";
-import { cn } from "@/lib/utils";
+import { cn, modKey } from "@/lib/utils";
 import { unitDimension } from "@/lib/line-items/units";
 import type { SheetInfo, SheetLineItem } from "./sheet-workspace";
 
@@ -88,6 +88,9 @@ export function MarkupPanel({
   activeLineItemId,
   onActiveLineItemChange,
   onAssign,
+  onDuplicate,
+  editingId,
+  onEditingChange: setEditingId,
 }: {
   projectId: string;
   sheet: SheetInfo;
@@ -105,10 +108,12 @@ export function MarkupPanel({
   activeLineItemId: string | null;
   onActiveLineItemChange: (id: string | null) => void;
   onAssign: (markupId: string, lineItemId: string | null) => void;
+  onDuplicate: (markupId: string) => void;
+  editingId: string | null;
+  onEditingChange: (id: string | null) => void;
 }) {
   const router = useRouter();
   const mpp = sheet.metersPerPoint;
-  const [editingId, setEditingId] = useState<string | null>(null);
   const rows = useRef(new Map<string, HTMLLIElement>());
 
   // Selecting a shape on the drawing brings its row into view (only within the panel).
@@ -325,6 +330,9 @@ export function MarkupPanel({
                       <div className="flex gap-1.5">
                         <Button variant={editing ? "secondary" : "outline"} size="xs" onClick={() => setEditingId(editing ? null : m.id)}>
                           <Pencil /> {editing ? "Done" : "Edit"}
+                        </Button>
+                        <Button variant="ghost" size="xs" onClick={() => onDuplicate(m.id)} title={`Duplicate (${modKey()}D)`}>
+                          <Copy /> Duplicate
                         </Button>
                         <Button variant="ghost" size="xs" onClick={() => onDelete(m.id)} className="text-destructive hover:text-destructive">
                           <Trash2 /> Delete

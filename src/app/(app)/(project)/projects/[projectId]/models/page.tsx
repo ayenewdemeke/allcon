@@ -72,7 +72,7 @@ export default async function ModelsPage({ params }: PageProps<"/projects/[proje
                   <TableCell>{formatSize(m.fileSize)}</TableCell>
                   <TableCell className="text-muted-foreground">
                     {m.uploadedAt.toLocaleDateString("en-US", { dateStyle: "medium" })} ·{" "}
-                    {m.uploadedBy?.name ?? m.uploadedBy?.email ?? "Former member"}
+                    {m.uploadedBy?.name || m.uploadedBy?.email || "Former member"}
                   </TableCell>
                   <TableCell className="pr-4">
                     <ModelStatus
