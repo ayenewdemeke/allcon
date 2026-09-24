@@ -2,7 +2,7 @@ import type { NextRequest } from "next/server";
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { completeUpload } from "@/lib/aps/oss";
-import { findAccessibleDrawingSet } from "@/lib/session";
+import { findAccessibleDrawingSet } from "@/lib/auth/session";
 
 const MAX_PAGES = 5000;
 

@@ -37,6 +37,22 @@ Accounts with the same email are linked, and every new user gets their own organ
 3. The project page polls `GET /api/models/:id/status`, which syncs the APS manifest.
 4. When the model is ready, it opens in the APS Viewer.
 
+## Pricing: line items, mapping, report
+
+- **Line items** (`/line-items`): import a schedule of values or bill of quantities from
+  .xlsx/.csv. The importer finds the header row, guesses columns, treats figure-less rows as
+  section headings and LS/amount-only rows as lump sums. Units are normalised (`cu yd` → `CY`).
+  Try it with `samples/riverside-schedule-of-values.xlsx` (regenerate with
+  `node scripts/make-sample-sov.mjs`).
+- **Mapping** (`/mapping`): element groups (category + type) are mapped to line items as
+  rules, re-applied to every new model version. Suggestions combine text similarity, a
+  UNIFORMAT → MasterFormat crosswalk on Revit's Assembly Code, element-type agreement and unit
+  compatibility; nothing is applied until accepted. 2D measurements are assigned per markup, or
+  automatically via "New measurements go to" in the sheet panel.
+- **Report** (`/report`): contract vs. model vs. drawing quantities per line, variance flags,
+  quantity-source breakdown and unmapped groups; **Export to Excel** adds the element- and
+  measurement-level detail behind every line.
+
 ## Drawing sheets (2D)
 
 PDF sets upload straight to the APS bucket, like models. The browser reads page sizes and
@@ -63,6 +79,7 @@ calling APS again.
 | `npm run build` | Production build |
 | `npm run typecheck` | Route type generation + `tsc` |
 | `npm run lint` | ESLint |
+| `npm test` | Unit tests (Vitest) |
 | `npm run db:migrate` | Create/apply a migration after editing `prisma/schema.prisma` |
 | `npm run db:deploy` | Apply existing migrations (CI / production) |
 | `npm run db:studio` | Browse the database |

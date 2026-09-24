@@ -2,7 +2,7 @@
 
 import { z } from "zod";
 import { db } from "@/lib/db";
-import { findAccessibleSheet, getCurrentUser, isUuid } from "@/lib/session";
+import { findAccessibleSheet, getCurrentUser, isUuid } from "@/lib/auth/session";
 
 // Every action checks access itself: server actions are public endpoints.
 
@@ -31,6 +31,7 @@ export type SavedMarkup = {
   text: string | null;
   color: string;
   depth: number | null;
+  lineItemId: string | null;
 };
 
 async function requireSheet(sheetId: string) {
@@ -49,7 +50,7 @@ async function requireMarkup(markupId: string) {
   return markup;
 }
 
-const toSaved = (m: { id: string; kind: SavedMarkup["kind"]; points: unknown; label: string | null; text: string | null; color: string; depth: number | null }): SavedMarkup => ({
+const toSaved = (m: { id: string; kind: SavedMarkup["kind"]; points: unknown; label: string | null; text: string | null; color: string; depth: number | null; lineItemId: string | null }): SavedMarkup => ({
   id: m.id,
   kind: m.kind,
   points: m.points as [number, number][],
@@ -57,6 +58,7 @@ const toSaved = (m: { id: string; kind: SavedMarkup["kind"]; points: unknown; la
   text: m.text,
   color: m.color,
   depth: m.depth,
+  lineItemId: m.lineItemId,
 });
 
 export async function renameSheet(sheetId: string, input: { number?: string | null; title?: string | null }) {

@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import { normalizeElements, type RawObject, type TreeNode } from "@/lib/aps/normalize";
 import { downloadBuffer, uploadBuffer } from "@/lib/aps/oss";
 import { getAllProperties, getModelViewGuid, getObjectTree } from "@/lib/aps/properties";
+import { applyAllRules } from "@/lib/mapping/server";
 
 const INSERT_CHUNK = 500;
 
@@ -78,6 +79,9 @@ export async function extractElements(modelVersionId: string) {
         data: elements.slice(i, i + INSERT_CHUNK).map((e) => ({ ...e, modelVersionId: model.id })),
       });
     }
+
+    // Mappings survive revisions: the project's rules are re-applied to the new version.
+    await applyAllRules(model.projectId, model.id);
 
     await db.modelVersion.update({
       where: { id: model.id },

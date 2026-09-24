@@ -1,5 +1,5 @@
 import { getViewerToken } from "@/lib/aps/auth";
-import { getCurrentUser } from "@/lib/session";
+import { getCurrentUser } from "@/lib/auth/session";
 
 export async function GET() {
   if (!(await getCurrentUser())) return Response.json({ error: "Unauthorized" }, { status: 401 });

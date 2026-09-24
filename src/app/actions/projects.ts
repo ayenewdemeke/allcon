@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { z } from "zod";
 import { db } from "@/lib/db";
-import { requireProject, requireUser } from "@/lib/session";
+import { requireProject, requireUser } from "@/lib/auth/session";
 
 const projectInput = z.object({
   name: z.string().trim().min(1, "Name is required").max(200),

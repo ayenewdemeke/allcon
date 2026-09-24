@@ -1,7 +1,7 @@
 import type { NextRequest } from "next/server";
 import { db } from "@/lib/db";
 import { getManifest } from "@/lib/aps/derivative";
-import { findAccessibleModel } from "@/lib/session";
+import { findAccessibleModel } from "@/lib/auth/session";
 
 /** Polled by the browser while a model translates; syncs the APS manifest into the database. */
 export async function GET(_request: NextRequest, ctx: RouteContext<"/api/models/[modelId]/status">) {

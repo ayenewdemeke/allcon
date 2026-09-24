@@ -1,6 +1,6 @@
 import type { NextRequest } from "next/server";
 import { claimExtraction, extractElements } from "@/lib/extract";
-import { findAccessibleModel } from "@/lib/session";
+import { findAccessibleModel } from "@/lib/auth/session";
 
 // Reading every property of a large model takes a while.
 export const maxDuration = 300;

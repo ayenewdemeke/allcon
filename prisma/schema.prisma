@@ -247,13 +247,16 @@ model Markup {
   text        String? // body of a note
   color       String     @default("#2563eb")
   depth       Float? // meters; turns an area into a volume
+  lineItemId  String?    @map("line_item_id") @db.Uuid // the line item this measurement prices
   createdById String?    @map("created_by") @db.Uuid
   createdAt   DateTime   @default(now()) @map("created_at")
   updatedAt   DateTime   @default(now()) @updatedAt @map("updated_at")
   sheet       Sheet      @relation(fields: [sheetId], references: [id], onDelete: Cascade)
+  lineItem    LineItem?  @relation(fields: [lineItemId], references: [id], onDelete: SetNull)
   createdBy   User?      @relation(fields: [createdById], references: [id], onDelete: SetNull)
 
   @@index([sheetId])
+  @@index([lineItemId])
   @@map("markup")
 }
 
@@ -278,15 +281,25 @@ model LineItem {
   contractQuantity Decimal?         @map("contract_quantity") @db.Decimal(18, 4)
   rate             Decimal?         @db.Decimal(18, 4)
   scheduledValue   Decimal?         @map("scheduled_value") @db.Decimal(18, 2) // lump-sum lines
+  isHeading        Boolean          @default(false) @map("is_heading") // section heading, no quantity of its own
+  rateSource       RateSource       @default(contract) @map("rate_source")
   sortOrder        Int              @default(0) @map("sort_order")
   project          Project          @relation(fields: [projectId], references: [id], onDelete: Cascade)
   parent           LineItem?        @relation("LineItemTree", fields: [parentId], references: [id], onDelete: Cascade)
   children         LineItem[]       @relation("LineItemTree")
   rules            MappingRule[]
   mappings         ElementMapping[]
+  markups          Markup[]
 
   @@index([projectId, sortOrder])
   @@map("line_item")
+}
+
+// Where a line item's rate comes from. Contract rates now; a user-imported cost library
+// (historical rates, supplier prices, licensed RSMeans data) later.
+enum RateSource {
+  contract
+  library
 }
 
 enum BillingType {

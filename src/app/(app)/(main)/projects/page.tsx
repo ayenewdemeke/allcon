@@ -4,7 +4,7 @@ import { NewProjectDialog } from "@/components/projects/new-project-dialog";
 import { PageBody, PageHeader } from "@/components/shell/page-header";
 import { Card, CardContent } from "@/components/ui/card";
 import { db } from "@/lib/db";
-import { requireUser } from "@/lib/session";
+import { requireUser } from "@/lib/auth/session";
 
 const STANDARD_LABELS: Record<string, string> = {
   CSI: "CSI MasterFormat",

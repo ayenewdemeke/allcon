@@ -4,12 +4,15 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import {
   ArrowLeft,
+  ClipboardCheck,
   Box,
   Check,
   ChevronsUpDown,
   FolderKanban,
+  GitMerge,
   Layers,
   LayoutDashboard,
+  ListChecks,
   LogOut,
   Ruler,
   Settings,
@@ -40,7 +43,7 @@ import {
   useSidebar,
 } from "@/components/ui/sidebar";
 import { APP_NAME } from "@/lib/app-config";
-import { authClient } from "@/lib/auth-client";
+import { authClient } from "@/lib/auth/client";
 import { cn } from "@/lib/utils";
 
 type NavItem = { name: string; href: string; icon: LucideIcon; exact?: boolean };
@@ -56,6 +59,9 @@ function projectNav(projectId: string): NavItem[] {
     { name: "Overview", href: base, icon: LayoutDashboard, exact: true },
     { name: "Models", href: `${base}/models`, icon: Box },
     { name: "Sheets", href: `${base}/sheets`, icon: Layers },
+    { name: "Line items", href: `${base}/line-items`, icon: ListChecks },
+    { name: "Mapping", href: `${base}/mapping`, icon: GitMerge },
+    { name: "Report", href: `${base}/report`, icon: ClipboardCheck },
     { name: "Settings", href: `${base}/settings`, icon: Settings },
   ];
 }

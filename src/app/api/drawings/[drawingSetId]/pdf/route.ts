@@ -1,6 +1,6 @@
 import type { NextRequest } from "next/server";
 import { getDownloadUrl } from "@/lib/aps/oss";
-import { findAccessibleDrawingSet } from "@/lib/session";
+import { findAccessibleDrawingSet } from "@/lib/auth/session";
 
 // The APS Viewer's PDF loader only takes a URL. Storage hides the headers pdf.js needs to
 // use range requests, so we serve the file from our own origin: Range is passed through,

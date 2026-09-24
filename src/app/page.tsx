@@ -4,7 +4,7 @@ import { SignInForm } from "@/components/auth/sign-in-form";
 import { Card, CardContent } from "@/components/ui/card";
 import { APP_NAME } from "@/lib/app-config";
 import { googleSignInEnabled } from "@/lib/env";
-import { getCurrentUser } from "@/lib/session";
+import { getCurrentUser } from "@/lib/auth/session";
 
 // Better Auth reports failures as ?error=<code>.
 const ERROR_MESSAGES: Record<string, string> = {

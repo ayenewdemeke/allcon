@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
   ChevronLeft,
@@ -22,8 +21,10 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { toast } from "sonner";
+import { setMarkupLineItem } from "@/app/actions/mapping";
 import { createMarkup, deleteMarkup, setSheetScale, updateMarkup, type SavedMarkup } from "@/app/actions/sheets";
 import { Button } from "@/components/ui/button";
+import { LinkButton } from "@/components/ui/link-button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { calibrate, distance, type Point, type UnitSystem } from "@/lib/takeoff";
 import { cn } from "@/lib/utils";
@@ -45,6 +46,7 @@ export type SheetInfo = {
   scaleLabel: string | null;
 };
 export type SiblingSheet = { id: string; pageIndex: number; number: string | null; title: string | null };
+export type SheetLineItem = { id: string; code: string | null; description: string; unit: string | null };
 
 type Tool = "select" | "pan" | "calibrate" | "length" | "area" | "count" | "note" | "arrow" | "cloud";
 
@@ -110,12 +112,14 @@ export function SheetWorkspace({
   siblings,
   initialMarkups,
   initialUnitSystem,
+  lineItems,
 }: {
   projectId: string;
   sheet: SheetInfo;
   siblings: SiblingSheet[];
   initialMarkups: SavedMarkup[];
   initialUnitSystem: UnitSystem;
+  lineItems: SheetLineItem[];
 }) {
   const router = useRouter();
   const stage = useRef<HTMLDivElement>(null);
@@ -133,6 +137,13 @@ export function SheetWorkspace({
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [calibrating, setCalibrating] = useState<number | null>(null);
   const [notePoint, setNotePoint] = useState<Point | null>(null);
+  // New measurements are assigned to this line item, as in Bluebeam/PlanSwift takeoff.
+  const [activeLineItemId, setActiveLineItemId] = useState<string | null>(null);
+  // Read through a ref: the Viewer controller holds on to the save callback it was created with.
+  const activeLineItem = useRef<string | null>(null);
+  useEffect(() => {
+    activeLineItem.current = activeLineItemId;
+  }, [activeLineItemId]);
 
   // Handlers the controller calls are read through a ref, so it always sees current state.
   const handlers = useRef<{
@@ -143,19 +154,37 @@ export function SheetWorkspace({
 
   // --- saving -----------------------------------------------------------------
 
+  const assignLineItem = useCallback(async (markupId: string, lineItemId: string | null, quiet = false) => {
+    try {
+      await setMarkupLineItem(markupId, lineItemId);
+      setMarkups((list) => list.map((m) => (m.id === markupId ? { ...m, lineItemId } : m)));
+      return true;
+    } catch (err) {
+      if (!quiet) toast.error(err instanceof Error ? err.message : "Could not assign the line item");
+      return false;
+    }
+  }, []);
+
   const saveNew = useCallback(
     async (kind: SavedMarkup["kind"], points: Point[], extra: Partial<SavedMarkup> = {}) => {
       const color = DEFAULT_COLORS[kind];
       try {
         const saved = await createMarkup(sheet.id, { kind, points, color, text: extra.text ?? null });
         setMarkups((list) => [...list, saved]);
+        const active = activeLineItem.current;
+        if (active && (kind === "length" || kind === "area" || kind === "count")) {
+          // A measurement that can't price the active line (e.g. a length on an SF line) stays unassigned.
+          if (!(await assignLineItem(saved.id, active, true))) {
+            toast.warning(`Saved, but a ${kind} can't price the selected line item's unit. Assign it from the panel.`);
+          }
+        }
         return saved;
       } catch {
         toast.error("Could not save that markup");
         return null;
       }
     },
-    [sheet.id],
+    [sheet.id, assignLineItem],
   );
 
   const patchMarkup = useCallback(async (id: string, patch: Partial<SavedMarkup>) => {
@@ -338,9 +367,15 @@ export function SheetWorkspace({
         {/* Toolbar */}
         <div className="flex flex-wrap items-center gap-1 border-b bg-card px-2 py-1.5">
           <div className="flex items-center gap-0.5">
-            <Button variant="ghost" size="icon-sm" disabled={!prev} nativeButton={!prev} render={prev ? <Link href={sheetHref(prev.id)} /> : undefined} aria-label="Previous sheet">
-              <ChevronLeft />
-            </Button>
+            {prev ? (
+              <LinkButton variant="ghost" size="icon-sm" href={sheetHref(prev.id)} aria-label="Previous sheet">
+                <ChevronLeft />
+              </LinkButton>
+            ) : (
+              <Button variant="ghost" size="icon-sm" disabled aria-label="Previous sheet">
+                <ChevronLeft />
+              </Button>
+            )}
             <select
               value={sheet.id}
               onChange={(e) => router.push(sheetHref(e.target.value))}
@@ -353,9 +388,15 @@ export function SheetWorkspace({
                 </option>
               ))}
             </select>
-            <Button variant="ghost" size="icon-sm" disabled={!next} nativeButton={!next} render={next ? <Link href={sheetHref(next.id)} /> : undefined} aria-label="Next sheet">
-              <ChevronRight />
-            </Button>
+            {next ? (
+              <LinkButton variant="ghost" size="icon-sm" href={sheetHref(next.id)} aria-label="Next sheet">
+                <ChevronRight />
+              </LinkButton>
+            ) : (
+              <Button variant="ghost" size="icon-sm" disabled aria-label="Next sheet">
+                <ChevronRight />
+              </Button>
+            )}
           </div>
 
           {(["nav", "measure", "markup"] as const).map((group) => (
@@ -450,6 +491,10 @@ export function SheetWorkspace({
         onUnitSystemChange={setUnitSystem}
         onScale={applyScale}
         onCalibrate={() => chooseTool("calibrate")}
+        lineItems={lineItems}
+        activeLineItemId={activeLineItemId}
+        onActiveLineItemChange={setActiveLineItemId}
+        onAssign={(id, lineItemId) => void assignLineItem(id, lineItemId)}
       />
 
       <CalibrateDialog

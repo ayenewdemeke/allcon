@@ -17,6 +17,9 @@ import { SidebarTrigger } from "@/components/ui/sidebar";
 const SECTION_LABELS: Record<string, string> = {
   models: "Models",
   sheets: "Sheets",
+  "line-items": "Line items",
+  mapping: "Mapping",
+  report: "Report",
   settings: "Settings",
 };
 

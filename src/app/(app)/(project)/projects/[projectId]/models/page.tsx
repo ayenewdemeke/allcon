@@ -1,12 +1,12 @@
 import Link from "next/link";
 import { Box } from "lucide-react";
-import { ModelStatus } from "@/components/model-status";
-import { ModelUploader } from "@/components/model-uploader";
+import { ModelStatus } from "@/components/models/model-status";
+import { ModelUploader } from "@/components/models/model-uploader";
 import { PageBody, PageHeader } from "@/components/shell/page-header";
 import { Card, CardContent } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { db } from "@/lib/db";
-import { requireProject } from "@/lib/session";
+import { requireProject } from "@/lib/auth/session";
 
 function formatSize(bytes: bigint | null) {
   if (bytes === null) return "—";

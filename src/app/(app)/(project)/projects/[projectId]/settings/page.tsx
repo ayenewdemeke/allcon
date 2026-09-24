@@ -2,7 +2,7 @@ import { updateProject } from "@/app/actions/projects";
 import { ProjectForm } from "@/components/projects/project-form";
 import { PageBody, PageHeader } from "@/components/shell/page-header";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { requireProject } from "@/lib/session";
+import { requireProject } from "@/lib/auth/session";
 
 export default async function ProjectSettingsPage({ params }: PageProps<"/projects/[projectId]/settings">) {
   const { project } = await requireProject((await params).projectId);

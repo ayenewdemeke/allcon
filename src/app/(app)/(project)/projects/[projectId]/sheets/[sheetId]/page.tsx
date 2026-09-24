@@ -1,7 +1,7 @@
 import { notFound } from "next/navigation";
 import { SheetWorkspace } from "@/components/sheets/viewer/sheet-workspace";
 import { db } from "@/lib/db";
-import { isUuid, requireProject } from "@/lib/session";
+import { isUuid, requireProject } from "@/lib/auth/session";
 
 /** Full-bleed takeoff workspace for one sheet. */
 export default async function SheetPage({ params }: PageProps<"/projects/[projectId]/sheets/[sheetId]">) {
@@ -14,6 +14,14 @@ export default async function SheetPage({ params }: PageProps<"/projects/[projec
       })
     : null;
   if (!sheet) notFound();
+
+  const lineItems = (
+    await db.lineItem.findMany({
+      where: { projectId: project.id, isHeading: false },
+      orderBy: { sortOrder: "asc" },
+      select: { id: true, code: true, description: true, unit: true },
+    })
+  ).map((i) => ({ ...i }));
 
   const siblings = await db.sheet.findMany({
     where: { drawingSetId: sheet.drawingSetId },
@@ -46,7 +54,9 @@ export default async function SheetPage({ params }: PageProps<"/projects/[projec
         text: m.text,
         color: m.color,
         depth: m.depth,
+        lineItemId: m.lineItemId,
       }))}
+      lineItems={lineItems}
       initialUnitSystem={project.unitSystem}
     />
   );

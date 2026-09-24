@@ -1,6 +1,6 @@
 import { AppShell } from "@/components/shell/app-shell";
 import { db } from "@/lib/db";
-import { requireProject } from "@/lib/session";
+import { requireProject } from "@/lib/auth/session";
 
 export default async function ProjectLayout({ children, params }: LayoutProps<"/projects/[projectId]">) {
   const { user, project } = await requireProject((await params).projectId);

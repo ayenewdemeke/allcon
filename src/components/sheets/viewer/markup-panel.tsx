@@ -11,7 +11,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { formatMeasure, measureMarkup, SCALE_PRESETS, type UnitSystem } from "@/lib/takeoff";
 import { cn } from "@/lib/utils";
-import type { SheetInfo } from "./sheet-workspace";
+import { unitDimension } from "@/lib/line-items/units";
+import type { SheetInfo, SheetLineItem } from "./sheet-workspace";
 
 const COLORS = ["#2563eb", "#16a34a", "#dc2626", "#ca8a04", "#9333ea", "#0891b2", "#ea580c", "#475569"];
 
@@ -25,6 +26,14 @@ const KIND_LABELS: Record<SavedMarkup["kind"], string> = {
 };
 
 const selectClass = "h-8 w-full rounded-lg border border-input bg-card px-2 text-sm";
+
+// Which line item units a measurement kind can price (an area needs a depth for volume).
+const FITS: Record<string, string[]> = { length: ["length"], area: ["area", "volume"], count: ["count", "lump"] };
+const fits = (m: Pick<SavedMarkup, "kind" | "depth">, item: SheetLineItem) => {
+  const dim = unitDimension(item.unit);
+  return Boolean(dim && FITS[m.kind]?.includes(dim) && (dim !== "volume" || m.depth));
+};
+const itemText = (i: SheetLineItem) => `${i.code ? `${i.code} · ` : ""}${i.description} (${i.unit ?? "no unit"})`;
 
 function Section({ title, children, action }: { title: string; children: React.ReactNode; action?: React.ReactNode }) {
   return (
@@ -75,6 +84,10 @@ export function MarkupPanel({
   onUnitSystemChange,
   onScale,
   onCalibrate,
+  lineItems,
+  activeLineItemId,
+  onActiveLineItemChange,
+  onAssign,
 }: {
   projectId: string;
   sheet: SheetInfo;
@@ -88,6 +101,10 @@ export function MarkupPanel({
   onUnitSystemChange: (u: UnitSystem) => void;
   onScale: (metersPerPoint: number | null, label: string | null) => void;
   onCalibrate: () => void;
+  lineItems: SheetLineItem[];
+  activeLineItemId: string | null;
+  onActiveLineItemChange: (id: string | null) => void;
+  onAssign: (markupId: string, lineItemId: string | null) => void;
 }) {
   const router = useRouter();
   const mpp = sheet.metersPerPoint;
@@ -212,6 +229,31 @@ export function MarkupPanel({
         </div>
       </Section>
 
+      <Section title="Pricing">
+        {lineItems.length === 0 ? (
+          <p className="text-xs text-muted-foreground">Import line items to price these measurements.</p>
+        ) : (
+          <div className="grid gap-1.5">
+            <Label htmlFor="active-line-item" className="text-xs">
+              New measurements go to
+            </Label>
+            <select
+              id="active-line-item"
+              className={selectClass}
+              value={activeLineItemId ?? ""}
+              onChange={(e) => onActiveLineItemChange(e.target.value || null)}
+            >
+              <option value="">No line item (just measure)</option>
+              {lineItems.map((i) => (
+                <option key={i.id} value={i.id}>
+                  {itemText(i)}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
+      </Section>
+
       {selected && (
         <Section
           title={`Selected ${KIND_LABELS[selected.kind].toLowerCase()}`}
@@ -281,6 +323,29 @@ export function MarkupPanel({
               />
             </div>
           )}
+          {(selected.kind === "length" || selected.kind === "area" || selected.kind === "count") && lineItems.length > 0 && (
+            <div className="grid gap-1.5">
+              <Label htmlFor="markup-line-item" className="text-xs">
+                Line item
+              </Label>
+              <select
+                id="markup-line-item"
+                className={selectClass}
+                value={selected.lineItemId ?? ""}
+                onChange={(e) => onAssign(selected.id, e.target.value || null)}
+              >
+                <option value="">Not priced</option>
+                {lineItems.map((i) => (
+                  <option key={i.id} value={i.id} disabled={!fits(selected, i)}>
+                    {itemText(i)}
+                  </option>
+                ))}
+              </select>
+              {selected.kind === "area" && !selected.depth && (
+                <p className="text-xs text-muted-foreground">Add a depth to price a volume (CY) line.</p>
+              )}
+            </div>
+          )}
           <div className="flex flex-wrap gap-1.5">
             {COLORS.map((c) => (
               <button
@@ -331,7 +396,14 @@ export function MarkupPanel({
                     )}
                   >
                     <span className="size-2.5 shrink-0 rounded-full" style={{ background: m.color }} />
-                    <span className="min-w-0 flex-1 truncate">{names.get(m.id)}</span>
+                    <span className="min-w-0 flex-1 truncate">
+                      {names.get(m.id)}
+                      {m.lineItemId && (
+                        <span className="block truncate text-xs text-muted-foreground">
+                          → {lineItems.find((i) => i.id === m.lineItemId)?.code ?? lineItems.find((i) => i.id === m.lineItemId)?.description ?? "line item"}
+                        </span>
+                      )}
+                    </span>
                     {v && <span className="shrink-0 text-xs text-muted-foreground tabular-nums">{formatMeasure(v.value, v.kind, unitSystem)}</span>}
                   </button>
                 </li>

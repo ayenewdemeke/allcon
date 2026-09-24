@@ -1,6 +1,6 @@
 import type { NextRequest } from "next/server";
 import { getDownloadUrl } from "@/lib/aps/oss";
-import { findAccessibleDrawingSet } from "@/lib/session";
+import { findAccessibleDrawingSet } from "@/lib/auth/session";
 
 /**
  * A short-lived direct link to the PDF plus its size. The viewer fetches byte ranges

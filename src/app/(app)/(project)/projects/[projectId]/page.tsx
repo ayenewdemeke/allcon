@@ -1,12 +1,12 @@
 import Link from "next/link";
 import { ArrowRight, Box, Boxes, CircleCheck, type LucideIcon } from "lucide-react";
-import { ModelStatus } from "@/components/model-status";
-import { ModelUploader } from "@/components/model-uploader";
+import { ModelStatus } from "@/components/models/model-status";
+import { ModelUploader } from "@/components/models/model-uploader";
 import { PageBody, PageHeader } from "@/components/shell/page-header";
-import { Button } from "@/components/ui/button";
+import { LinkButton } from "@/components/ui/link-button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { db } from "@/lib/db";
-import { requireProject } from "@/lib/session";
+import { requireProject } from "@/lib/auth/session";
 
 function Stat({ label, value, hint, icon: Icon }: { label: string; value: string; hint?: string; icon: LucideIcon }) {
   return (
@@ -77,10 +77,10 @@ export default async function ProjectOverviewPage({ params }: PageProps<"/projec
         <CardHeader className="flex flex-row items-center justify-between">
           <CardTitle>Recent models</CardTitle>
           {modelCount > 0 && (
-            <Button variant="ghost" size="sm" nativeButton={false} render={<Link href={`/projects/${project.id}/models`} />}>
+            <LinkButton variant="ghost" size="sm" href={`/projects/${project.id}/models`}>
               View all
               <ArrowRight />
-            </Button>
+            </LinkButton>
           )}
         </CardHeader>
         <CardContent>

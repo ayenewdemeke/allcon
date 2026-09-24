@@ -3,7 +3,7 @@ import { z } from "zod";
 import { db } from "@/lib/db";
 import { getUploadUrls, MAX_FILE_SIZE, PART_SIZE } from "@/lib/aps/oss";
 import { ACCEPTED_EXTENSIONS, extensionOf } from "@/lib/model-files";
-import { findAccessibleProject } from "@/lib/session";
+import { findAccessibleProject } from "@/lib/auth/session";
 
 const body = z.object({
   fileName: z.string().min(1).max(255),

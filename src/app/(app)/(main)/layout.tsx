@@ -1,5 +1,5 @@
 import { AppShell } from "@/components/shell/app-shell";
-import { requireUser } from "@/lib/session";
+import { requireUser } from "@/lib/auth/session";
 
 export default async function MainLayout({ children }: LayoutProps<"/">) {
   const user = await requireUser();

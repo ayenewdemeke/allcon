@@ -6,7 +6,7 @@ import { SheetThumbnail } from "@/components/sheets/sheet-thumbnail";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { db } from "@/lib/db";
-import { requireProject } from "@/lib/session";
+import { requireProject } from "@/lib/auth/session";
 
 function formatSize(bytes: bigint) {
   const mb = Number(bytes) / 1024 / 1024;

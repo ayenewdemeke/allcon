@@ -3,7 +3,7 @@ import { z } from "zod";
 import { db } from "@/lib/db";
 import { startTranslation } from "@/lib/aps/derivative";
 import { completeUpload, toUrn } from "@/lib/aps/oss";
-import { findAccessibleModel } from "@/lib/session";
+import { findAccessibleModel } from "@/lib/auth/session";
 
 const body = z.object({ uploadKey: z.string().min(1) });
 

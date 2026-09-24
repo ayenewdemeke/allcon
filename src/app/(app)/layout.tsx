@@ -1,5 +1,5 @@
 import { TooltipProvider } from "@/components/ui/tooltip";
-import { requireUser } from "@/lib/session";
+import { requireUser } from "@/lib/auth/session";
 
 /** Everything under (app) requires a signed-in user. */
 export default async function AppLayout({ children }: LayoutProps<"/">) {
