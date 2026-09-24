@@ -348,8 +348,10 @@ export function SheetWorkspace({
       setSelectedId(id);
       if (tool !== "select") chooseTool("select");
       controller.current?.select(id);
+      const m = markups.find((x) => x.id === id);
+      if (m) controller.current?.reveal(m.points);
     },
-    [tool, chooseTool],
+    [tool, chooseTool, markups],
   );
 
   // --- sheet navigation ----------------------------------------------------------------
@@ -362,8 +364,10 @@ export function SheetWorkspace({
     [s.number ?? `Page ${s.pageIndex + 1}`, s.title].filter(Boolean).join(" · ");
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
-      <div className="flex min-h-[520px] min-w-0 flex-1 flex-col">
+    // On desktop the workspace is exactly the viewport below the header: the toolbar and
+    // drawing stay put, and only the side panel scrolls.
+    <div className="flex min-h-0 flex-1 flex-col lg:h-[calc(100svh-3.5rem)] lg:flex-none lg:flex-row lg:overflow-hidden">
+      <div className="flex min-h-[520px] min-w-0 flex-1 flex-col lg:min-h-0">
         {/* Toolbar */}
         <div className="flex flex-wrap items-center gap-1 border-b bg-card px-2 py-1.5">
           <div className="flex items-center gap-0.5">

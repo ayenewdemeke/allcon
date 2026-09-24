@@ -32,3 +32,7 @@ export function env() {
 }
 
 export const googleSignInEnabled = () => Boolean(env().GOOGLE_CLIENT_ID && env().GOOGLE_CLIENT_SECRET);
+
+/** Email links need an email service in production; in development they're printed to the console. */
+export const emailSignInEnabled = () =>
+  Boolean(env().RESEND_API_KEY && env().EMAIL_FROM) || process.env.NODE_ENV !== "production";

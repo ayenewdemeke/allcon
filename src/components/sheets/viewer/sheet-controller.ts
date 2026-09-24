@@ -349,6 +349,40 @@ export class SheetController {
     viewer.navigation.fitBounds(true, box);
   }
 
+  /**
+   * Brings sheet points into view: pans (keeping the zoom) when they're off-screen, and
+   * zooms out only if they don't fit.
+   */
+  reveal(points: Point[]) {
+    const viewer = this.viewer;
+    if (!viewer || !points.length) return;
+    const { width, height } = this.container.getBoundingClientRect();
+    const xs = points.map(([x]) => this.view.tx + x * this.view.zoom);
+    const ys = points.map(([, y]) => this.view.ty + y * this.view.zoom);
+    const margin = 40;
+    const [left, right, top, bottom] = [Math.min(...xs), Math.max(...xs), Math.min(...ys), Math.max(...ys)];
+    if (left >= margin && right <= width - margin && top >= margin && bottom <= height - margin) return;
+
+    const T = (window as unknown as { THREE: typeof THREE }).THREE;
+    const nav = viewer.navigation;
+    if (right - left <= width - 2 * margin && bottom - top <= height - 2 * margin) {
+      // Fits at the current zoom: pan so its centre lands in the middle of the view.
+      // (Animated fitBounds doesn't move this 2D camera; setView does.)
+      const dx = ((left + right) / 2 - width / 2) / (this.view.zoom * 72); // screen px -> inches
+      const dy = -((top + bottom) / 2 - height / 2) / (this.view.zoom * 72); // screen y runs down
+      const d = new T.Vector3(dx, dy, 0);
+      nav.setView(nav.getPosition().clone().add(d), nav.getTarget().clone().add(d));
+      return;
+    }
+    // Bigger than the view: zoom out to fit it, with some room around it.
+    const sheetXs = points.map(([x]) => x);
+    const sheetYs = points.map(([, y]) => y);
+    const pad = 0.2 * Math.max(Math.max(...sheetXs) - Math.min(...sheetXs), Math.max(...sheetYs) - Math.min(...sheetYs));
+    const a = this.toWorld([Math.min(...sheetXs) - pad, Math.max(...sheetYs) + pad]);
+    const b = this.toWorld([Math.max(...sheetXs) + pad, Math.min(...sheetYs) - pad]);
+    nav.fitBounds(true, new T.Box3(new T.Vector3(a.x, a.y, 0), new T.Vector3(b.x, b.y, 0)));
+  }
+
   fit() {
     this.viewer?.fitToView?.();
   }

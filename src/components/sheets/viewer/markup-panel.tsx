@@ -1,8 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Trash2 } from "lucide-react";
+import { Pencil, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { renameSheet, setProjectUnits, type SavedMarkup } from "@/app/actions/sheets";
 import { Badge } from "@/components/ui/badge";
@@ -108,7 +108,13 @@ export function MarkupPanel({
 }) {
   const router = useRouter();
   const mpp = sheet.metersPerPoint;
-  const selected = markups.find((m) => m.id === selectedId) ?? null;
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const rows = useRef(new Map<string, HTMLLIElement>());
+
+  // Selecting a shape on the drawing brings its row into view (only within the panel).
+  useEffect(() => {
+    if (selectedId) rows.current.get(selectedId)?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  }, [selectedId]);
 
   async function saveSheetField(field: "number" | "title", value: string) {
     onSheetChange({ ...sheet, [field]: value.trim() || null });
@@ -254,112 +260,6 @@ export function MarkupPanel({
         )}
       </Section>
 
-      {selected && (
-        <Section
-          title={`Selected ${KIND_LABELS[selected.kind].toLowerCase()}`}
-          action={
-            <Button variant="ghost" size="icon-xs" onClick={() => onDelete(selected.id)} aria-label="Delete markup">
-              <Trash2 className="text-destructive" />
-            </Button>
-          }
-        >
-          {(() => {
-            const v = measureMarkup(selected, mpp);
-            if (!v) return null;
-            return (
-              <div className="rounded-md bg-muted/60 px-3 py-2 text-sm">
-                <p className="text-lg font-semibold tabular-nums">{formatMeasure(v.value, v.kind, unitSystem)}</p>
-                {"perimeter" in v && v.perimeter !== undefined && (
-                  <p className="text-xs text-muted-foreground">
-                    Perimeter {formatMeasure(v.perimeter, "length", unitSystem)}
-                    {"area" in v && v.area !== undefined && ` · Area ${formatMeasure(v.area, "area", unitSystem)}`}
-                  </p>
-                )}
-              </div>
-            );
-          })()}
-          {selected.kind === "note" ? (
-            <textarea
-              key={selected.id}
-              defaultValue={selected.text ?? ""}
-              rows={3}
-              onBlur={(e) => e.target.value !== selected.text && onPatch(selected.id, { text: e.target.value })}
-              className="w-full rounded-lg border border-input bg-card px-2.5 py-2 text-sm"
-              aria-label="Note text"
-            />
-          ) : (
-            <div className="grid gap-1.5">
-              <Label htmlFor="markup-label" className="text-xs">
-                Name
-              </Label>
-              <CommitInput
-                id="markup-label"
-                placeholder={names.get(selected.id)}
-                value={selected.label ?? ""}
-                onCommit={(v) => onPatch(selected.id, { label: v.trim() || null })}
-              />
-            </div>
-          )}
-          {selected.kind === "area" && (
-            <div className="grid gap-1.5">
-              <Label htmlFor="markup-depth" className="text-xs">
-                Depth for volume ({unitSystem === "imperial" ? "inches" : "mm"})
-              </Label>
-              <CommitInput
-                id="markup-depth"
-                inputMode="decimal"
-                placeholder={unitSystem === "imperial" ? "e.g. 4" : "e.g. 100"}
-                value={
-                  selected.depth
-                    ? String(+(selected.depth / (unitSystem === "imperial" ? 0.0254 : 0.001)).toFixed(2))
-                    : ""
-                }
-                onCommit={(v) => {
-                  const n = Number(v);
-                  if (v.trim() === "") return onPatch(selected.id, { depth: null });
-                  if (!Number.isFinite(n) || n <= 0) return toast.error("Depth must be a positive number");
-                  onPatch(selected.id, { depth: n * (unitSystem === "imperial" ? 0.0254 : 0.001) });
-                }}
-              />
-            </div>
-          )}
-          {(selected.kind === "length" || selected.kind === "area" || selected.kind === "count") && lineItems.length > 0 && (
-            <div className="grid gap-1.5">
-              <Label htmlFor="markup-line-item" className="text-xs">
-                Line item
-              </Label>
-              <select
-                id="markup-line-item"
-                className={selectClass}
-                value={selected.lineItemId ?? ""}
-                onChange={(e) => onAssign(selected.id, e.target.value || null)}
-              >
-                <option value="">Not priced</option>
-                {lineItems.map((i) => (
-                  <option key={i.id} value={i.id} disabled={!fits(selected, i)}>
-                    {itemText(i)}
-                  </option>
-                ))}
-              </select>
-              {selected.kind === "area" && !selected.depth && (
-                <p className="text-xs text-muted-foreground">Add a depth to price a volume (CY) line.</p>
-              )}
-            </div>
-          )}
-          <div className="flex flex-wrap gap-1.5">
-            {COLORS.map((c) => (
-              <button
-                key={c}
-                aria-label={`Color ${c}`}
-                onClick={() => onPatch(selected.id, { color: c })}
-                className={cn("size-6 rounded-full ring-offset-2 ring-offset-card", selected.color === c && "ring-2 ring-foreground")}
-                style={{ background: c }}
-              />
-            ))}
-          </div>
-        </Section>
-      )}
-
       <Section title="Totals on this sheet">
         {measurable.length === 0 ? (
           <p className="text-sm text-muted-foreground">Measure with Length (L), Area (A) or Count (C).</p>
@@ -386,26 +286,135 @@ export function MarkupPanel({
           <ul className="-mx-2 space-y-0.5">
             {markups.map((m) => {
               const v = measureMarkup(m, mpp);
+              const isSelected = m.id === selectedId;
+              const editing = isSelected && editingId === m.id;
+              const item = m.lineItemId ? lineItems.find((i) => i.id === m.lineItemId) : undefined;
               return (
-                <li key={m.id}>
+                <li
+                  key={m.id}
+                  ref={(el) => {
+                    if (el) rows.current.set(m.id, el);
+                    else rows.current.delete(m.id);
+                  }}
+                  className={cn("rounded-md", isSelected && "bg-accent/60 ring-1 ring-primary/30")}
+                >
                   <button
                     onClick={() => onSelect(m.id)}
                     className={cn(
-                      "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-muted",
-                      m.id === selectedId && "bg-accent text-accent-foreground hover:bg-accent",
+                      "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm",
+                      !isSelected && "hover:bg-muted",
                     )}
                   >
                     <span className="size-2.5 shrink-0 rounded-full" style={{ background: m.color }} />
                     <span className="min-w-0 flex-1 truncate">
                       {names.get(m.id)}
-                      {m.lineItemId && (
-                        <span className="block truncate text-xs text-muted-foreground">
-                          → {lineItems.find((i) => i.id === m.lineItemId)?.code ?? lineItems.find((i) => i.id === m.lineItemId)?.description ?? "line item"}
-                        </span>
-                      )}
+                      {item && <span className="block truncate text-xs text-muted-foreground">→ {item.code ?? item.description}</span>}
                     </span>
                     {v && <span className="shrink-0 text-xs text-muted-foreground tabular-nums">{formatMeasure(v.value, v.kind, unitSystem)}</span>}
                   </button>
+
+                  {isSelected && (
+                    <div className="space-y-2.5 px-2 pb-2.5">
+                      {v && "perimeter" in v && v.perimeter !== undefined && (
+                        <p className="text-xs text-muted-foreground">
+                          Perimeter {formatMeasure(v.perimeter, "length", unitSystem)}
+                          {"area" in v && v.area !== undefined && ` · Area ${formatMeasure(v.area, "area", unitSystem)}`}
+                        </p>
+                      )}
+                      {item && <p className="text-xs">Priced as {itemText(item)}</p>}
+                      <div className="flex gap-1.5">
+                        <Button variant={editing ? "secondary" : "outline"} size="xs" onClick={() => setEditingId(editing ? null : m.id)}>
+                          <Pencil /> {editing ? "Done" : "Edit"}
+                        </Button>
+                        <Button variant="ghost" size="xs" onClick={() => onDelete(m.id)} className="text-destructive hover:text-destructive">
+                          <Trash2 /> Delete
+                        </Button>
+                      </div>
+                      {editing && (
+                        <div className="space-y-2.5 border-t pt-2.5">
+            {m.kind === "note" ? (
+              <textarea
+                key={m.id}
+                defaultValue={m.text ?? ""}
+                rows={3}
+                onBlur={(e) => e.target.value !== m.text && onPatch(m.id, { text: e.target.value })}
+                className="w-full rounded-lg border border-input bg-card px-2.5 py-2 text-sm"
+                aria-label="Note text"
+              />
+            ) : (
+              <div className="grid gap-1.5">
+                <Label htmlFor="markup-label" className="text-xs">
+                  Name
+                </Label>
+                <CommitInput
+                  id="markup-label"
+                  placeholder={names.get(m.id)}
+                  value={m.label ?? ""}
+                  onCommit={(v) => onPatch(m.id, { label: v.trim() || null })}
+                />
+              </div>
+            )}
+            {m.kind === "area" && (
+              <div className="grid gap-1.5">
+                <Label htmlFor="markup-depth" className="text-xs">
+                  Depth for volume ({unitSystem === "imperial" ? "inches" : "mm"})
+                </Label>
+                <CommitInput
+                  id="markup-depth"
+                  inputMode="decimal"
+                  placeholder={unitSystem === "imperial" ? "e.g. 4" : "e.g. 100"}
+                  value={
+                    m.depth
+                      ? String(+(m.depth / (unitSystem === "imperial" ? 0.0254 : 0.001)).toFixed(2))
+                      : ""
+                  }
+                  onCommit={(v) => {
+                    const n = Number(v);
+                    if (v.trim() === "") return onPatch(m.id, { depth: null });
+                    if (!Number.isFinite(n) || n <= 0) return toast.error("Depth must be a positive number");
+                    onPatch(m.id, { depth: n * (unitSystem === "imperial" ? 0.0254 : 0.001) });
+                  }}
+                />
+              </div>
+            )}
+            {(m.kind === "length" || m.kind === "area" || m.kind === "count") && lineItems.length > 0 && (
+              <div className="grid gap-1.5">
+                <Label htmlFor="markup-line-item" className="text-xs">
+                  Line item
+                </Label>
+                <select
+                  id="markup-line-item"
+                  className={selectClass}
+                  value={m.lineItemId ?? ""}
+                  onChange={(e) => onAssign(m.id, e.target.value || null)}
+                >
+                  <option value="">Not priced</option>
+                  {lineItems.map((i) => (
+                    <option key={i.id} value={i.id} disabled={!fits(m, i)}>
+                      {itemText(i)}
+                    </option>
+                  ))}
+                </select>
+                {m.kind === "area" && !m.depth && (
+                  <p className="text-xs text-muted-foreground">Add a depth to price a volume (CY) line.</p>
+                )}
+              </div>
+            )}
+            <div className="flex flex-wrap gap-1.5">
+              {COLORS.map((c) => (
+                <button
+                  key={c}
+                  aria-label={`Color ${c}`}
+                  onClick={() => onPatch(m.id, { color: c })}
+                  className={cn("size-6 rounded-full ring-offset-2 ring-offset-card", m.color === c && "ring-2 ring-foreground")}
+                  style={{ background: c }}
+                />
+              ))}
+            </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </li>
               );
             })}

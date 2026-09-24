@@ -3,7 +3,7 @@ import { Box, FileText, Ruler, Sheet } from "lucide-react";
 import { SignInForm } from "@/components/auth/sign-in-form";
 import { Card, CardContent } from "@/components/ui/card";
 import { APP_NAME } from "@/lib/app-config";
-import { googleSignInEnabled } from "@/lib/env";
+import { emailSignInEnabled, googleSignInEnabled } from "@/lib/env";
 import { getCurrentUser } from "@/lib/auth/session";
 
 // Better Auth reports failures as ?error=<code>.
@@ -60,7 +60,7 @@ export default async function SignInPage({ searchParams }: PageProps<"/">) {
               <h2 className="text-xl font-semibold tracking-tight">Sign in</h2>
               <p className="text-sm text-muted-foreground">New here? Signing in creates your account.</p>
             </div>
-            <SignInForm googleEnabled={googleSignInEnabled()} initialError={message} />
+            <SignInForm googleEnabled={googleSignInEnabled()} emailEnabled={emailSignInEnabled()} initialError={message} />
           </CardContent>
         </Card>
       </main>

@@ -43,11 +43,11 @@ export default async function ModelPage({ params, searchParams }: PageProps<"/pr
   }
 
   return (
-    <div className="flex flex-1 flex-col lg:flex-row">
-      <div className="flex min-h-[500px] flex-1 flex-col p-3 lg:p-4">
+    <div className="flex flex-1 flex-col lg:h-[calc(100svh-3.5rem)] lg:flex-none lg:flex-row lg:overflow-hidden">
+      <div className="flex min-h-[500px] flex-1 flex-col p-3 lg:min-h-0 lg:p-4">
         <ModelViewer urn={model.urn} colors={rows.length ? colors : undefined} isolate={isolate} isolateLabel={isolateLabel} />
       </div>
-      <aside className="flex w-full flex-col gap-4 border-t bg-card p-4 lg:w-96 lg:border-t-0 lg:border-l">
+      <aside className="flex w-full flex-col gap-4 border-t bg-card p-4 lg:w-96 lg:overflow-y-auto lg:border-t-0 lg:border-l">
         <div className="space-y-1">
           <h1 className="truncate text-lg font-semibold tracking-tight">{model.fileName}</h1>
           <p className="text-xs text-muted-foreground">

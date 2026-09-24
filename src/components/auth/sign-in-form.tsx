@@ -22,7 +22,15 @@ function GoogleIcon() {
 
 type Pending = "autodesk" | "google" | "email" | null;
 
-export function SignInForm({ googleEnabled, initialError }: { googleEnabled: boolean; initialError?: string }) {
+export function SignInForm({
+  googleEnabled,
+  emailEnabled,
+  initialError,
+}: {
+  googleEnabled: boolean;
+  emailEnabled: boolean; // hidden in production until an email service is configured
+  initialError?: string;
+}) {
   const [pending, setPending] = useState<Pending>(null);
   const [error, setError] = useState(initialError);
   const [sentTo, setSentTo] = useState<string | null>(null);
@@ -93,35 +101,39 @@ export function SignInForm({ googleEnabled, initialError }: { googleEnabled: boo
         )}
       </div>
 
-      <div className="flex items-center gap-3 text-xs text-muted-foreground">
-        <div className="h-px flex-1 bg-border" />
-        or use your email
-        <div className="h-px flex-1 bg-border" />
-      </div>
+      {emailEnabled && (
+        <>
+        <div className="flex items-center gap-3 text-xs text-muted-foreground">
+          <div className="h-px flex-1 bg-border" />
+          or use your email
+          <div className="h-px flex-1 bg-border" />
+        </div>
 
-      <form
-        className="space-y-2.5"
-        onSubmit={async (e) => {
-          e.preventDefault();
-          const email = String(new FormData(e.currentTarget).get("email") ?? "").trim();
-          const ok = await run("email", () =>
-            authClient.signIn.magicLink({ email, callbackURL: AFTER_SIGN_IN, errorCallbackURL: "/" }),
-          );
-          if (ok) {
-            setPending(null);
-            setSentTo(email);
-          }
-        }}
-      >
-        <Label htmlFor="email" className="sr-only">
-          Email
-        </Label>
-        <Input id="email" name="email" type="email" required placeholder="you@company.com" className="h-10" />
-        <Button type="submit" variant="outline" size="lg" className="h-10 w-full" disabled={pending !== null}>
-          {pending === "email" ? <Loader2 className="animate-spin" /> : <Mail />}
-          Email me a sign-in link
-        </Button>
-      </form>
+        <form
+          className="space-y-2.5"
+          onSubmit={async (e) => {
+            e.preventDefault();
+            const email = String(new FormData(e.currentTarget).get("email") ?? "").trim();
+            const ok = await run("email", () =>
+              authClient.signIn.magicLink({ email, callbackURL: AFTER_SIGN_IN, errorCallbackURL: "/" }),
+            );
+            if (ok) {
+              setPending(null);
+              setSentTo(email);
+            }
+          }}
+        >
+          <Label htmlFor="email" className="sr-only">
+            Email
+          </Label>
+          <Input id="email" name="email" type="email" required placeholder="you@company.com" className="h-10" />
+          <Button type="submit" variant="outline" size="lg" className="h-10 w-full" disabled={pending !== null}>
+            {pending === "email" ? <Loader2 className="animate-spin" /> : <Mail />}
+            Email me a sign-in link
+          </Button>
+        </form>
+        </>
+      )}
 
       {error && (
         <p role="alert" className="rounded-md bg-destructive/10 px-3 py-2 text-center text-sm text-destructive">
