@@ -1,69 +1,75 @@
-import Image from "next/image";
+import { redirect } from "next/navigation";
+import { Box, FileText, Ruler, Sheet } from "lucide-react";
+import { SignInForm } from "@/components/auth/sign-in-form";
+import { Card, CardContent } from "@/components/ui/card";
+import { APP_NAME } from "@/lib/app-config";
+import { googleSignInEnabled } from "@/lib/env";
+import { getCurrentUser } from "@/lib/session";
 
-export default function Home() {
+// Better Auth reports failures as ?error=<code>.
+const ERROR_MESSAGES: Record<string, string> = {
+  EXPIRED_TOKEN: "That sign-in link has expired. Request a new one below.",
+  INVALID_TOKEN: "That sign-in link is no longer valid. Request a new one below.",
+  access_denied: "Sign-in was cancelled.",
+};
+
+const FEATURES = [
+  { icon: Box, text: "Quantities straight from Revit and IFC models" },
+  { icon: Ruler, text: "Measure lengths, areas and counts on PDF drawings" },
+  { icon: Sheet, text: "Price them against your schedule of values" },
+  { icon: FileText, text: "Export priced quantities and pay applications" },
+];
+
+export default async function SignInPage({ searchParams }: PageProps<"/">) {
+  if (await getCurrentUser()) redirect("/projects");
+  const { error } = await searchParams;
+  const message =
+    typeof error === "string" ? (ERROR_MESSAGES[error] ?? "Sign-in failed. Please try again.") : undefined;
+
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert h-5 w-[100px]"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the{" "}
-            <code className="rounded bg-black/[.06] px-1.5 py-0.5 font-mono text-[0.9em] dark:bg-white/[.08]">
-              page.tsx
-            </code>{" "}
-            file.
+    <div className="flex min-h-svh flex-col bg-background">
+      <header className="border-b bg-card">
+        <div className="mx-auto flex h-16 max-w-6xl items-center gap-2 px-6">
+          <div className="flex size-8 items-center justify-center rounded-md bg-primary text-primary-foreground">
+            <Ruler className="size-4" />
+          </div>
+          <span className="text-lg font-semibold tracking-tight">{APP_NAME}</span>
+        </div>
+      </header>
+
+      <main className="mx-auto grid w-full max-w-6xl flex-1 items-center gap-12 px-6 py-12 lg:grid-cols-2">
+        <div className="space-y-6">
+          <h1 className="text-3xl font-semibold tracking-tight text-balance sm:text-4xl">
+            Quantities and payment applications, from model or drawing.
           </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
+          <ul className="space-y-3">
+            {FEATURES.map(({ icon: Icon, text }) => (
+              <li key={text} className="flex items-center gap-3 text-muted-foreground">
+                <span className="flex size-8 shrink-0 items-center justify-center rounded-md bg-accent text-accent-foreground">
+                  <Icon className="size-4" />
+                </span>
+                {text}
+              </li>
+            ))}
+          </ul>
         </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert h-[14px] w-4"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={14}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
-        </div>
+
+        <Card className="mx-auto w-full max-w-sm shadow-sm">
+          <CardContent className="space-y-6 p-6">
+            <div className="space-y-1 text-center">
+              <h2 className="text-xl font-semibold tracking-tight">Sign in</h2>
+              <p className="text-sm text-muted-foreground">New here? Signing in creates your account.</p>
+            </div>
+            <SignInForm googleEnabled={googleSignInEnabled()} initialError={message} />
+          </CardContent>
+        </Card>
       </main>
+
+      <footer className="border-t bg-card py-6">
+        <div className="mx-auto max-w-6xl px-6 text-sm text-muted-foreground">
+          &copy; {new Date().getFullYear()} {APP_NAME}
+        </div>
+      </footer>
     </div>
   );
 }

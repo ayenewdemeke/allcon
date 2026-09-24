@@ -1,0 +1,340 @@
+// Phase 1 schema: projects, model versions, elements, line items, mapping.
+// Periods, progress, valuations and revision diffs arrive in later phases.
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model Organization {
+  id        String    @id @default(uuid()) @db.Uuid
+  name      String
+  createdAt DateTime  @default(now()) @map("created_at")
+  users     User[]
+  projects  Project[]
+
+  @@map("organization")
+}
+
+model User {
+  id            String         @id @default(uuid()) @db.Uuid
+  orgId         String         @map("org_id") @db.Uuid
+  email         String         @unique
+  emailVerified Boolean        @default(false) @map("email_verified")
+  name          String?
+  image         String?
+  role          UserRole       @default(owner)
+  createdAt     DateTime       @default(now()) @map("created_at")
+  updatedAt     DateTime       @default(now()) @updatedAt @map("updated_at")
+  org           Organization   @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  sessions      Session[]
+  accounts      Account[]
+  uploads       ModelVersion[]
+  drawingSets   DrawingSet[]
+  markups       Markup[]
+  rules         MappingRule[]
+
+  @@map("user")
+}
+
+enum UserRole {
+  owner
+  member
+}
+
+// Sign-in tables below follow Better Auth's schema (session, account, verification).
+model Session {
+  id        String   @id @default(uuid())
+  token     String   @unique
+  userId    String   @map("user_id") @db.Uuid
+  expiresAt DateTime @map("expires_at")
+  ipAddress String?  @map("ip_address")
+  userAgent String?  @map("user_agent")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at")
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("session")
+}
+
+// One row per sign-in method linked to a user: "autodesk", "google", ...
+model Account {
+  id                    String    @id @default(uuid())
+  accountId             String    @map("account_id") // the provider's user id, e.g. Autodesk `sub`
+  providerId            String    @map("provider_id")
+  userId                String    @map("user_id") @db.Uuid
+  accessToken           String?   @map("access_token")
+  refreshToken          String?   @map("refresh_token")
+  idToken               String?   @map("id_token")
+  accessTokenExpiresAt  DateTime? @map("access_token_expires_at")
+  refreshTokenExpiresAt DateTime? @map("refresh_token_expires_at")
+  scope                 String?
+  password              String?
+  createdAt             DateTime  @default(now()) @map("created_at")
+  updatedAt             DateTime  @default(now()) @updatedAt @map("updated_at")
+  user                  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([providerId, accountId])
+  @@index([userId])
+  @@map("account")
+}
+
+// Short-lived tokens, e.g. email sign-in links.
+model Verification {
+  id         String   @id @default(uuid())
+  identifier String
+  value      String
+  expiresAt  DateTime @map("expires_at")
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @default(now()) @updatedAt @map("updated_at")
+
+  @@index([identifier])
+  @@map("verification")
+}
+
+model Project {
+  id                  String         @id @default(uuid()) @db.Uuid
+  orgId               String         @map("org_id") @db.Uuid
+  name                String
+  currency            String         @default("USD")
+  measurementStandard String         @default("CSI") @map("measurement_standard") // CSI, NRM2, SMM7, custom
+  retentionPct        Decimal        @default(10) @map("retention_pct") @db.Decimal(5, 2) // "retainage" in the US
+  unitSystem          UnitSystem     @default(imperial) @map("unit_system") // how measurements are displayed
+  createdAt           DateTime       @default(now()) @map("created_at")
+  org                 Organization   @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  modelVersions       ModelVersion[]
+  drawingSets         DrawingSet[]
+  lineItems           LineItem[]
+  mappingRules        MappingRule[]
+
+  @@index([orgId])
+  @@map("project")
+}
+
+model ModelVersion {
+  id                  String      @id @default(uuid()) @db.Uuid
+  projectId           String      @map("project_id") @db.Uuid
+  source              ModelSource @default(upload)
+  fileName            String      @map("file_name")
+  fileSize            BigInt?     @map("file_size")
+  objectKey           String?     @map("object_key") // APS OSS object key (upload path)
+  urn                 String? // base64url derivative URN used by the Viewer and Model Derivative
+  formaUrn            String?     @map("forma_urn")
+  formaVersionNumber  Int?        @map("forma_version_number")
+  schemaVersion       String?     @map("schema_version") // e.g. IFC4, Revit 2025
+  status              ModelStatus @default(uploading)
+  translationProgress String?     @map("translation_progress")
+  errorMessage        String?     @map("error_message")
+  elementCount        Int?        @map("element_count")
+  extractionStartedAt DateTime?   @map("extraction_started_at") // claim lock for element extraction
+  // Full Model Derivative property dump (gzipped JSON) kept in storage, not the database,
+  // so elements can be re-extracted later without calling APS again.
+  propertiesObjectKey String?     @map("properties_object_key")
+  uploadedById        String?     @map("uploaded_by") @db.Uuid
+  uploadedAt          DateTime    @default(now()) @map("uploaded_at")
+  project             Project     @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  uploadedBy          User?       @relation(fields: [uploadedById], references: [id], onDelete: SetNull)
+  elements            Element[]
+
+  @@index([projectId])
+  @@map("model_version")
+}
+
+enum UnitSystem {
+  imperial
+  metric
+}
+
+enum ModelSource {
+  upload
+  forma
+}
+
+enum ModelStatus {
+  uploading
+  translating
+  extracting
+  ready
+  failed
+}
+
+model Element {
+  id             String           @id @default(uuid()) @db.Uuid
+  modelVersionId String           @map("model_version_id") @db.Uuid
+  stableId       String           @map("stable_id") // Revit UniqueId / IFC GlobalId (APS externalId). Never key on dbId.
+  dbId           Int?             @map("db_id") // Viewer object id; valid only within this model version
+  category       String?
+  typeName       String?          @map("type_name")
+  level          String?
+  zone           String?
+  quantities     Json             @default("{}") // { volume, area, length, count, ... } in project units
+  quantitySource QuantitySource   @default(missing) @map("quantity_source")
+  properties     Json             @default("{}") // selected property groups, kept small
+  modelVersion   ModelVersion     @relation(fields: [modelVersionId], references: [id], onDelete: Cascade)
+  mappings       ElementMapping[]
+
+  @@unique([modelVersionId, stableId])
+  @@index([modelVersionId, category])
+  @@map("element")
+}
+
+enum QuantitySource {
+  qto_set
+  property
+  geometry
+  missing
+}
+
+// An uploaded PDF drawing set. The original file is kept intact in APS storage;
+// each page becomes a Sheet, and the viewer loads pages by HTTP range request.
+model DrawingSet {
+  id           String        @id @default(uuid()) @db.Uuid
+  projectId    String        @map("project_id") @db.Uuid
+  fileName     String        @map("file_name")
+  fileSize     BigInt        @map("file_size")
+  objectKey    String?       @map("object_key")
+  pageCount    Int?          @map("page_count")
+  status       DrawingStatus @default(uploading)
+  uploadedById String?       @map("uploaded_by") @db.Uuid
+  uploadedAt   DateTime      @default(now()) @map("uploaded_at")
+  project      Project       @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  uploadedBy   User?         @relation(fields: [uploadedById], references: [id], onDelete: SetNull)
+  sheets       Sheet[]
+
+  @@index([projectId])
+  @@map("drawing_set")
+}
+
+enum DrawingStatus {
+  uploading
+  ready
+  failed
+}
+
+// One page of a drawing set. Coordinates for everything drawn on it are PDF points
+// in the page's displayed orientation (rotation applied, scale 1).
+model Sheet {
+  id             String     @id @default(uuid()) @db.Uuid
+  drawingSetId   String     @map("drawing_set_id") @db.Uuid
+  pageIndex      Int        @map("page_index") // 0-based page in the PDF
+  number         String? // e.g. "A101", from the text layer or entered by the user
+  title          String?
+  width          Float // displayed width in PDF points
+  height         Float
+  metersPerPoint Float?     @map("meters_per_point") // drawing scale; null until calibrated
+  scaleLabel     String?    @map("scale_label") // e.g. 1/8" = 1'-0", or "Calibrated"
+  drawingSet     DrawingSet @relation(fields: [drawingSetId], references: [id], onDelete: Cascade)
+  markups        Markup[]
+
+  @@unique([drawingSetId, pageIndex])
+  @@map("sheet")
+}
+
+// A measurement (length, area, count) or annotation (note, arrow, cloud) on a sheet.
+// Values are not stored: they are computed from points x the sheet's scale, so
+// recalibrating a sheet updates every measurement on it.
+model Markup {
+  id          String     @id @default(uuid()) @db.Uuid
+  sheetId     String     @map("sheet_id") @db.Uuid
+  kind        MarkupKind
+  points      Json // [[x, y], ...] in sheet coordinates
+  label       String?
+  text        String? // body of a note
+  color       String     @default("#2563eb")
+  depth       Float? // meters; turns an area into a volume
+  createdById String?    @map("created_by") @db.Uuid
+  createdAt   DateTime   @default(now()) @map("created_at")
+  updatedAt   DateTime   @default(now()) @updatedAt @map("updated_at")
+  sheet       Sheet      @relation(fields: [sheetId], references: [id], onDelete: Cascade)
+  createdBy   User?      @relation(fields: [createdById], references: [id], onDelete: SetNull)
+
+  @@index([sheetId])
+  @@map("markup")
+}
+
+enum MarkupKind {
+  length
+  area
+  count
+  note
+  arrow
+  cloud
+}
+
+// A bill-of-quantities item or, in US terms, a schedule-of-values line.
+model LineItem {
+  id               String           @id @default(uuid()) @db.Uuid
+  projectId        String           @map("project_id") @db.Uuid
+  parentId         String?          @map("parent_id") @db.Uuid
+  code             String? // e.g. CSI MasterFormat "03 30 00"
+  description      String
+  unit             String? // m3, m2, m, nr, CY, SF, LF, EA, LS
+  billingType      BillingType      @default(unit_price) @map("billing_type")
+  contractQuantity Decimal?         @map("contract_quantity") @db.Decimal(18, 4)
+  rate             Decimal?         @db.Decimal(18, 4)
+  scheduledValue   Decimal?         @map("scheduled_value") @db.Decimal(18, 2) // lump-sum lines
+  sortOrder        Int              @default(0) @map("sort_order")
+  project          Project          @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  parent           LineItem?        @relation("LineItemTree", fields: [parentId], references: [id], onDelete: Cascade)
+  children         LineItem[]       @relation("LineItemTree")
+  rules            MappingRule[]
+  mappings         ElementMapping[]
+
+  @@index([projectId, sortOrder])
+  @@map("line_item")
+}
+
+enum BillingType {
+  unit_price // quantity x rate; model quantities feed it directly
+  lump_sum // scheduled value; model quantities drive percent complete
+}
+
+model MappingRule {
+  id          String           @id @default(uuid()) @db.Uuid
+  projectId   String           @map("project_id") @db.Uuid
+  priority    Int              @default(0)
+  conditions  Json // { category: "Walls", typeNameContains: "CONC" }
+  lineItemId  String           @map("line_item_id") @db.Uuid
+  quantityKey String           @map("quantity_key") // which element quantity feeds the item, e.g. "volume"
+  isAuto      Boolean          @default(false) @map("is_auto")
+  createdById String?          @map("created_by") @db.Uuid
+  createdAt   DateTime         @default(now()) @map("created_at")
+  project     Project          @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  lineItem    LineItem         @relation(fields: [lineItemId], references: [id], onDelete: Cascade)
+  createdBy   User?            @relation(fields: [createdById], references: [id], onDelete: SetNull)
+  mappings    ElementMapping[]
+
+  @@index([projectId, priority])
+  @@map("mapping_rule")
+}
+
+model ElementMapping {
+  id          String        @id @default(uuid()) @db.Uuid
+  elementId   String        @map("element_id") @db.Uuid
+  lineItemId  String        @map("line_item_id") @db.Uuid
+  quantity    Decimal       @db.Decimal(18, 4)
+  quantityKey String        @map("quantity_key")
+  source      MappingSource
+  ruleId      String?       @map("rule_id") @db.Uuid
+  confidence  Float? // for auto-suggestions awaiting review
+  element     Element       @relation(fields: [elementId], references: [id], onDelete: Cascade)
+  lineItem    LineItem      @relation(fields: [lineItemId], references: [id], onDelete: Cascade)
+  rule        MappingRule?  @relation(fields: [ruleId], references: [id], onDelete: SetNull)
+
+  @@unique([elementId, lineItemId])
+  @@index([lineItemId])
+  @@map("element_mapping")
+}
+
+enum MappingSource {
+  manual
+  rule
+  classification
+  suggestion
+  inherited
+}

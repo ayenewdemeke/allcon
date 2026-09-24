@@ -1,0 +1,109 @@
+"use server";
+
+import { z } from "zod";
+import { db } from "@/lib/db";
+import { findAccessibleSheet, getCurrentUser, isUuid } from "@/lib/session";
+
+// Every action checks access itself: server actions are public endpoints.
+
+const pointList = z
+  .array(z.tuple([z.number().finite(), z.number().finite()]))
+  .min(1)
+  .max(10_000);
+
+const markupFields = z.object({
+  points: pointList,
+  label: z.string().trim().max(200).nullish(),
+  text: z.string().trim().max(2000).nullish(),
+  color: z.string().regex(/^#[0-9a-f]{6}$/i).optional(),
+  depth: z.number().positive().max(1000).nullish(),
+});
+
+const newMarkup = markupFields.extend({
+  kind: z.enum(["length", "area", "count", "note", "arrow", "cloud"]),
+});
+
+export type SavedMarkup = {
+  id: string;
+  kind: z.infer<typeof newMarkup>["kind"];
+  points: [number, number][];
+  label: string | null;
+  text: string | null;
+  color: string;
+  depth: number | null;
+};
+
+async function requireSheet(sheetId: string) {
+  const access = await findAccessibleSheet(sheetId);
+  if (!access) throw new Error("Sheet not found");
+  return access;
+}
+
+async function requireMarkup(markupId: string) {
+  const user = await getCurrentUser();
+  if (!user || !isUuid(markupId)) throw new Error("Markup not found");
+  const markup = await db.markup.findFirst({
+    where: { id: markupId, sheet: { drawingSet: { project: { orgId: user.orgId } } } },
+  });
+  if (!markup) throw new Error("Markup not found");
+  return markup;
+}
+
+const toSaved = (m: { id: string; kind: SavedMarkup["kind"]; points: unknown; label: string | null; text: string | null; color: string; depth: number | null }): SavedMarkup => ({
+  id: m.id,
+  kind: m.kind,
+  points: m.points as [number, number][],
+  label: m.label,
+  text: m.text,
+  color: m.color,
+  depth: m.depth,
+});
+
+export async function renameSheet(sheetId: string, input: { number?: string | null; title?: string | null }) {
+  await requireSheet(sheetId);
+  const data = z
+    .object({ number: z.string().trim().max(40).nullish(), title: z.string().trim().max(200).nullish() })
+    .parse(input);
+  await db.sheet.update({
+    where: { id: sheetId },
+    data: {
+      ...(data.number !== undefined && { number: data.number || null }),
+      ...(data.title !== undefined && { title: data.title || null }),
+    },
+  });
+}
+
+export async function setSheetScale(sheetId: string, metersPerPoint: number | null, label: string | null) {
+  await requireSheet(sheetId);
+  const mpp = z.number().positive().finite().nullable().parse(metersPerPoint);
+  await db.sheet.update({
+    where: { id: sheetId },
+    data: { metersPerPoint: mpp, scaleLabel: mpp ? z.string().max(60).parse(label ?? "Calibrated") : null },
+  });
+}
+
+export async function createMarkup(sheetId: string, input: unknown): Promise<SavedMarkup> {
+  const { user } = await requireSheet(sheetId);
+  const data = newMarkup.parse(input);
+  const markup = await db.markup.create({ data: { ...data, sheetId, createdById: user.id } });
+  return toSaved(markup);
+}
+
+export async function updateMarkup(markupId: string, input: unknown): Promise<SavedMarkup> {
+  await requireMarkup(markupId);
+  const data = markupFields.partial().parse(input);
+  return toSaved(await db.markup.update({ where: { id: markupId }, data }));
+}
+
+export async function deleteMarkup(markupId: string) {
+  await requireMarkup(markupId);
+  await db.markup.delete({ where: { id: markupId } });
+}
+
+export async function setProjectUnits(projectId: string, unitSystem: "imperial" | "metric") {
+  const user = await getCurrentUser();
+  if (!user || !isUuid(projectId)) throw new Error("Project not found");
+  const system = z.enum(["imperial", "metric"]).parse(unitSystem);
+  const { count } = await db.project.updateMany({ where: { id: projectId, orgId: user.orgId }, data: { unitSystem: system } });
+  if (!count) throw new Error("Project not found");
+}
