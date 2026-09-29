@@ -41,6 +41,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { calibrate, distance, type Point, type UnitSystem } from "@/lib/takeoff";
 import { cn, modKey } from "@/lib/utils";
 import { CalibrateDialog, NoteDialog } from "./dialogs";
+import { ExportPdfDialog, ShareDialog } from "./export-share-dialogs";
 import { MarkupLayer, type Draft } from "./markup-layer";
 import { MarkupPanel } from "./markup-panel";
 import { SheetController, type ControllerTool } from "./sheet-controller";
@@ -57,7 +58,7 @@ export type SheetInfo = {
   metersPerPoint: number | null;
   scaleLabel: string | null;
 };
-export type SiblingSheet = { id: string; pageIndex: number; number: string | null; title: string | null };
+export type SiblingSheet = { id: string; pageIndex: number; number: string | null; title: string | null; markupCount: number };
 export type SheetLineItem = { id: string; code: string | null; description: string; unit: string | null };
 
 type Tool = "select" | "pan" | "calibrate" | "length" | "area" | "count" | "note" | "arrow" | "cloud";
@@ -125,6 +126,7 @@ export function SheetWorkspace({
   initialMarkups,
   initialUnitSystem,
   lineItems,
+  author,
 }: {
   projectId: string;
   sheet: SheetInfo;
@@ -132,6 +134,7 @@ export function SheetWorkspace({
   initialMarkups: SavedMarkup[];
   initialUnitSystem: UnitSystem;
   lineItems: SheetLineItem[];
+  author: string;
 }) {
   const router = useRouter();
   const stage = useRef<HTMLDivElement>(null);
@@ -436,6 +439,8 @@ export function SheetWorkspace({
   const sheetHref = (id: string) => `/projects/${projectId}/sheets/${id}`;
   const sheetName = (s: { number: string | null; title: string | null; pageIndex: number }) =>
     [s.number ?? `Page ${s.pageIndex + 1}`, s.title].filter(Boolean).join(" · ");
+  // For export/share scope; this sheet's count is live, the others are as loaded.
+  const scopeSheets = siblings.map((s) => ({ id: s.id, markupCount: s.id === sheet.id ? markups.length : s.markupCount }));
 
   return (
     // On desktop the workspace is exactly the viewport below the header: the toolbar and
@@ -504,6 +509,15 @@ export function SheetWorkspace({
           ))}
 
           <div className="ml-auto flex items-center gap-0.5">
+            <ExportPdfDialog
+              drawingSetId={sheet.drawingSetId}
+              currentSheetId={sheet.id}
+              sheets={scopeSheets}
+              hasLineItems={lineItems.length > 0}
+              author={author}
+            />
+            <ShareDialog drawingSetId={sheet.drawingSetId} currentSheetId={sheet.id} sheets={scopeSheets} hasLineItems={lineItems.length > 0} />
+            <div className="mx-1 h-5 border-l" />
             <Button variant="ghost" size="icon-sm" onClick={() => controller.current?.zoom(0.8)} aria-label="Zoom out">
               <ZoomOut />
             </Button>

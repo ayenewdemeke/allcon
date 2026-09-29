@@ -6,7 +6,7 @@ import { isUuid, requireProject } from "@/lib/auth/session";
 /** Full-bleed takeoff workspace for one sheet. */
 export default async function SheetPage({ params }: PageProps<"/projects/[projectId]/sheets/[sheetId]">) {
   const { projectId, sheetId } = await params;
-  const { project } = await requireProject(projectId);
+  const { user, project } = await requireProject(projectId);
   const sheet = isUuid(sheetId)
     ? await db.sheet.findFirst({
         where: { id: sheetId, drawingSet: { projectId: project.id, status: "ready" } },
@@ -26,7 +26,7 @@ export default async function SheetPage({ params }: PageProps<"/projects/[projec
   const siblings = await db.sheet.findMany({
     where: { drawingSetId: sheet.drawingSetId },
     orderBy: { pageIndex: "asc" },
-    select: { id: true, pageIndex: true, number: true, title: true },
+    select: { id: true, pageIndex: true, number: true, title: true, _count: { select: { markups: true } } },
   });
 
   return (
@@ -45,7 +45,7 @@ export default async function SheetPage({ params }: PageProps<"/projects/[projec
         metersPerPoint: sheet.metersPerPoint,
         scaleLabel: sheet.scaleLabel,
       }}
-      siblings={siblings}
+      siblings={siblings.map(({ _count, ...s }) => ({ ...s, markupCount: _count.markups }))}
       initialMarkups={sheet.markups.map((m) => ({
         id: m.id,
         kind: m.kind,
@@ -58,6 +58,7 @@ export default async function SheetPage({ params }: PageProps<"/projects/[projec
       }))}
       lineItems={lineItems}
       initialUnitSystem={project.unitSystem}
+      author={user.name || user.email}
     />
   );
 }

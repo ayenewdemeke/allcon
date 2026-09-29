@@ -33,24 +33,26 @@ async function fetchToken() {
   return (await res.json()) as { access_token: string; expires_in: number };
 }
 
-/** Loads and initializes the Viewer runtime once; calling Initializer twice leaves it hanging. */
-export function initViewerRuntime() {
-  viewerRuntime ??= loadViewerLibrary().then(
-    () =>
-      new Promise<void>((resolve) =>
-        Autodesk.Viewing.Initializer(
-          {
-            env: "AutodeskProduction2",
-            api: "streamingV2",
-            getAccessToken: (done) => {
-              fetchToken()
-                .then((t) => done?.(t.access_token, t.expires_in))
-                .catch((e) => console.error(e));
-            },
+/**
+ * Loads and initializes the Viewer runtime once; calling Initializer twice leaves it hanging.
+ * "local" needs no APS token: it only opens files we serve ourselves (the PDF on share pages,
+ * where nobody is signed in). A page uses one mode; share pages never load APS models.
+ */
+export function initViewerRuntime(mode: "aps" | "local" = "aps") {
+  const options: Autodesk.Viewing.InitializerOptions =
+    mode === "local"
+      ? { env: "Local" }
+      : {
+          env: "AutodeskProduction2",
+          api: "streamingV2",
+          getAccessToken: (done) => {
+            fetchToken()
+              .then((t) => done?.(t.access_token, t.expires_in))
+              .catch((e) => console.error(e));
           },
-          resolve,
-        ),
-      ),
+        };
+  viewerRuntime ??= loadViewerLibrary().then(
+    () => new Promise<void>((resolve) => Autodesk.Viewing.Initializer(options, resolve)),
   );
   viewerRuntime.catch(() => (viewerRuntime = undefined));
   return viewerRuntime;

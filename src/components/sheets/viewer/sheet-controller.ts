@@ -89,6 +89,8 @@ export class SheetController {
     private pageNumber: number,
     private sheetHeightPts: number,
     private events: ControllerEvents,
+    /** Share pages: no sign-in (no APS token) and no editing, only pan and zoom. */
+    private readOnly = false,
   ) {
     void this.start().catch((err) => !this.destroyed && events.onError(err?.message ?? "Could not load this sheet"));
   }
@@ -123,7 +125,7 @@ export class SheetController {
   // --- setup -----------------------------------------------------------------------
 
   private async start() {
-    await initViewerRuntime();
+    await initViewerRuntime(this.readOnly ? "local" : "aps");
     if (this.destroyed) return;
     const viewer = new Autodesk.Viewing.Viewer3D(this.container, {});
     this.viewer = viewer;
@@ -324,7 +326,7 @@ export class SheetController {
   }
 
   setTool(tool: ControllerTool) {
-    this.tool = tool;
+    this.tool = this.readOnly ? "pan" : tool;
     const viewer = this.viewer;
     const edit2d = this.edit2d;
     if (!viewer || !edit2d) return;
@@ -336,7 +338,7 @@ export class SheetController {
       click: CLICK_TOOL,
     };
     for (const name of new Set(Object.values(names))) this.tools.deactivateTool(name);
-    const next = names[tool];
+    const next = names[this.tool];
     if (next) this.tools.activateTool(next);
     // Copy/paste is ours (it keeps line items, depths and names, and works for every
     // markup type), so Edit2D's own copy tool stays off.
