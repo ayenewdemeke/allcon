@@ -1,8 +1,10 @@
 "use server";
 
+import { revalidatePath } from "next/cache";
 import { z } from "zod";
+import { deleteObject } from "@/lib/aps/oss";
 import { db } from "@/lib/db";
-import { findAccessibleSheet, getCurrentUser, isUuid } from "@/lib/auth/session";
+import { findAccessibleDrawingSet, findAccessibleSheet, getCurrentUser, isUuid } from "@/lib/auth/session";
 
 // Every action checks access itself: server actions are public endpoints.
 
@@ -108,4 +110,19 @@ export async function setProjectUnits(projectId: string, unitSystem: "imperial" 
   const system = z.enum(["imperial", "metric"]).parse(unitSystem);
   const { count } = await db.project.updateMany({ where: { id: projectId, orgId: user.orgId }, data: { unitSystem: system } });
   if (!count) throw new Error("Project not found");
+}
+
+/**
+ * Deletes a drawing set with its sheets, markups, share links and reviews, and removes the
+ * PDF from storage.
+ */
+export async function deleteDrawingSet(drawingSetId: string) {
+  const access = await findAccessibleDrawingSet(drawingSetId);
+  if (!access) throw new Error("Drawing set not found");
+  const { drawingSet } = access;
+  await db.drawingSet.delete({ where: { id: drawingSet.id } });
+  if (drawingSet.objectKey) {
+    await deleteObject(drawingSet.objectKey).catch((err) => console.error("Could not delete the drawing file", err));
+  }
+  revalidatePath(`/projects/${drawingSet.projectId}/sheets`);
 }

@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { Layers } from "lucide-react";
 import { PageBody, PageHeader } from "@/components/shell/page-header";
+import { DeleteDrawingSetButton } from "@/components/sheets/delete-drawing-set-button";
 import { DrawingUploader } from "@/components/sheets/drawing-uploader";
 import { SheetThumbnail } from "@/components/sheets/sheet-thumbnail";
 import { Badge } from "@/components/ui/badge";
@@ -62,6 +63,9 @@ export default async function SheetsPage({ params }: PageProps<"/projects/[proje
                   {set.status === "failed" ? "Upload failed" : "Uploading"}
                 </Badge>
               )}
+              <div className="ml-auto">
+                <DeleteDrawingSetButton drawingSetId={set.id} fileName={set.fileName} sheetCount={set.sheets.length} />
+              </div>
             </div>
             {set.status === "ready" && (
               <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
