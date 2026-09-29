@@ -15,6 +15,8 @@ const schema = z.object({
   GOOGLE_CLIENT_SECRET: optional,
   RESEND_API_KEY: optional,
   EMAIL_FROM: optional,
+  // Plan review (AI pass); the rest of the app works without it.
+  ANTHROPIC_API_KEY: optional,
 });
 
 let cached: z.infer<typeof schema> | undefined;
@@ -36,3 +38,5 @@ export const googleSignInEnabled = () => Boolean(env().GOOGLE_CLIENT_ID && env()
 /** Email links need an email service in production; in development they're printed to the console. */
 export const emailSignInEnabled = () =>
   Boolean(env().RESEND_API_KEY && env().EMAIL_FROM) || process.env.NODE_ENV !== "production";
+
+export const planReviewEnabled = () => Boolean(env().ANTHROPIC_API_KEY);

@@ -11,11 +11,12 @@ datasource db {
 }
 
 model Organization {
-  id        String    @id @default(uuid()) @db.Uuid
-  name      String
-  createdAt DateTime  @default(now()) @map("created_at")
-  users     User[]
-  projects  Project[]
+  id         String      @id @default(uuid()) @db.Uuid
+  name       String
+  createdAt  DateTime    @default(now()) @map("created_at")
+  users      User[]
+  projects   Project[]
+  references Reference[]
 
   @@map("organization")
 }
@@ -38,6 +39,8 @@ model User {
   shareLinks    ShareLink[]
   markups       Markup[]
   rules         MappingRule[]
+  references    Reference[]
+  reviews       Review[]
 
   @@map("user")
 }
@@ -113,6 +116,7 @@ model Project {
   shareLinks          ShareLink[]
   lineItems           LineItem[]
   mappingRules        MappingRule[]
+  reviews             Review[]
 
   @@index([orgId])
   @@map("project")
@@ -208,6 +212,7 @@ model DrawingSet {
   uploadedBy   User?         @relation(fields: [uploadedById], references: [id], onDelete: SetNull)
   sheets       Sheet[]
   shareLinks   ShareLink[]
+  reviews      Review[]
 
   @@index([projectId])
   @@map("drawing_set")
@@ -222,17 +227,19 @@ enum DrawingStatus {
 // One page of a drawing set. Coordinates for everything drawn on it are PDF points
 // in the page's displayed orientation (rotation applied, scale 1).
 model Sheet {
-  id             String     @id @default(uuid()) @db.Uuid
-  drawingSetId   String     @map("drawing_set_id") @db.Uuid
-  pageIndex      Int        @map("page_index") // 0-based page in the PDF
+  id             String        @id @default(uuid()) @db.Uuid
+  drawingSetId   String        @map("drawing_set_id") @db.Uuid
+  pageIndex      Int           @map("page_index") // 0-based page in the PDF
   number         String? // e.g. "A101", from the text layer or entered by the user
   title          String?
   width          Float // displayed width in PDF points
   height         Float
-  metersPerPoint Float?     @map("meters_per_point") // drawing scale; null until calibrated
-  scaleLabel     String?    @map("scale_label") // e.g. 1/8" = 1'-0", or "Calibrated"
-  drawingSet     DrawingSet @relation(fields: [drawingSetId], references: [id], onDelete: Cascade)
+  metersPerPoint Float?        @map("meters_per_point") // drawing scale; null until calibrated
+  scaleLabel     String?       @map("scale_label") // e.g. 1/8" = 1'-0", or "Calibrated"
+  drawingSet     DrawingSet    @relation(fields: [drawingSetId], references: [id], onDelete: Cascade)
   markups        Markup[]
+  reviewSheets   ReviewSheet[]
+  reviewIssues   ReviewIssue[]
 
   @@unique([drawingSetId, pageIndex])
   @@map("sheet")
@@ -376,4 +383,121 @@ enum MappingSource {
   classification
   suggestion
   inherited
+}
+
+// --- plan review ---------------------------------------------------------------
+
+// A manual or standard in the organization's library (e.g. a DOT bridge design manual),
+// split into numbered sections so review findings can cite them.
+model Reference {
+  id           String             @id @default(uuid()) @db.Uuid
+  orgId        String             @map("org_id") @db.Uuid
+  title        String
+  fileName     String             @map("file_name")
+  fileSize     BigInt             @map("file_size")
+  objectKey    String?            @map("object_key")
+  pageCount    Int?               @map("page_count")
+  status       DrawingStatus      @default(uploading)
+  uploadedById String?            @map("uploaded_by") @db.Uuid
+  uploadedAt   DateTime           @default(now()) @map("uploaded_at")
+  org          Organization       @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  uploadedBy   User?              @relation(fields: [uploadedById], references: [id], onDelete: SetNull)
+  sections     ReferenceSection[]
+  issues       ReviewIssue[]
+
+  @@index([orgId])
+  @@map("reference")
+}
+
+model ReferenceSection {
+  id          String        @id @default(uuid()) @db.Uuid
+  referenceId String        @map("reference_id") @db.Uuid
+  sortOrder   Int           @map("sort_order")
+  number      String? // e.g. "5.4.3"
+  title       String
+  page        Int // 1-based PDF page where the section starts
+  text        String
+  reference   Reference     @relation(fields: [referenceId], references: [id], onDelete: Cascade)
+  issues      ReviewIssue[]
+
+  @@index([referenceId, sortOrder])
+  @@map("reference_section")
+}
+
+// Checking a drawing set against library references. Sheets are reviewed one at a time,
+// only the ones the user picks.
+model Review {
+  id           String        @id @default(uuid()) @db.Uuid
+  projectId    String        @map("project_id") @db.Uuid
+  drawingSetId String        @map("drawing_set_id") @db.Uuid
+  name         String
+  referenceIds String[]      @map("reference_ids")
+  createdById  String?       @map("created_by") @db.Uuid
+  createdAt    DateTime      @default(now()) @map("created_at")
+  project      Project       @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  drawingSet   DrawingSet    @relation(fields: [drawingSetId], references: [id], onDelete: Cascade)
+  createdBy    User?         @relation(fields: [createdById], references: [id], onDelete: SetNull)
+  sheets       ReviewSheet[]
+  issues       ReviewIssue[]
+
+  @@index([projectId])
+  @@map("review")
+}
+
+enum ReviewSheetStatus {
+  running
+  done
+  failed
+}
+
+model ReviewSheet {
+  id           String            @id @default(uuid()) @db.Uuid
+  reviewId     String            @map("review_id") @db.Uuid
+  sheetId      String            @map("sheet_id") @db.Uuid
+  status       ReviewSheetStatus @default(running)
+  error        String?
+  inputTokens  Int               @default(0) @map("input_tokens")
+  outputTokens Int               @default(0) @map("output_tokens")
+  costUsd      Float             @default(0) @map("cost_usd") // estimate from list prices
+  reviewedAt   DateTime          @default(now()) @map("reviewed_at")
+  review       Review            @relation(fields: [reviewId], references: [id], onDelete: Cascade)
+  sheet        Sheet             @relation(fields: [sheetId], references: [id], onDelete: Cascade)
+
+  @@unique([reviewId, sheetId])
+  @@map("review_sheet")
+}
+
+enum IssueSeverity {
+  major
+  minor
+}
+
+enum IssueStatus {
+  suggested // from the AI pass, not yet looked at
+  kept // accepted: drawn on the sheet as a cloud and note
+  dismissed
+}
+
+model ReviewIssue {
+  id          String            @id @default(uuid()) @db.Uuid
+  reviewId    String            @map("review_id") @db.Uuid
+  sheetId     String            @map("sheet_id") @db.Uuid
+  title       String
+  detail      String
+  severity    IssueSeverity
+  quote       String? // the sheet text it's about
+  box         Json? // [x0, y0, x1, y1] in sheet points, around the quoted text
+  referenceId String?           @map("reference_id") @db.Uuid
+  sectionId   String?           @map("section_id") @db.Uuid
+  citation    String? // e.g. "5.4.3 Clear Cover"
+  status      IssueStatus       @default(suggested)
+  markupIds   String[]          @map("markup_ids")
+  createdAt   DateTime          @default(now()) @map("created_at")
+  review      Review            @relation(fields: [reviewId], references: [id], onDelete: Cascade)
+  sheet       Sheet             @relation(fields: [sheetId], references: [id], onDelete: Cascade)
+  reference   Reference?        @relation(fields: [referenceId], references: [id], onDelete: SetNull)
+  section     ReferenceSection? @relation(fields: [sectionId], references: [id], onDelete: SetNull)
+
+  @@index([reviewId, sheetId])
+  @@map("review_issue")
 }

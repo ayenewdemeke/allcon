@@ -4,10 +4,12 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import {
   ArrowLeft,
+  BookOpen,
   ClipboardCheck,
   Box,
   Check,
   ChevronsUpDown,
+  FileSearch,
   FolderKanban,
   GitMerge,
   Layers,
@@ -51,7 +53,11 @@ type NavItem = { name: string; href: string; icon: LucideIcon; exact?: boolean }
 export type SidebarUser = { name: string | null; email: string };
 export type SidebarProject = { id: string; name: string };
 
-const mainNav: NavItem[] = [{ name: "Projects", href: "/projects", icon: FolderKanban }];
+const mainNav: NavItem[] = [
+  { name: "Projects", href: "/projects", icon: FolderKanban },
+  // Shared by all projects: manuals and standards that plan reviews check against.
+  { name: "Library", href: "/library", icon: BookOpen },
+];
 
 function projectNav(projectId: string): NavItem[] {
   const base = `/projects/${projectId}`;
@@ -59,6 +65,7 @@ function projectNav(projectId: string): NavItem[] {
     { name: "Overview", href: base, icon: LayoutDashboard, exact: true },
     { name: "Models", href: `${base}/models`, icon: Box },
     { name: "Sheets", href: `${base}/sheets`, icon: Layers },
+    { name: "Review", href: `${base}/reviews`, icon: FileSearch },
     { name: "Line items", href: `${base}/line-items`, icon: ListChecks },
     { name: "Mapping", href: `${base}/mapping`, icon: GitMerge },
     { name: "Report", href: `${base}/report`, icon: ClipboardCheck },

@@ -17,6 +17,7 @@
     "vercel-build": "sh scripts/vercel-build.sh"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.129.0",
     "@base-ui/react": "^1.8.0",
     "@cantoo/pdf-lib": "^2.11.1",
     "@prisma/adapter-pg": "^7.10.0",

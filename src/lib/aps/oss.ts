@@ -87,3 +87,11 @@ export async function downloadBuffer(objectKey: string) {
   if (!res.ok) throw new Error(`Could not download ${objectKey} (${res.status})`);
   return new Uint8Array(await res.arrayBuffer());
 }
+
+export async function deleteObject(objectKey: string) {
+  const res = await fetch(`${OSS}/buckets/${env().APS_BUCKET_KEY}/objects/${encodeURIComponent(objectKey)}`, {
+    method: "DELETE",
+    headers: await authHeaders(),
+  });
+  if (!res.ok && res.status !== 404) throw new Error(`Could not delete ${objectKey} (${res.status})`);
+}

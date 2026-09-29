@@ -65,3 +65,22 @@ export async function findAccessibleSheet(sheetId: string) {
   });
   return sheet && { user, sheet };
 }
+
+/** A library reference (manual) in the current user's organization. */
+export async function findAccessibleReference(referenceId: string) {
+  const user = await getCurrentUser();
+  if (!user || !isUuid(referenceId)) return null;
+  const reference = await db.reference.findFirst({ where: { id: referenceId, orgId: user.orgId } });
+  return reference && { user, reference };
+}
+
+/** A plan review the current user may access, with its drawing set. */
+export async function findAccessibleReview(reviewId: string) {
+  const user = await getCurrentUser();
+  if (!user || !isUuid(reviewId)) return null;
+  const review = await db.review.findFirst({
+    where: { id: reviewId, project: { orgId: user.orgId } },
+    include: { drawingSet: true },
+  });
+  return review && { user, review };
+}
