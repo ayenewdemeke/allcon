@@ -25,11 +25,11 @@ const shareUrl = (token: string) => `${env().APP_URL}/share/${token}`;
 
 export async function createShareLink(
   drawingSetId: string,
-  input: { sheetIds: string[]; includePrices: boolean; expiresInDays: number },
+  input: { sheetIds: string[]; includePrices: boolean; expiresInDays: number | null },
 ) {
   const { user, drawingSet } = await requireSet(drawingSetId);
   const data = z
-    .object({ sheetIds: z.array(z.uuid()).min(1).max(5000), includePrices: z.boolean(), expiresInDays: z.number().int().min(1).max(365) })
+    .object({ sheetIds: z.array(z.uuid()).min(1).max(5000), includePrices: z.boolean(), expiresInDays: z.number().int().min(1).max(365).nullable() })
     .parse(input);
   // Only sheets that belong to this set can be shared through it.
   const sheets = await db.sheet.findMany({ where: { drawingSetId, id: { in: data.sheetIds } }, orderBy: { pageIndex: "asc" }, select: { id: true } });
@@ -42,11 +42,11 @@ export async function createShareLink(
       drawingSetId,
       sheetIds: sheets.map((s) => s.id),
       includePrices: data.includePrices,
-      expiresAt: new Date(Date.now() + data.expiresInDays * 86_400_000),
+      expiresAt: data.expiresInDays ? new Date(Date.now() + data.expiresInDays * 86_400_000) : null,
       createdById: user.id,
     },
   });
-  return { id: link.id, url: shareUrl(link.token), expiresAt: link.expiresAt.toISOString() };
+  return { id: link.id, url: shareUrl(link.token), expiresAt: link.expiresAt?.toISOString() ?? null };
 }
 
 export type ShareLinkSummary = {
@@ -54,7 +54,7 @@ export type ShareLinkSummary = {
   url: string;
   sheetCount: number;
   includePrices: boolean;
-  expiresAt: string;
+  expiresAt: string | null; // null = no expiry
   active: boolean;
   viewCount: number;
   createdAt: string;
@@ -69,8 +69,8 @@ export async function listShareLinks(drawingSetId: string): Promise<ShareLinkSum
     url: shareUrl(l.token),
     sheetCount: l.sheetIds.length,
     includePrices: l.includePrices,
-    expiresAt: l.expiresAt.toISOString(),
-    active: !l.revokedAt && l.expiresAt > now,
+    expiresAt: l.expiresAt?.toISOString() ?? null,
+    active: !l.revokedAt && (!l.expiresAt || l.expiresAt > now),
     viewCount: l.viewCount,
     createdAt: l.createdAt.toISOString(),
   }));

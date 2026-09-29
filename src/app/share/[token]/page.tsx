@@ -29,8 +29,8 @@ export default async function SharePage({ params }: PageProps<"/share/[token]">)
         <p className="text-xs font-medium tracking-wide text-muted-foreground uppercase">{share.project.name}</p>
         <h1 className="mt-1 text-xl font-semibold">{share.drawingSet.fileName.replace(/\.pdf$/i, "")}</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          Shared by {sharedBy} · read-only · available until{" "}
-          {share.expiresAt.toLocaleDateString("en-US", { dateStyle: "medium" })}
+          Shared by {sharedBy} · read-only
+          {share.expiresAt && ` · available until ${share.expiresAt.toLocaleDateString("en-US", { dateStyle: "medium" })}`}
         </p>
         <ul className="mt-6 divide-y rounded-lg border bg-card">
           {sheets.map((s) => (

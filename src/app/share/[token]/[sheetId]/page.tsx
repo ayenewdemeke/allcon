@@ -29,7 +29,7 @@ export default async function SharedSheetPage({ params }: PageProps<"/share/[tok
       data={data}
       projectName={share.project.name}
       sharedBy={sharedByName(share)}
-      expiresAt={share.expiresAt.toISOString()}
+      expiresAt={share.expiresAt?.toISOString() ?? null}
     />
   );
 }

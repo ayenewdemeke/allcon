@@ -159,7 +159,7 @@ export function ShareDialog({
 }) {
   const [open, setOpen] = useState(false);
   const [scope, setScope] = useState<Scope>("sheet");
-  const [days, setDays] = useState(30);
+  const [days, setDays] = useState(30); // 0 = no expiry
   const [prices, setPrices] = useState(false);
   const [busy, setBusy] = useState(false);
   const [created, setCreated] = useState<string | null>(null);
@@ -176,7 +176,7 @@ export function ShareDialog({
   async function create() {
     setBusy(true);
     try {
-      const link = await createShareLink(drawingSetId, { sheetIds: pickSheets(scope, sheets, currentSheetId), includePrices: prices, expiresInDays: days });
+      const link = await createShareLink(drawingSetId, { sheetIds: pickSheets(scope, sheets, currentSheetId), includePrices: prices, expiresInDays: days || null });
       setCreated(link.url);
       await refresh();
     } catch (err) {
@@ -242,6 +242,7 @@ export function ShareDialog({
                   <option value={7}>7 days</option>
                   <option value={30}>30 days</option>
                   <option value={90}>90 days</option>
+                  <option value={0}>Never (until revoked)</option>
                 </select>
               </div>
               <label className="flex items-end gap-2 pb-1.5 text-sm">
@@ -267,7 +268,7 @@ export function ShareDialog({
                       {l.includePrices && <Badge variant="outline">prices</Badge>}
                     </p>
                     <p className="text-muted-foreground">
-                      Created {fmt(l.createdAt)} · {l.active ? `expires ${fmt(l.expiresAt)}` : "revoked or expired"} · {l.viewCount} view{l.viewCount === 1 ? "" : "s"}
+                      Created {fmt(l.createdAt)} · {!l.active ? "revoked or expired" : l.expiresAt ? `expires ${fmt(l.expiresAt)}` : "no expiry"} · {l.viewCount} view{l.viewCount === 1 ? "" : "s"}
                     </p>
                   </div>
                   {l.active && (

@@ -273,7 +273,7 @@ enum MarkupKind {
 }
 
 // A read-only link to marked-up sheets for someone without an account. The token is a
-// 256-bit random value in the URL; links expire and can be revoked.
+// 256-bit random value in the URL; links can expire (or never) and can be revoked.
 model ShareLink {
   id            String     @id @default(uuid()) @db.Uuid
   token         String     @unique
@@ -281,7 +281,7 @@ model ShareLink {
   drawingSetId  String     @map("drawing_set_id") @db.Uuid
   sheetIds      String[]   @map("sheet_ids") // the sheets it shows, in order
   includePrices Boolean    @default(false) @map("include_prices")
-  expiresAt     DateTime   @map("expires_at")
+  expiresAt     DateTime?  @map("expires_at") // null = no expiry; revoke to stop it
   revokedAt     DateTime?  @map("revoked_at")
   viewCount     Int        @default(0) @map("view_count")
   lastViewedAt  DateTime?  @map("last_viewed_at")

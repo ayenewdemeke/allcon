@@ -16,7 +16,7 @@ export async function findActiveShare(token: string) {
     where: { token },
     include: { drawingSet: true, project: { select: { name: true } }, createdBy: { select: { name: true, email: true } } },
   });
-  if (!share || share.revokedAt || share.expiresAt <= new Date() || share.drawingSet.status !== "ready") return null;
+  if (!share || share.revokedAt || (share.expiresAt && share.expiresAt <= new Date()) || share.drawingSet.status !== "ready") return null;
   return share;
 }
 

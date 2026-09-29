@@ -33,7 +33,7 @@ export function SharedSheetViewer({
   data: ExportData;
   projectName: string;
   sharedBy: string;
-  expiresAt: string;
+  expiresAt: string | null;
 }) {
   const router = useRouter();
   const stage = useRef<HTMLDivElement>(null);
@@ -113,7 +113,7 @@ export function SharedSheetViewer({
     }
   }
 
-  const expires = new Date(expiresAt).toLocaleDateString("en-US", { dateStyle: "medium" });
+  const expires = expiresAt && new Date(expiresAt).toLocaleDateString("en-US", { dateStyle: "medium" });
 
   return (
     <div className="flex h-svh flex-col bg-background">
@@ -123,7 +123,7 @@ export function SharedSheetViewer({
             {projectName} · {data.title}
           </p>
           <p className="truncate text-xs text-muted-foreground">
-            Shared by {sharedBy} · read-only · until {expires}
+            Shared by {sharedBy} · read-only{expires && ` · until ${expires}`}
           </p>
         </div>
         <Button size="sm" className="ml-auto" onClick={download} disabled={downloading}>
