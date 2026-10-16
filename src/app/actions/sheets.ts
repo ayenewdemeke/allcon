@@ -135,7 +135,10 @@ export async function previewSheetNumbers(drawingSetId: string): Promise<SheetNu
   const access = await findAccessibleDrawingSet(drawingSetId);
   if (!access?.drawingSet.objectKey || access.drawingSet.status !== "ready") throw new Error("Drawing set not found");
   const [detected, sheets] = await Promise.all([
-    detectStoredSheetNumbers(access.drawingSet.objectKey),
+    detectStoredSheetNumbers(access.drawingSet.objectKey).catch((err) => {
+      console.error("Could not read title blocks", err); // the browser only sees a generic error
+      throw err;
+    }),
     db.sheet.findMany({ where: { drawingSetId }, orderBy: { pageIndex: "asc" } }),
   ]);
   return sheets.flatMap((s) => {
