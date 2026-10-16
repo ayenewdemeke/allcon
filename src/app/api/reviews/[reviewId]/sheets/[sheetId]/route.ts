@@ -90,11 +90,14 @@ export async function POST(request: NextRequest, ctx: RouteContext<"/api/reviews
         ? "Rate limited by the AI service; wait a minute and retry"
         : err instanceof Anthropic.AuthenticationError
           ? "The Anthropic API key was rejected"
-          : err instanceof Anthropic.APIError
-            ? `AI service error (${err.status ?? "network"})`
-            : err instanceof Error
-              ? err.message
-              : "Review failed";
+          : err instanceof Anthropic.BadRequestError
+            ? // e.g. "Your credit balance is too low..." — worth showing as is
+              ((err.error as { error?: { message?: string } } | undefined)?.error?.message ?? "The AI service rejected the request")
+            : err instanceof Anthropic.APIError
+              ? `AI service error (${err.status ?? "network"})`
+              : err instanceof Error
+                ? err.message
+                : "Review failed";
     console.error("Sheet review failed", err);
     await db.reviewSheet.update({ where: { reviewId_sheetId: { reviewId, sheetId } }, data: { status: "failed", error: message } });
     return Response.json({ error: message }, { status: 502 });

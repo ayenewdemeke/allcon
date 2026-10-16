@@ -2,12 +2,19 @@ import "server-only";
 import { betterAuth } from "better-auth";
 import { prismaAdapter } from "better-auth/adapters/prisma";
 import { nextCookies } from "better-auth/next-js";
-import { genericOAuth, magicLink } from "better-auth/plugins";
+import { genericOAuth, jwt, magicLink } from "better-auth/plugins";
+import { cimd } from "@better-auth/cimd";
+import { fetchClientMetadataResource } from "@better-auth/cimd/node";
+import { mcp } from "@better-auth/mcp";
 import { db } from "@/lib/db";
 import { env, googleSignInEnabled } from "@/lib/env";
 import { sendSignInLink } from "@/lib/mail";
 
 const APS_AUTH = "https://developer.api.autodesk.com/authentication/v2";
+
+/** The MCP endpoint, as the OAuth "resource" that connector access tokens are issued for. */
+export const mcpResource = (appUrl: string) => `${appUrl}/api/mcp`;
+const MCP_SCOPES = ["openid", "profile", "email", "offline_access"];
 
 function createAuth() {
   const e = env();
@@ -16,6 +23,8 @@ function createAuth() {
     secret: e.BETTER_AUTH_SECRET,
     database: prismaAdapter(db, { provider: "postgresql" }),
     advanced: { database: { generateId: "uuid" } },
+    // The JWT plugin's own /token route isn't used; connector tokens come from /oauth2/token.
+    disabledPaths: ["/token"],
 
     user: {
       additionalFields: {
@@ -58,6 +67,22 @@ function createAuth() {
         expiresIn: 15 * 60,
         sendMagicLink: async ({ email, url }) => sendSignInLink(email, url),
       }),
+      // Connectors: conkit is the OAuth provider that Claude, ChatGPT and other MCP clients
+      // sign in through (see app/api/mcp). Tokens are JWTs signed with the JWT plugin's keys.
+      jwt(),
+      mcp({
+        loginPage: "/",
+        consentPage: "/oauth/consent",
+        resource: mcpResource(e.APP_URL),
+        scopes: MCP_SCOPES,
+        resources: [{ identifier: mcpResource(e.APP_URL), allowedScopes: MCP_SCOPES }],
+        // Clients identify themselves with a metadata document (current MCP spec, via cimd
+        // below) or, for clients that still do, by registering dynamically.
+        allowDynamicClientRegistration: true,
+        allowUnauthenticatedClientRegistration: true,
+        clientRegistrationDefaultApplicationType: "infer",
+      }),
+      cimd({ fetchClientMetadataResource, metadataProfile: "mcp-2026-07-28" }),
       nextCookies(), // must stay last: lets server actions set the session cookie
     ],
 

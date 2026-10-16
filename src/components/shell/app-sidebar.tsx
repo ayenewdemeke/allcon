@@ -16,6 +16,7 @@ import {
   LayoutDashboard,
   ListChecks,
   LogOut,
+  Plug,
   Settings,
   type LucideIcon,
 } from "lucide-react";
@@ -56,6 +57,8 @@ const mainNav: NavItem[] = [
   { name: "Projects", href: "/projects", icon: FolderKanban },
   // Shared by all projects: manuals and standards that plan reviews check against.
   { name: "Library", href: "/library", icon: BookOpen },
+  // AI apps (Claude, ChatGPT...) connected through MCP.
+  { name: "Connections", href: "/connections", icon: Plug },
 ];
 
 function projectNav(projectId: string): NavItem[] {

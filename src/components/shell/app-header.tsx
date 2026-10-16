@@ -35,6 +35,7 @@ function useCrumbs(projectName?: string) {
   const pathname = usePathname();
   const segments = pathname.split("/").filter(Boolean);
   if (segments[0] === "library") return { crumbs: [{ label: "Library", href: "/library" }], pathname };
+  if (segments[0] === "connections") return { crumbs: [{ label: "Connections", href: "/connections" }], pathname };
   const crumbs: Crumb[] = [{ label: "Projects", href: "/projects" }];
   if (segments[0] === "projects" && segments[1] && projectName) {
     const projectHref = `/projects/${segments[1]}`;

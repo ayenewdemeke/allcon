@@ -9,6 +9,13 @@ import { authClient } from "@/lib/auth/client";
 
 const AFTER_SIGN_IN = "/projects";
 
+// When an AI app is connecting, come back to this page (with its signed request) after
+// signing in, so the connection carries on; otherwise go to the projects.
+const afterSignIn = () =>
+  typeof window !== "undefined" && new URLSearchParams(window.location.search).has("sig")
+    ? window.location.pathname + window.location.search
+    : AFTER_SIGN_IN;
+
 function GoogleIcon() {
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true" className="size-4">
@@ -76,7 +83,7 @@ export function SignInForm({
           disabled={pending !== null}
           onClick={() =>
             run("autodesk", () =>
-              authClient.signIn.social({ provider: "autodesk", callbackURL: AFTER_SIGN_IN, errorCallbackURL: "/" }),
+              authClient.signIn.social({ provider: "autodesk", callbackURL: afterSignIn(), errorCallbackURL: "/" }),
             )
           }
         >
@@ -91,7 +98,7 @@ export function SignInForm({
             disabled={pending !== null}
             onClick={() =>
               run("google", () =>
-                authClient.signIn.social({ provider: "google", callbackURL: AFTER_SIGN_IN, errorCallbackURL: "/" }),
+                authClient.signIn.social({ provider: "google", callbackURL: afterSignIn(), errorCallbackURL: "/" }),
               )
             }
           >
@@ -115,7 +122,7 @@ export function SignInForm({
             e.preventDefault();
             const email = String(new FormData(e.currentTarget).get("email") ?? "").trim();
             const ok = await run("email", () =>
-              authClient.signIn.magicLink({ email, callbackURL: AFTER_SIGN_IN, errorCallbackURL: "/" }),
+              authClient.signIn.magicLink({ email, callbackURL: afterSignIn(), errorCallbackURL: "/" }),
             );
             if (ok) {
               setPending(null);

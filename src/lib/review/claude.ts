@@ -1,6 +1,6 @@
 import "server-only";
 import Anthropic from "@anthropic-ai/sdk";
-import { betaZodOutputFormat } from "@anthropic-ai/sdk/helpers/beta/zod";
+import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
 import { z } from "zod";
 import { env } from "@/lib/env";
 import type { SheetLine } from "./lines";
@@ -9,8 +9,10 @@ import type { SheetLine } from "./lines";
 // sections most relevant to it. Claude returns only issues, each tied to sheet lines and
 // the section it relies on, so they can be clouded on the sheet and cited.
 
-export const REVIEW_MODEL = "claude-opus-5-5";
-const PRICE_PER_MTOK = { input: 4, output: 20, cacheRead: 0.2, cacheWrite: 5 }; // USD, list prices
+// The in-app ("Run here") review uses a small, inexpensive model; people who want a stronger
+// one can run the same review from their own AI app through the connector.
+export const REVIEW_MODEL = "claude-haiku-4-5";
+const PRICE_PER_MTOK = { input: 1, output: 5, cacheRead: 0.1, cacheWrite: 1.25 }; // USD, list prices
 
 const Issue = z.object({
   title: z.string().describe("Short headline, under 80 characters"),
@@ -57,19 +59,16 @@ export async function reviewSheetWithClaude(input: {
     ),
   ].join("\n");
 
-  const content: Anthropic.Beta.BetaContentBlockParam[] = [];
+  const content: Anthropic.ContentBlockParam[] = [];
   if (input.imageJpegBase64) {
     content.push({ type: "image", source: { type: "base64", media_type: "image/jpeg", data: input.imageJpegBase64 } });
   }
   content.push({ type: "text", text });
 
-  const response = await anthropic().beta.messages.parse({
+  const response = await anthropic().messages.parse({
     model: REVIEW_MODEL,
-    max_tokens: 16000,
-    // If a safety classifier declines, the API retries on its recommended fallback model.
-    betas: ["server-side-fallback-2026-07-01"],
-    fallbacks: "default",
-    output_config: { effort: "low", format: betaZodOutputFormat(Result) },
+    max_tokens: 8000,
+    output_config: { format: zodOutputFormat(Result) },
     system: SYSTEM,
     messages: [{ role: "user", content }],
   });

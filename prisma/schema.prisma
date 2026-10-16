@@ -22,16 +22,16 @@ model Organization {
 }
 
 model User {
-  id            String         @id @default(uuid()) @db.Uuid
-  orgId         String         @map("org_id") @db.Uuid
-  email         String         @unique
-  emailVerified Boolean        @default(false) @map("email_verified")
+  id            String              @id @default(uuid()) @db.Uuid
+  orgId         String              @map("org_id") @db.Uuid
+  email         String              @unique
+  emailVerified Boolean             @default(false) @map("email_verified")
   name          String?
   image         String?
-  role          UserRole       @default(owner)
-  createdAt     DateTime       @default(now()) @map("created_at")
-  updatedAt     DateTime       @default(now()) @updatedAt @map("updated_at")
-  org           Organization   @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  role          UserRole            @default(owner)
+  createdAt     DateTime            @default(now()) @map("created_at")
+  updatedAt     DateTime            @default(now()) @updatedAt @map("updated_at")
+  org           Organization        @relation(fields: [orgId], references: [id], onDelete: Cascade)
   sessions      Session[]
   accounts      Account[]
   uploads       ModelVersion[]
@@ -41,6 +41,11 @@ model User {
   rules         MappingRule[]
   references    Reference[]
   reviews       Review[]
+  oauthClients  OauthClient[]
+  refreshTokens OauthRefreshToken[]
+  accessTokens  OauthAccessToken[]
+  oauthConsents OauthConsent[]
+  mcpActivity   McpActivity[]
 
   @@map("user")
 }
@@ -52,15 +57,17 @@ enum UserRole {
 
 // Sign-in tables below follow Better Auth's schema (session, account, verification).
 model Session {
-  id        String   @id @default(uuid())
-  token     String   @unique
-  userId    String   @map("user_id") @db.Uuid
-  expiresAt DateTime @map("expires_at")
-  ipAddress String?  @map("ip_address")
-  userAgent String?  @map("user_agent")
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @default(now()) @updatedAt @map("updated_at")
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id            String              @id @default(uuid())
+  token         String              @unique
+  userId        String              @map("user_id") @db.Uuid
+  expiresAt     DateTime            @map("expires_at")
+  ipAddress     String?             @map("ip_address")
+  userAgent     String?             @map("user_agent")
+  createdAt     DateTime            @default(now()) @map("created_at")
+  updatedAt     DateTime            @default(now()) @updatedAt @map("updated_at")
+  user          User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  refreshTokens OauthRefreshToken[]
+  accessTokens  OauthAccessToken[]
 
   @@index([userId])
   @@map("session")
@@ -117,6 +124,7 @@ model Project {
   lineItems           LineItem[]
   mappingRules        MappingRule[]
   reviews             Review[]
+  mcpActivity         McpActivity[]
 
   @@index([orgId])
   @@map("project")
@@ -500,4 +508,210 @@ model ReviewIssue {
 
   @@index([reviewId, sheetId])
   @@map("review_issue")
+}
+
+// --- connectors (MCP): OAuth provider tables, following Better Auth's oauth-provider schema ---
+// Claude, ChatGPT and other MCP clients sign in to conkit through these. Field names must
+// stay as Better Auth expects; columns are snake_case like the rest of the schema.
+
+model Jwks {
+  id         String    @id @default(uuid()) @db.Uuid
+  publicKey  String    @map("public_key")
+  privateKey String    @map("private_key")
+  createdAt  DateTime  @map("created_at")
+  expiresAt  DateTime? @map("expires_at")
+  alg        String?
+  crv        String?
+
+  @@map("jwks")
+}
+
+model OauthClient {
+  id                               String                @id @default(uuid()) @db.Uuid
+  clientId                         String                @map("client_id")
+  clientSecret                     String?               @map("client_secret")
+  clientDiscoveryId                String?               @map("client_discovery_id")
+  disabled                         Boolean?              @default(false)
+  skipConsent                      Boolean?              @map("skip_consent")
+  enableEndSession                 Boolean?              @map("enable_end_session")
+  subjectType                      String?               @map("subject_type")
+  scopes                           String[]
+  clientCredentialsScopes          String[]              @default([]) @map("client_credentials_scopes")
+  userId                           String?               @map("user_id") @db.Uuid
+  user                             User?                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt                        DateTime?             @map("created_at")
+  updatedAt                        DateTime?             @map("updated_at")
+  name                             String?
+  uri                              String?
+  icon                             String?
+  contacts                         String[]
+  tos                              String?
+  policy                           String?
+  softwareId                       String?               @map("software_id")
+  softwareVersion                  String?               @map("software_version")
+  softwareStatement                String?               @map("software_statement")
+  redirectUris                     String[]              @map("redirect_uris")
+  postLogoutRedirectUris           String[]              @map("post_logout_redirect_uris")
+  backchannelLogoutUri             String?               @map("backchannel_logout_uri")
+  backchannelLogoutSessionRequired Boolean?              @map("backchannel_logout_session_required")
+  tokenEndpointAuthMethod          String?               @map("token_endpoint_auth_method")
+  applicationType                  String?               @map("application_type")
+  jwks                             String?
+  jwksUri                          String?               @map("jwks_uri")
+  grantTypes                       String[]              @map("grant_types")
+  responseTypes                    String[]              @map("response_types")
+  requirePKCE                      Boolean?              @map("require_p_k_c_e")
+  dpopBoundAccessTokens            Boolean?              @default(false) @map("dpop_bound_access_tokens")
+  referenceId                      String?               @map("reference_id")
+  metadata                         Json?
+  clientResources                  OauthClientResource[]
+  refreshTokens                    OauthRefreshToken[]
+  accessTokens                     OauthAccessToken[]
+  consents                         OauthConsent[]
+
+  @@unique([clientId])
+  @@index([userId])
+  @@map("oauth_client")
+}
+
+model OauthResource {
+  id                            String                @id @default(uuid()) @db.Uuid
+  identifier                    String
+  name                          String
+  accessTokenTtl                Int?                  @map("access_token_ttl")
+  refreshTokenTtl               Int?                  @map("refresh_token_ttl")
+  signingAlgorithm              String?               @map("signing_algorithm")
+  signingKeyId                  String?               @map("signing_key_id")
+  allowedScopes                 String[]              @map("allowed_scopes")
+  customClaims                  Json?                 @map("custom_claims")
+  dpopBoundAccessTokensRequired Boolean?              @default(false) @map("dpop_bound_access_tokens_required")
+  disabled                      Boolean?              @default(false)
+  createdAt                     DateTime?             @map("created_at")
+  updatedAt                     DateTime?             @map("updated_at")
+  policyVersion                 Int?                  @default(1) @map("policy_version")
+  metadata                      Json?
+  clientResources               OauthClientResource[]
+
+  @@unique([identifier])
+  @@map("oauth_resource")
+}
+
+model OauthClientResource {
+  id         String        @id @default(uuid()) @db.Uuid
+  clientId   String        @map("client_id")
+  client     OauthClient   @relation(fields: [clientId], references: [clientId], onDelete: Cascade)
+  resourceId String        @map("resource_id")
+  resource   OauthResource @relation(fields: [resourceId], references: [identifier], onDelete: Cascade)
+  metadata   Json?
+  createdAt  DateTime?     @map("created_at")
+
+  @@index([clientId])
+  @@index([resourceId])
+  @@map("oauth_client_resource")
+}
+
+model OauthRefreshToken {
+  id                      String             @id @default(uuid()) @db.Uuid
+  token                   String
+  clientId                String             @map("client_id")
+  client                  OauthClient        @relation(fields: [clientId], references: [clientId], onDelete: Cascade)
+  sessionId               String?            @map("session_id")
+  session                 Session?           @relation(fields: [sessionId], references: [id], onDelete: SetNull)
+  userId                  String             @map("user_id") @db.Uuid
+  user                    User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  referenceId             String?            @map("reference_id")
+  authorizationCodeId     String?            @map("authorization_code_id")
+  resources               String[]
+  requestedUserInfoClaims String[]           @map("requested_user_info_claims")
+  expiresAt               DateTime?          @map("expires_at")
+  createdAt               DateTime?          @map("created_at")
+  revoked                 DateTime?
+  rotatedAt               DateTime?          @map("rotated_at")
+  rotationReplayResponse  String?            @map("rotation_replay_response")
+  rotationReplayExpiresAt DateTime?          @map("rotation_replay_expires_at")
+  authTime                DateTime?          @map("auth_time")
+  confirmation            Json?
+  scopes                  String[]
+  accessTokens            OauthAccessToken[]
+
+  @@unique([token])
+  @@index([clientId])
+  @@index([sessionId])
+  @@index([userId])
+  @@index([authorizationCodeId])
+  @@map("oauth_refresh_token")
+}
+
+model OauthAccessToken {
+  id                      String             @id @default(uuid()) @db.Uuid
+  token                   String?
+  clientId                String             @map("client_id")
+  client                  OauthClient        @relation(fields: [clientId], references: [clientId], onDelete: Cascade)
+  sessionId               String?            @map("session_id")
+  session                 Session?           @relation(fields: [sessionId], references: [id], onDelete: SetNull)
+  userId                  String?            @map("user_id") @db.Uuid
+  user                    User?              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  referenceId             String?            @map("reference_id")
+  authorizationCodeId     String?            @map("authorization_code_id")
+  resources               String[]
+  requestedUserInfoClaims String[]           @map("requested_user_info_claims")
+  refreshId               String?            @map("refresh_id") @db.Uuid
+  refreshToken            OauthRefreshToken? @relation(fields: [refreshId], references: [id], onDelete: Cascade)
+  expiresAt               DateTime?          @map("expires_at")
+  createdAt               DateTime?          @map("created_at")
+  revoked                 DateTime?
+  confirmation            Json?
+  scopes                  String[]
+
+  @@unique([token])
+  @@index([clientId])
+  @@index([sessionId])
+  @@index([userId])
+  @@index([authorizationCodeId])
+  @@index([refreshId])
+  @@map("oauth_access_token")
+}
+
+model OauthConsent {
+  id                      String      @id @default(uuid()) @db.Uuid
+  clientId                String      @map("client_id")
+  client                  OauthClient @relation(fields: [clientId], references: [clientId], onDelete: Cascade)
+  userId                  String?     @map("user_id") @db.Uuid
+  user                    User?       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  referenceId             String?     @map("reference_id")
+  resources               String[]
+  requestedUserInfoClaims String[]    @map("requested_user_info_claims")
+  scopes                  String[]
+  createdAt               DateTime?   @map("created_at")
+  updatedAt               DateTime?   @map("updated_at")
+
+  @@index([clientId])
+  @@index([userId])
+  @@map("oauth_consent")
+}
+
+model OauthClientAssertion {
+  id        String   @id @default(uuid()) @db.Uuid
+  expiresAt DateTime @map("expires_at")
+
+  @@map("oauth_client_assertion")
+}
+
+// What connected AI apps (Claude, ChatGPT...) did in conkit: one row per tool call, shown on
+// the Connections page so people can see, and undo, what was changed on their behalf.
+model McpActivity {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  clientId  String?  @map("client_id") // the OAuth client that made the call
+  tool      String
+  summary   String
+  projectId String?  @map("project_id") @db.Uuid
+  markupIds String[] @map("markup_ids") // markups the call created
+  ok        Boolean  @default(true)
+  createdAt DateTime @default(now()) @map("created_at")
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  project   Project? @relation(fields: [projectId], references: [id], onDelete: SetNull)
+
+  @@index([userId, createdAt])
+  @@map("mcp_activity")
 }

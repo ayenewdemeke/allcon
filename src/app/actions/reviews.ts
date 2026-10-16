@@ -5,7 +5,8 @@ import { z } from "zod";
 import { deleteObject } from "@/lib/aps/oss";
 import { db } from "@/lib/db";
 import { findAccessibleProject, findAccessibleReference, findAccessibleReview, getCurrentUser, isUuid } from "@/lib/auth/session";
-import { issueNoteText, toIssueView, type ReviewIssueView } from "@/lib/review/types";
+import { drawIssueMarkups } from "@/lib/review/markups";
+import { toIssueView, type ReviewIssueView } from "@/lib/review/types";
 
 const newReview = z.object({
   name: z.string().trim().min(1).max(200),
@@ -40,9 +41,6 @@ export async function deleteReview(reviewId: string) {
   revalidatePath(`/projects/${access.review.projectId}/reviews`);
 }
 
-const ISSUE_COLORS = { major: "#dc2626", minor: "#ea580c" } as const;
-const NOTE_WIDTH = 270; // points; a little wider than notes draw, to keep clear of the cloud
-
 /**
  * Keeping an issue draws it on the sheet as a cloud around the text it's about plus a note
  * beside it, as ordinary markups (so they export and share like any other). Un-keeping
@@ -60,45 +58,15 @@ export async function setIssueStatus(issueId: string, status: "suggested" | "kep
 
   let markupIds = issue.markupIds;
   if (status === "kept" && issue.status !== "kept") {
-    const color = ISSUE_COLORS[issue.severity];
-    const { width, height } = issue.sheet;
-    const box = Array.isArray(issue.box) ? (issue.box as number[]) : null;
-    const clamp = (v: number, max: number) => Math.min(Math.max(v, 4), max - 4);
-    const created: string[] = [];
-    await db.$transaction(async (tx) => {
-      let noteAt: [number, number] = [36, 36]; // nowhere to point: top-left corner
-      if (box) {
-        const cloud = await tx.markup.create({
-          data: {
-            sheetId: issue.sheetId,
-            kind: "cloud",
-            points: [
-              [clamp(box[0], width), clamp(box[1], height)],
-              [clamp(box[2], width), clamp(box[3], height)],
-            ],
-            color,
-            label: `Review: ${issue.title}`.slice(0, 120),
-            createdById: user.id,
-          },
-        });
-        created.push(cloud.id);
-        // Beside the cloud, on whichever side has room.
-        const right = box[2] + 12;
-        noteAt = [right + NOTE_WIDTH < width ? right : Math.max(4, box[0] - 12 - NOTE_WIDTH), clamp(box[1], height - 100)];
-      }
-      const note = await tx.markup.create({
-        data: {
-          sheetId: issue.sheetId,
-          kind: "note",
-          points: [noteAt],
-          color,
-          text: issueNoteText(issue),
-          createdById: user.id,
-        },
-      });
-      created.push(note.id);
+    markupIds = await drawIssueMarkups({
+      sheet: issue.sheet,
+      box: Array.isArray(issue.box) ? (issue.box as number[]) : null,
+      title: issue.title,
+      detail: issue.detail,
+      citation: issue.citation,
+      severity: issue.severity,
+      userId: user.id,
     });
-    markupIds = created;
   } else if (status !== "kept" && issue.status === "kept" && issue.markupIds.length) {
     await db.markup.deleteMany({ where: { id: { in: issue.markupIds }, sheetId: issue.sheetId } });
     markupIds = [];

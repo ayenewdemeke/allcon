@@ -5,6 +5,7 @@ import { SignInForm } from "@/components/auth/sign-in-form";
 import { Card, CardContent } from "@/components/ui/card";
 import { APP_NAME } from "@/lib/app-config";
 import { emailSignInEnabled, googleSignInEnabled } from "@/lib/env";
+import { authorizeUrl, connectorName, verifiedConnectorQuery } from "@/lib/auth/connector-query";
 import { getCurrentUser } from "@/lib/auth/session";
 
 // Better Auth reports failures as ?error=<code>.
@@ -22,8 +23,12 @@ const FEATURES = [
 ];
 
 export default async function SignInPage({ searchParams }: PageProps<"/">) {
-  if (await getCurrentUser()) redirect("/projects");
-  const { error } = await searchParams;
+  const params = await searchParams;
+  // An AI app connecting to conkit sends people here to sign in first.
+  const connector = await verifiedConnectorQuery(params);
+  if (await getCurrentUser()) redirect(connector ? authorizeUrl(connector) : "/projects");
+  const connecting = connector ? await connectorName(connector.get("client_id")!) : null;
+  const { error } = params;
   const message =
     typeof error === "string" ? (ERROR_MESSAGES[error] ?? "Sign-in failed. Please try again.") : undefined;
 
@@ -56,7 +61,11 @@ export default async function SignInPage({ searchParams }: PageProps<"/">) {
           <CardContent className="space-y-6 p-6">
             <div className="space-y-1 text-center">
               <h2 className="text-xl font-semibold tracking-tight">Sign in</h2>
-              <p className="text-sm text-muted-foreground">New here? Signing in creates your account.</p>
+              <p className="text-sm text-muted-foreground">
+                {connecting
+                  ? `to connect ${connecting.name} to your ${APP_NAME} account.`
+                  : "New here? Signing in creates your account."}
+              </p>
             </div>
             <SignInForm googleEnabled={googleSignInEnabled()} emailEnabled={emailSignInEnabled()} initialError={message} />
           </CardContent>

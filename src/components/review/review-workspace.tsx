@@ -13,7 +13,7 @@ import { captureSheet } from "@/lib/pdf/review-client";
 import type { ReviewIssueView, ReviewSheetView } from "@/lib/review/types";
 import { cn } from "@/lib/utils";
 
-const EST_COST_PER_SHEET = 0.1; // USD, shown before a run; actual cost is recorded per sheet
+const EST_COST_PER_SHEET = 0.02; // USD with Haiku, shown before a run; actual cost is recorded per sheet
 type Filter = "suggested" | "kept" | "dismissed" | "all";
 const FILTERS: [Filter, string][] = [
   ["suggested", "To review"],
@@ -64,6 +64,7 @@ export function ReviewWorkspace({
     setRunning(true);
     stop.current = false;
     let failed = 0;
+    let lastError = "";
     for (const sheet of queue) {
       if (stop.current) break;
       patchSheet(sheet.id, { status: "running", error: null });
@@ -85,11 +86,12 @@ export function ReviewWorkspace({
         });
       } catch (err) {
         failed++;
-        patchSheet(sheet.id, { status: "failed", error: err instanceof Error ? err.message : "Review failed" });
+        lastError = err instanceof Error ? err.message : "Review failed";
+        patchSheet(sheet.id, { status: "failed", error: lastError });
       }
     }
     setRunning(false);
-    if (failed) toast.error(`${failed} sheet${failed === 1 ? "" : "s"} could not be reviewed`);
+    if (failed) toast.error(`${failed} sheet${failed === 1 ? "" : "s"} could not be reviewed`, { description: lastError });
     router.refresh();
   }
 
