@@ -16,11 +16,14 @@ function formatSize(bytes: bigint | null) {
 
 export default async function ModelsPage({ params }: PageProps<"/projects/[projectId]/models">) {
   const { project } = await requireProject((await params).projectId);
-  const models = await db.modelVersion.findMany({
-    where: { projectId: project.id },
-    orderBy: { uploadedAt: "desc" },
-    include: { uploadedBy: { select: { name: true, email: true } } },
-  });
+  const [models, built] = await Promise.all([
+    db.modelVersion.findMany({
+      where: { projectId: project.id },
+      orderBy: { uploadedAt: "desc" },
+      include: { uploadedBy: { select: { name: true, email: true } } },
+    }),
+    db.ifcModel.findMany({ where: { projectId: project.id }, orderBy: { updatedAt: "desc" } }),
+  ]);
 
   return (
     <PageBody>
@@ -88,6 +91,36 @@ export default async function ModelsPage({ params }: PageProps<"/projects/[proje
           </Table>
         )}
       </Card>
+
+      <section className="space-y-2">
+        <div>
+          <h2 className="font-semibold">Built from drawings</h2>
+          <p className="text-sm text-muted-foreground">
+            3D models (IFC) your AI app built from this project&apos;s drawings through the connector. Ask it, for example,
+            to &ldquo;build a 3D model of the bridge from the drawings&rdquo;.
+          </p>
+        </div>
+        {built.length ? (
+          <ul className="divide-y rounded-lg border bg-card">
+            {built.map((m) => (
+              <li key={m.id}>
+                <Link href={`/projects/${project.id}/models/ifc/${m.id}`} className="flex items-center gap-3 px-4 py-3 text-sm hover:bg-muted/50">
+                  <Box className="size-4 text-muted-foreground" />
+                  <span className="flex-1 font-medium">{m.name}</span>
+                  <span className="text-xs text-muted-foreground">
+                    {m.elementCount.toLocaleString()} elements · revision {m.revision} ·{" "}
+                    {m.updatedAt.toLocaleDateString("en-US", { dateStyle: "medium" })}
+                  </span>
+                </Link>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="rounded-lg border border-dashed px-4 py-6 text-center text-sm text-muted-foreground">
+            None yet. Connect your AI app under Connections and use the &ldquo;Build a 3D model from drawings&rdquo; prompt.
+          </p>
+        )}
+      </section>
     </PageBody>
   );
 }

@@ -10,7 +10,7 @@ import { getCurrentUser } from "@/lib/auth/session";
 
 export const metadata: Metadata = { title: "Connect an app", robots: { index: false } };
 
-/** Asks the user to allow an AI app (Claude, ChatGPT...) to use their conkit account. */
+/** Asks the user to allow an AI app (Claude, ChatGPT, Gemini...) to use their conkit account. */
 export default async function ConsentPage({ searchParams }: PageProps<"/oauth/consent">) {
   const params = await searchParams;
   const query = await verifiedConnectorQuery(params);
@@ -21,7 +21,7 @@ export default async function ConsentPage({ searchParams }: PageProps<"/oauth/co
 
   const can = [
     { icon: Eye, text: "See your projects, drawings, models, estimates and library manuals" },
-    { icon: PenLine, text: "Add notes, clouds and flagged issues to your sheets (it can't delete anything)" },
+    { icon: PenLine, text: "Add notes, clouds and flagged issues to your sheets (it can't delete them), and build 3D models from your drawings" },
     ...(scopes.has("offline_access") ? [{ icon: RefreshCw, text: "Stay connected until you disconnect it in Connections" }] : []),
   ];
 

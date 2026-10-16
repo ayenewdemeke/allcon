@@ -5,6 +5,7 @@ import { z } from "zod";
 import { Prisma } from "@/generated/prisma/client";
 import { db } from "@/lib/db";
 import { getCurrentUser, isUuid } from "@/lib/auth/session";
+import { restore3dModel } from "@/lib/tools/models3d";
 
 /** Disconnects an AI app: removes its permission and revokes its tokens. Takes effect at once. */
 export async function disconnectApp(clientId: string) {
@@ -20,6 +21,11 @@ export async function disconnectApp(clientId: string) {
   revalidatePath("/connections");
 }
 
+const modelUndo = z.discriminatedUnion("type", [
+  z.object({ type: z.literal("ifc_model_create"), modelId: z.uuid() }),
+  z.object({ type: z.literal("ifc_model_restore"), modelId: z.uuid(), revision: z.number().int() }),
+]);
+
 const renameUndo = z.object({
   type: z.literal("rename_sheet"),
   sheetId: z.uuid(),
@@ -33,7 +39,16 @@ export async function undoActivity(activityId: string) {
   if (!user || !isUuid(activityId)) throw new Error("Not found");
   const row = await db.mcpActivity.findFirst({ where: { id: activityId, userId: user.id } });
   const rename = renameUndo.safeParse(row?.undo);
-  if (!row || (!row.markupIds.length && !rename.success)) throw new Error("Nothing to undo");
+  const model = modelUndo.safeParse(row?.undo);
+  if (!row || (!row.markupIds.length && !rename.success && !model.success)) throw new Error("Nothing to undo");
+  if (model.success) {
+    // 3D models: delete one the app created, or put an updated one back to its earlier revision.
+    if (model.data.type === "ifc_model_create") {
+      await db.ifcModel.deleteMany({ where: { id: model.data.modelId, project: { orgId: user.orgId } } });
+    } else {
+      await restore3dModel(user.orgId, model.data.modelId, model.data.revision);
+    }
+  }
   const inOrg = { drawingSet: { project: { orgId: user.orgId } } };
   await db.$transaction([
     db.markup.deleteMany({ where: { id: { in: row.markupIds }, sheet: inOrg } }),

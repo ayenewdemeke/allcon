@@ -125,6 +125,7 @@ model Project {
   mappingRules        MappingRule[]
   reviews             Review[]
   mcpActivity         McpActivity[]
+  ifcModels           IfcModel[]
 
   @@index([orgId])
   @@map("project")
@@ -715,4 +716,40 @@ model McpActivity {
 
   @@index([userId, createdAt])
   @@map("mcp_activity")
+}
+
+// A 3D model an AI app built from the project's drawings (through the connector). Kept in
+// conkit's model format (lib/ifc/spec) and compiled to IFC when it's viewed or downloaded.
+model IfcModel {
+  id             String             @id @default(uuid()) @db.Uuid
+  projectId      String             @map("project_id") @db.Uuid
+  name           String
+  description    String?
+  spec           Json
+  elementCount   Int                @default(0) @map("element_count")
+  revision       Int                @default(1)
+  sourceSheetIds String[]           @map("source_sheet_ids")
+  clientId       String?            @map("client_id") // the AI app that built it
+  createdById    String?            @map("created_by") @db.Uuid
+  createdAt      DateTime           @default(now()) @map("created_at")
+  updatedAt      DateTime           @default(now()) @updatedAt @map("updated_at")
+  project        Project            @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  revisions      IfcModelRevision[]
+
+  @@index([projectId])
+  @@map("ifc_model")
+}
+
+// Earlier versions of a model, so a change can be undone.
+model IfcModelRevision {
+  id        String   @id @default(uuid()) @db.Uuid
+  modelId   String   @map("model_id") @db.Uuid
+  revision  Int
+  spec      Json
+  note      String?
+  createdAt DateTime @default(now()) @map("created_at")
+  model     IfcModel @relation(fields: [modelId], references: [id], onDelete: Cascade)
+
+  @@unique([modelId, revision])
+  @@map("ifc_model_revision")
 }

@@ -17,6 +17,7 @@ const SKILLS = [
   { name: "Review a sheet against the manuals", text: "Checks a sheet against your library and flags real issues on it, with citations." },
   { name: "Explain a sheet", text: "A plain-language walkthrough of what a sheet shows and its key values." },
   { name: "Summarize quantities and cost", text: "Measured quantities against the schedule of values, with the biggest variances." },
+  { name: "Build a 3D model from drawings", text: "Reads a drawing set and builds a 3D IFC model you can view, check and download." },
 ];
 
 const when = (d: Date) => d.toLocaleString("en-US", { dateStyle: "medium", timeStyle: "short" });
@@ -51,7 +52,7 @@ export default async function ConnectionsPage() {
     <PageBody>
       <PageHeader
         title="Connections"
-        description={`Use ${APP_NAME} from your own AI app, such as Claude or ChatGPT. The AI runs on your plan with that app; ${APP_NAME} gives it your projects and tools.`}
+        description={`Use ${APP_NAME} from your own AI app, such as Claude, ChatGPT or Gemini. The AI runs on your plan with that app; ${APP_NAME} gives it your projects and tools.`}
       />
 
       <Card>
@@ -60,7 +61,7 @@ export default async function ConnectionsPage() {
             <h2 className="font-semibold">Connector address</h2>
             <CopyUrl url={url} />
           </div>
-          <div className="grid gap-4 text-sm md:grid-cols-2">
+          <div className="grid gap-4 text-sm md:grid-cols-3">
             <div className="space-y-1">
               <p className="font-medium">Claude</p>
               <p className="text-muted-foreground">
@@ -73,6 +74,17 @@ export default async function ConnectionsPage() {
                 Settings → Apps &amp; Connectors. Add a custom connector (it may need developer mode) with the address, then
                 sign in to {APP_NAME}.
               </p>
+            </div>
+            <div className="space-y-1">
+              <p className="font-medium">Gemini</p>
+              <p className="text-muted-foreground">
+                In the Gemini app: Settings → Connected apps → Add a custom app, paste the address and sign in. In Gemini CLI,
+                add it to <code className="text-xs">~/.gemini/settings.json</code>, then run{" "}
+                <code className="text-xs">/mcp auth conkit</code>:
+              </p>
+              <pre className="overflow-x-auto rounded-md bg-muted/60 px-2 py-1.5 text-xs">{`"mcpServers": {
+  "conkit": { "httpUrl": "${url}" }
+}`}</pre>
             </div>
           </div>
           <p className="flex gap-2 text-xs text-muted-foreground">

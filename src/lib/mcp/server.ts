@@ -7,10 +7,12 @@ import { db } from "@/lib/db";
 import { env } from "@/lib/env";
 import { ToolError, type ToolContext } from "@/lib/tools/context";
 import { addCloud, addNote, boxSchema, flagIssue, listMarkups, listSheets, readSheet, renameSheet } from "@/lib/tools/drawings";
+import { modelPatchSchema, modelSpecSchema } from "@/lib/ifc/spec";
 import { searchManuals } from "@/lib/tools/library";
+import { create3dModel, get3dModel, list3dModels, update3dModel } from "@/lib/tools/models3d";
 import { getProject, listProjects, takeoffSummary } from "@/lib/tools/projects";
 
-// conkit as an MCP server: the user's own AI app (Claude, ChatGPT...) does the thinking and
+// conkit as an MCP server: the user's own AI app (Claude, ChatGPT, Gemini...) does the thinking and
 // calls these tools; conkit does exact work on the project and keeps the results. Each call
 // is recorded in the activity log, so people can see what was done on their behalf.
 
@@ -20,7 +22,9 @@ Typical flow: list_projects, then get_project or list_sheets to find what the us
 
 If a sheet's number or title in ${APP_NAME} is wrong (compare with the title block), fix it with rename_sheet.
 
-To mark something on a sheet, use the [x0,y0,x1,y1] boxes from read_sheet: flag_issue for a review finding (cloud plus a note with the explanation and citation), add_cloud or add_note for other markups. Markups are added, never deleted, and the user reviews them in ${APP_NAME}. Give the user the links returned so they can open the sheet.`;
+To mark something on a sheet, use the [x0,y0,x1,y1] boxes from read_sheet: flag_issue for a review finding (cloud plus a note with the explanation and citation), add_cloud or add_note for other markups. Markups are added, never deleted, and the user reviews them in ${APP_NAME}. Give the user the links returned so they can open the sheet.
+
+To build a 3D model (IFC) from drawings, read the sheets, then describe the structure with create_3d_model (elements are cross-section profiles swept along paths) and refine it with update_3d_model. ${APP_NAME} checks the model, keeps its revisions, shows it in 3D and exports IFC. The build_3d_model prompt has the full procedure.`;
 
 const uuid = z.uuid();
 const readOnly = { readOnlyHint: true, openWorldHint: false } as const;
@@ -29,7 +33,8 @@ const additive = { readOnlyHint: false, destructiveHint: false, idempotentHint: 
 /** Tool output as JSON text, with app links made absolute so they open from the AI app. */
 function json(value: unknown): CallToolResult {
   const base = env().APP_URL;
-  const text = JSON.stringify(value, (key, v) => (key === "link" && typeof v === "string" && v.startsWith("/") ? base + v : v), 1);
+  const isLink = (key: string) => key === "link" || key === "ifcDownload";
+  const text = JSON.stringify(value, (key, v) => (isLink(key) && typeof v === "string" && v.startsWith("/") ? base + v : v), 1);
   return { content: [{ type: "text", text }] };
 }
 
@@ -233,6 +238,78 @@ export function buildMcpServer(ctx: ToolContext) {
       ),
   );
 
+  // --- 3D models (IFC) from drawings ------------------------------------------------
+
+  server.registerTool(
+    "create_3d_model",
+    {
+      title: "Create a 3D model",
+      description: `Creates a 3D model (compiled to IFC4X3) in a project from a structured description you build from the drawings. Each element is a cross-section profile swept along a path of points:
+- Vertical members (columns, piers, piles, footings, slabs, decks): path goes up or down in z; the profile lies in plan (x east, y north). A slab is a polygon profile swept through its thickness.
+- Horizontal or sloping members (beams, girders, walls, barriers): the profile is across the member (x) and up (y); anchor "bottom" puts a wall on its base line, "top" hangs a girder from the deck line.
+- Curved members: several path points along the curve.
+Use the drawings' units and real elevations, a meaningful id per element, its mark and source sheet, and note assumptions in notes. Returns a summary (counts, volumes, extents, warnings) to check against the drawings, and links to view and download the IFC.`,
+      inputSchema: z.object({
+        project_id: uuid,
+        name: z.string().min(1).max(200),
+        description: z.string().max(2000).optional().describe("What was modelled, from which sheets, the level of detail and key assumptions"),
+        source_sheet_ids: z.array(uuid).max(500).optional(),
+        model: modelSpecSchema,
+      }),
+      annotations: additive,
+    },
+    async ({ project_id, name, description, source_sheet_ids, model }) =>
+      out(
+        await run(
+          "create_3d_model",
+          `Created 3D model "${name}"`,
+          () => create3dModel(ctx, { projectId: project_id, name, description, sourceSheetIds: source_sheet_ids, spec: model }),
+          (v) => ({
+            projectId: v.projectId,
+            summary: `Created 3D model "${name}" (${v.summary.elements} elements)`,
+            undo: { type: "ifc_model_create", modelId: v.modelId },
+          }),
+        ),
+      ),
+  );
+
+  server.registerTool(
+    "update_3d_model",
+    {
+      title: "Update a 3D model",
+      description:
+        "Changes a 3D model without resending it: add or replace elements by id, remove elements, or replace levels or materials. Each update is a new revision the user can undo. Returns the updated summary.",
+      inputSchema: z.object({ model_id: uuid, changes: modelPatchSchema, note: z.string().max(300).optional().describe("What changed and why") }),
+      annotations: { ...additive, destructiveHint: true },
+    },
+    async ({ model_id, changes, note }) =>
+      out(
+        await run("update_3d_model", "Updated a 3D model", () => update3dModel(ctx, { modelId: model_id, patch: changes, note }), (v) => ({
+          projectId: v.projectId,
+          summary: `Updated 3D model "${v.name}" to revision ${v.revision} (+${v.changed.upserted} / -${v.changed.removed} elements)`,
+          undo: { type: "ifc_model_restore", modelId: v.modelId, revision: v.previousRevision },
+        })),
+      ),
+  );
+
+  server.registerTool(
+    "get_3d_model",
+    {
+      title: "Get a 3D model",
+      description: "A 3D model's summary (counts, volumes by type and material, extents, warnings), levels, materials and revisions; set include_elements to get the elements too.",
+      inputSchema: z.object({ model_id: uuid, include_elements: z.boolean().default(false) }),
+      annotations: readOnly,
+    },
+    async ({ model_id, include_elements }) =>
+      out(await run("get_3d_model", "Opened a 3D model", () => get3dModel(ctx, model_id, include_elements), (v) => ({ projectId: v.projectId, summary: `Opened 3D model "${v.name}"` }))),
+  );
+
+  server.registerTool(
+    "list_3d_models",
+    { title: "List 3D models", description: "The 3D models built in a project.", inputSchema: z.object({ project_id: uuid }), annotations: readOnly },
+    async ({ project_id }) => out(await run("list_3d_models", "Listed 3D models", () => list3dModels(ctx, project_id), () => ({ projectId: project_id }))),
+  );
+
   // --- skills (ready-made prompts) ------------------------------------------------
 
   const user = (text: string) => ({ messages: [{ role: "user" as const, content: { type: "text" as const, text } }] });
@@ -277,6 +354,38 @@ export function buildMcpServer(ctx: ToolContext) {
     },
     ({ project }) =>
       user(`Summarize quantities and cost for this ${APP_NAME} project: ${project}. Find it with list_projects if needed, then use takeoff_summary. Give the totals, the lines with the largest variance between contract and measured quantities, lines with no measured quantity, and anything flagged. Use a compact table, and end with the link to the report.`),
+  );
+
+  server.registerPrompt(
+    "build_3d_model",
+    {
+      title: "Build a 3D model from drawings",
+      description: "Reads a drawing set and builds a 3D IFC model of it in conkit, at the level of detail you choose.",
+      argsSchema: z.object({
+        drawings: z.string().describe("Which drawings, e.g. 'the Jewell bridge set' or 'sheets A101-A105 in Riverside'"),
+        detail: z.string().optional().describe("massing, structural (default) or detailed"),
+        focus: z.string().optional().describe("Optional: part to model, e.g. 'the east approach only'"),
+      }),
+    },
+    ({ drawings, detail, focus }) =>
+      user(`Build a 3D model in ${APP_NAME} from these drawings: ${drawings}. Level of detail: ${detail || "structural"}.${focus ? ` Model only: ${focus}.` : ""}
+
+1. Find the project and sheets (list_projects, list_sheets). Read the index or general sheet first to see what the set contains. Then read the sheets you need with read_sheet: plans and layouts for positions, elevations and profiles for heights, sections and details for cross-sections. Read text first (include_image false) and ask for the image where the layout matters.
+2. Set up before modelling:
+   - Units as on the drawings (ft for US imperial sets, mm or m for metric).
+   - Coordinates: x along the main axis or east, y across or north, z up. Put the origin at a clear reference (grid A/1, begin bridge, station 0+00) and convert stations and offsets to x and y. Use real elevations for z when they're given.
+   - Levels (storeys) for buildings, from the elevations.
+   - Materials from the general notes (e.g. Class D concrete, A709 Grade 50 steel).
+3. Model at the level of detail asked:
+   - massing: overall solids only (deck, piers, abutments; or slabs, walls, columns, roof).
+   - structural: every primary member: footings, piles, piers or columns, caps, girders or beams, deck or slabs, walls, abutments, wingwalls, barriers or railings, bearings.
+   - detailed: also secondary members (diaphragms, cross frames, stiffeners, stairs, drains) where they're dimensioned.
+4. One element per physical piece, with a meaningful id, its mark and the sheet it came from. Use the drawings' dimensions. Where something isn't given, make a reasonable, consistent assumption and write it in the element's notes. Split curved members into segments about 3 m / 10 ft long.
+5. Create the model with create_3d_model. For a large structure, create the main structure first, then add groups of elements with update_3d_model.
+6. Check the summary returned: compare the extents with the overall dimensions on the drawings, and the volumes with any quantities table in the set (e.g. a summary of quantities). Fix differences with update_3d_model.
+7. Finish with what you modelled, the assumptions, what you left out, how the volumes compare with the drawings' quantities if there are any, and the link to view the model.
+
+Don't invent key dimensions silently: if one can't be read or reasonably inferred, ask me.`),
   );
 
   return server;
