@@ -25,7 +25,7 @@ export default async function ProjectsPage() {
     <PageBody>
       <PageHeader
         title="Projects"
-        description="Each project holds its models, drawings and schedule of values."
+        description="Each project holds its drawings, models, reviews and estimate."
         actions={projects.length > 0 && <NewProjectDialog />}
       />
 

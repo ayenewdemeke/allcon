@@ -9,6 +9,7 @@ import {
   type PDFFont,
   type PDFObject,
 } from "@cantoo/pdf-lib";
+import { APP_NAME } from "@/lib/app-config";
 
 /** A PDF dictionary literal, as pdf-lib's context.obj() accepts (its own type isn't exported). */
 type Dict = { [name: string]: DictValue };
@@ -356,8 +357,8 @@ export async function buildMarkedUpPdf(source: ArrayBuffer | Uint8Array, sheets:
   const doc = await PDFDocument.create();
   doc.setTitle(options.title);
   doc.setAuthor(options.author);
-  doc.setProducer("Estimator");
-  doc.setCreator("Estimator");
+  doc.setProducer(APP_NAME);
+  doc.setCreator(APP_NAME);
 
   const font = await doc.embedFont(StandardFonts.Helvetica);
   const bold = await doc.embedFont(StandardFonts.HelveticaBold);

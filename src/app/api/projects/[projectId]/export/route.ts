@@ -1,5 +1,6 @@
 import type { NextRequest } from "next/server";
 import ExcelJS from "exceljs";
+import { APP_NAME } from "@/lib/app-config";
 import { findAccessibleProject } from "@/lib/auth/session";
 import { db } from "@/lib/db";
 import { toLineItemUnit } from "@/lib/line-items/units";
@@ -28,7 +29,7 @@ export async function GET(_request: NextRequest, ctx: RouteContext<"/api/project
   const money = `"${project.currency === "USD" ? "$" : project.currency + " "}"#,##0.00`;
 
   const wb = new ExcelJS.Workbook();
-  wb.creator = "Estimator";
+  wb.creator = APP_NAME;
   wb.created = new Date();
 
   // 1. Priced quantities

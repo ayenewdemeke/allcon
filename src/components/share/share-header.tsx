@@ -1,15 +1,9 @@
-import { Ruler } from "lucide-react";
-import { APP_NAME } from "@/lib/app-config";
+import { Wordmark } from "@/components/brand/logo";
 
 export function ShareHeader({ children }: { children?: React.ReactNode }) {
   return (
     <header className="flex h-14 shrink-0 items-center gap-3 border-b bg-card px-4">
-      <div className="flex items-center gap-2">
-        <div className="flex size-7 items-center justify-center rounded-md bg-primary text-primary-foreground">
-          <Ruler className="size-3.5" />
-        </div>
-        <span className="font-semibold tracking-tight">{APP_NAME}</span>
-      </div>
+      <Wordmark className="text-lg" />
       {children}
     </header>
   );

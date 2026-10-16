@@ -16,7 +16,6 @@ import {
   LayoutDashboard,
   ListChecks,
   LogOut,
-  Ruler,
   Settings,
   type LucideIcon,
 } from "lucide-react";
@@ -44,7 +43,7 @@ import {
   SidebarRail,
   useSidebar,
 } from "@/components/ui/sidebar";
-import { APP_NAME } from "@/lib/app-config";
+import { LogoMark, Wordmark } from "@/components/brand/logo";
 import { authClient } from "@/lib/auth/client";
 import { cn } from "@/lib/utils";
 
@@ -227,11 +226,10 @@ export function AppSidebar({
         ) : (
           <SidebarMenu>
             <SidebarMenuItem>
-              <SidebarMenuButton size="lg" render={<Link href="/projects" />}>
-                <div className="flex size-8 shrink-0 items-center justify-center rounded-md bg-sidebar-primary text-sidebar-primary-foreground">
-                  <Ruler className="size-4" />
-                </div>
-                <span className="truncate text-base font-semibold tracking-tight">{APP_NAME}</span>
+              <SidebarMenuButton size="lg" tooltip="Projects" render={<Link href="/projects" />}>
+                {/* The wordmark is the logo; collapsed to icons, its "c" mark takes its place. */}
+                <LogoMark className="hidden bg-sidebar-primary group-data-[collapsible=icon]:flex" />
+                <Wordmark className="px-1 text-[1.35rem] group-data-[collapsible=icon]:hidden" />
               </SidebarMenuButton>
             </SidebarMenuItem>
           </SidebarMenu>

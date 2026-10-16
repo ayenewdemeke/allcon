@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
-import { Box, FileText, Ruler, Sheet } from "lucide-react";
+import { Box, FileSearch, Layers, ListChecks } from "lucide-react";
+import { Wordmark } from "@/components/brand/logo";
 import { SignInForm } from "@/components/auth/sign-in-form";
 import { Card, CardContent } from "@/components/ui/card";
 import { APP_NAME } from "@/lib/app-config";
@@ -14,10 +15,10 @@ const ERROR_MESSAGES: Record<string, string> = {
 };
 
 const FEATURES = [
-  { icon: Box, text: "Quantities straight from Revit and IFC models" },
-  { icon: Ruler, text: "Measure lengths, areas and counts on PDF drawings" },
-  { icon: Sheet, text: "Price them against your schedule of values" },
-  { icon: FileText, text: "Export priced quantities and pay applications" },
+  { icon: Layers, text: "Mark up and measure PDF drawings, then share or export them" },
+  { icon: FileSearch, text: "Review plans against your design manuals, with citations" },
+  { icon: ListChecks, text: "Price quantities against your schedule of values" },
+  { icon: Box, text: "Take quantities straight from Revit and IFC models" },
 ];
 
 export default async function SignInPage({ searchParams }: PageProps<"/">) {
@@ -30,17 +31,14 @@ export default async function SignInPage({ searchParams }: PageProps<"/">) {
     <div className="flex min-h-svh flex-col bg-background">
       <header className="border-b bg-card">
         <div className="mx-auto flex h-16 max-w-6xl items-center gap-2 px-6">
-          <div className="flex size-8 items-center justify-center rounded-md bg-primary text-primary-foreground">
-            <Ruler className="size-4" />
-          </div>
-          <span className="text-lg font-semibold tracking-tight">{APP_NAME}</span>
+          <Wordmark className="text-2xl" />
         </div>
       </header>
 
       <main className="mx-auto grid w-full max-w-6xl flex-1 items-center gap-12 px-6 py-12 lg:grid-cols-2">
         <div className="space-y-6">
           <h1 className="text-3xl font-semibold tracking-tight text-balance sm:text-4xl">
-            Quantities and payment applications, from model or drawing.
+            The everyday toolkit for construction projects.
           </h1>
           <ul className="space-y-3">
             {FEATURES.map(({ icon: Icon, text }) => (

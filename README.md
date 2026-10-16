@@ -1,7 +1,15 @@
-# Estimator (working name)
+# conkit
 
-Model-based quantities and interim payment valuations. Users upload a Revit or IFC model,
-map its elements to schedule-of-values / BoQ line items, and export priced quantities.
+A lightweight everyday toolkit for construction projects, for engineers and architects
+rather than whole companies. Live at https://conkit.app.
+
+- **Drawings:** PDF sets on the APS Viewer; measure, mark up, export marked-up PDFs and
+  share read-only links.
+- **Plan review:** check sheets against design manuals in the library; findings cite
+  manual sections and can be kept as markups.
+- **Estimate:** import a schedule of values, map model elements and sheet measurements to
+  it, and export priced quantities.
+- **Models:** Revit / IFC through APS Model Derivative, with element quantities.
 
 Stack: Next.js 16 (App Router) · TypeScript · Prisma 7 + PostgreSQL (Neon) · Better Auth ·
 Tailwind + shadcn/ui (Base UI) · Autodesk Platform Services (OSS, Model Derivative, Viewer).

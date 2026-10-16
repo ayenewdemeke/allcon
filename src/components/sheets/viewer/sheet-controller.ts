@@ -68,7 +68,7 @@ export type ControllerEvents = {
   onDoubleClick: () => void;
 };
 
-const CLICK_TOOL = "estimator-click";
+const CLICK_TOOL = "conkit-click";
 
 export class SheetController {
   private viewer: Autodesk.Viewing.Viewer3D | null = null;
