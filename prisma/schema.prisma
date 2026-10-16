@@ -707,6 +707,7 @@ model McpActivity {
   summary   String
   projectId String?  @map("project_id") @db.Uuid
   markupIds String[] @map("markup_ids") // markups the call created
+  undo      Json? // how to reverse an edit the call made, e.g. a sheet's previous number
   ok        Boolean  @default(true)
   createdAt DateTime @default(now()) @map("created_at")
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)

@@ -6,7 +6,7 @@ import { APP_NAME } from "@/lib/app-config";
 import { db } from "@/lib/db";
 import { env } from "@/lib/env";
 import { ToolError, type ToolContext } from "@/lib/tools/context";
-import { addCloud, addNote, boxSchema, flagIssue, listMarkups, listSheets, readSheet } from "@/lib/tools/drawings";
+import { addCloud, addNote, boxSchema, flagIssue, listMarkups, listSheets, readSheet, renameSheet } from "@/lib/tools/drawings";
 import { searchManuals } from "@/lib/tools/library";
 import { getProject, listProjects, takeoffSummary } from "@/lib/tools/projects";
 
@@ -17,6 +17,8 @@ import { getProject, listProjects, takeoffSummary } from "@/lib/tools/projects";
 const INSTRUCTIONS = `${APP_NAME} is the user's construction project workspace: PDF drawing sets (sheets), building models, a schedule of values, and a library of design manuals.
 
 Typical flow: list_projects, then get_project or list_sheets to find what the user means, then read_sheet to see a sheet (text lines with positions, and an image). Use search_manuals to find the manual sections that apply, and cite them.
+
+If a sheet's number or title in ${APP_NAME} is wrong (compare with the title block), fix it with rename_sheet.
 
 To mark something on a sheet, use the [x0,y0,x1,y1] boxes from read_sheet: flag_issue for a review finding (cloud plus a note with the explanation and citation), add_cloud or add_note for other markups. Markups are added, never deleted, and the user reviews them in ${APP_NAME}. Give the user the links returned so they can open the sheet.`;
 
@@ -39,12 +41,12 @@ export function buildMcpServer(ctx: ToolContext) {
     tool: string,
     summary: string,
     work: () => Promise<T>,
-    after?: (result: T) => { projectId?: string | null; markupIds?: string[]; summary?: string },
+    after?: (result: T) => { projectId?: string | null; markupIds?: string[]; summary?: string; undo?: object },
   ): Promise<T | CallToolResult> {
     try {
       const result = await work();
       const extra = after?.(result) ?? {};
-      await log(tool, extra.summary ?? summary, true, extra.projectId ?? null, extra.markupIds ?? []);
+      await log(tool, extra.summary ?? summary, true, extra.projectId ?? null, extra.markupIds ?? [], extra.undo);
       return result;
     } catch (err) {
       const message = err instanceof ToolError ? err.message : err instanceof z.ZodError ? "Invalid input." : "Something went wrong in conkit.";
@@ -53,9 +55,11 @@ export function buildMcpServer(ctx: ToolContext) {
       return { isError: true, content: [{ type: "text", text: message }] };
     }
   }
-  const log = (tool: string, summary: string, ok: boolean, projectId: string | null, markupIds: string[]) =>
+  const log = (tool: string, summary: string, ok: boolean, projectId: string | null, markupIds: string[], undo?: object) =>
     db.mcpActivity
-      .create({ data: { userId: ctx.userId, clientId: ctx.clientId, tool, summary: summary.slice(0, 500), ok, projectId, markupIds } })
+      .create({
+        data: { userId: ctx.userId, clientId: ctx.clientId, tool, summary: summary.slice(0, 500), ok, projectId, markupIds, undo },
+      })
       .catch((e) => console.error("Could not log MCP activity", e));
   const isResult = (v: unknown): v is CallToolResult => typeof v === "object" && v !== null && "content" in v && "isError" in v;
   const out = (v: unknown) => (isResult(v) ? v : json(v));
@@ -206,6 +210,25 @@ export function buildMcpServer(ctx: ToolContext) {
           projectId: v.projectId,
           markupIds: [v.markupId],
           summary: `Added a note on ${v.sheet}`,
+        })),
+      ),
+  );
+
+  server.registerTool(
+    "rename_sheet",
+    {
+      title: "Rename a sheet",
+      description:
+        "Sets a sheet's number and/or title in conkit, e.g. when the detected number doesn't match the title block. Pass only what changes; an empty string clears it.",
+      inputSchema: z.object({ sheet_id: uuid, number: z.string().max(40).optional(), title: z.string().max(200).optional() }),
+      annotations: { ...additive, idempotentHint: true },
+    },
+    async ({ sheet_id, number, title }) =>
+      out(
+        await run("rename_sheet", "Renamed a sheet", () => renameSheet(ctx, { sheetId: sheet_id, number, title }), (v) => ({
+          projectId: v.projectId,
+          summary: `Renamed sheet ${v.before} to ${v.after}`,
+          undo: { type: "rename_sheet", sheetId: v.sheetId, ...v.previous },
         })),
       ),
   );

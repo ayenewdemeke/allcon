@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { deleteObject } from "@/lib/aps/oss";
 import { db } from "@/lib/db";
+import { detectStoredSheetNumbers } from "@/lib/pdf/server-sheet";
 import { findAccessibleDrawingSet, findAccessibleSheet, getCurrentUser, isUuid } from "@/lib/auth/session";
 
 // Every action checks access itself: server actions are public endpoints.
@@ -125,4 +126,28 @@ export async function deleteDrawingSet(drawingSetId: string) {
     await deleteObject(drawingSet.objectKey).catch((err) => console.error("Could not delete the drawing file", err));
   }
   revalidatePath(`/projects/${drawingSet.projectId}/sheets`);
+}
+
+export type SheetNumberChange = { sheetId: string; page: number; title: string | null; current: string | null; detected: string };
+
+/** Reads each page's title block again and lists sheets whose number would change. */
+export async function previewSheetNumbers(drawingSetId: string): Promise<SheetNumberChange[]> {
+  const access = await findAccessibleDrawingSet(drawingSetId);
+  if (!access?.drawingSet.objectKey || access.drawingSet.status !== "ready") throw new Error("Drawing set not found");
+  const [detected, sheets] = await Promise.all([
+    detectStoredSheetNumbers(access.drawingSet.objectKey),
+    db.sheet.findMany({ where: { drawingSetId }, orderBy: { pageIndex: "asc" } }),
+  ]);
+  return sheets.flatMap((s) => {
+    const found = detected[s.pageIndex];
+    return found && found !== s.number ? [{ sheetId: s.id, page: s.pageIndex + 1, title: s.title, current: s.number, detected: found }] : [];
+  });
+}
+
+export async function applySheetNumbers(drawingSetId: string, changes: { sheetId: string; number: string }[]) {
+  const access = await findAccessibleDrawingSet(drawingSetId);
+  if (!access) throw new Error("Drawing set not found");
+  const list = z.array(z.object({ sheetId: z.uuid(), number: z.string().trim().min(1).max(40) })).max(5000).parse(changes);
+  await db.$transaction(list.map((c) => db.sheet.updateMany({ where: { id: c.sheetId, drawingSetId }, data: { number: c.number } })));
+  revalidatePath(`/projects/${access.drawingSet.projectId}/sheets`);
 }

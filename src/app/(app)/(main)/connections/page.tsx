@@ -144,7 +144,7 @@ export default async function ConnectionsPage() {
                     )}
                   </p>
                 </div>
-                {a.markupIds.length > 0 && <UndoButton activityId={a.id} />}
+                {(a.markupIds.length > 0 || a.undo !== null) && <UndoButton activityId={a.id} />}
               </li>
             ))}
           </ul>

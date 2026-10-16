@@ -1,6 +1,8 @@
 "use client";
 
 import type { PDFDocumentProxy } from "pdfjs-dist";
+import { guessSheetNumber } from "@/lib/sheets/sheet-number";
+import { pagePlacedText } from "./text-pieces";
 
 // pdf.js is large and browser-only, so it is loaded on first use.
 let pdfjsPromise: Promise<typeof import("pdfjs-dist")> | undefined;
@@ -77,32 +79,6 @@ export function getDrawingDocument(drawingSetId: string) {
 
 export type PageInfo = { width: number; height: number; number: string | null; title: string | null };
 
-// Sheet numbers like A101, A-101, S2.01, C1.0, M-3; must start with a discipline letter.
-const SHEET_NUMBER = /^[A-Z]{1,2}[-.]?\d{1,3}(?:\.\d{1,2})?[A-Z]?$/;
-
-/**
- * Guesses the sheet number from the text layer: the largest sheet-number-like text in
- * the bottom-right corner, where title blocks sit. Plotted/scanned sets have no text
- * layer, so this returns null and the user names the sheet instead.
- */
-function guessSheetNumber(
-  items: { str: string; transform: number[] }[],
-  toView: (x: number, y: number) => number[],
-  width: number,
-  height: number,
-) {
-  let best: { text: string; size: number } | null = null;
-  for (const item of items) {
-    const text = item.str.trim();
-    if (!SHEET_NUMBER.test(text)) continue;
-    const [x, y] = toView(item.transform[4], item.transform[5]);
-    if (x < width * 0.6 || y < height * 0.6) continue;
-    const size = Math.hypot(item.transform[2], item.transform[3]);
-    if (!best || size > best.size) best = { text, size };
-  }
-  return best?.text ?? null;
-}
-
 /** Reads page sizes and sheet numbers from a PDF on the user's machine. */
 export async function readLocalPdf(file: File, onProgress?: (done: number, total: number) => void) {
   const pdfjs = await loadPdfjs();
@@ -119,15 +95,9 @@ export async function readLocalPdf(file: File, onProgress?: (done: number, total
     const pages: PageInfo[] = [];
     for (let n = 1; n <= doc.numPages; n++) {
       const page = await doc.getPage(n);
-      const viewport = page.getViewport({ scale: 1 });
-      const text = await page.getTextContent();
-      const items = text.items.filter((i): i is (typeof i & { str: string; transform: number[] }) => "str" in i);
-      pages.push({
-        width: viewport.width,
-        height: viewport.height,
-        number: guessSheetNumber(items, (x, y) => viewport.convertToViewportPoint(x, y), viewport.width, viewport.height),
-        title: null,
-      });
+      // Plotted/scanned sets have no text layer: no number, and the user names the sheet.
+      const { items, width, height } = await pagePlacedText(page);
+      pages.push({ width, height, number: guessSheetNumber(items, width, height), title: null });
       page.cleanup();
       onProgress?.(n, doc.numPages);
     }

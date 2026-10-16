@@ -1,5 +1,6 @@
 import type { PDFDocumentProxy, PDFPageProxy } from "pdfjs-dist";
 import type { TextPiece } from "@/lib/review/lines";
+import type { PlacedText } from "@/lib/sheets/sheet-number";
 
 // pdf.js helpers that work in the browser and in Node (scripts), so they take pdf.js objects
 // rather than loading pdf.js themselves.
@@ -50,4 +51,18 @@ export async function flatOutline(doc: PDFDocumentProxy) {
   };
   await walk(outline);
   return out;
+}
+
+/** Each text run's start point and size in displayed page points, for sheet-number detection. */
+export async function pagePlacedText(page: PDFPageProxy): Promise<{ items: PlacedText[]; width: number; height: number }> {
+  const viewport = page.getViewport({ scale: 1 });
+  const content = await page.getTextContent();
+  const items: PlacedText[] = [];
+  for (const item of content.items) {
+    if (!("str" in item) || !item.str.trim()) continue;
+    const m = item.transform as number[];
+    const [x, y] = viewport.convertToViewportPoint(m[4], m[5]);
+    items.push({ text: item.str, x, y, size: Math.hypot(m[2], m[3]) });
+  }
+  return { items, width: viewport.width, height: viewport.height };
 }

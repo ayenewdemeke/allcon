@@ -146,3 +146,24 @@ export async function flagIssue(
   });
   return { markupIds, sheet: sheetName(sheet), projectId: sheet.drawingSet.projectId, link: `/projects/${sheet.drawingSet.projectId}/sheets/${sheet.id}` };
 }
+
+/** Renames a sheet (number and/or title); returns the previous values so it can be undone. */
+export async function renameSheet(ctx: ToolContext, input: { sheetId: string; number?: string | null; title?: string | null }) {
+  const sheet = await requireSheet(ctx, input.sheetId);
+  if (input.number === undefined && input.title === undefined) throw new ToolError("Give a new number, a new title, or both.");
+  const before = { number: sheet.number, title: sheet.title };
+  const updated = await db.sheet.update({
+    where: { id: sheet.id },
+    data: {
+      ...(input.number !== undefined && { number: input.number?.trim().slice(0, 40) || null }),
+      ...(input.title !== undefined && { title: input.title?.trim().slice(0, 200) || null }),
+    },
+  });
+  return {
+    sheetId: sheet.id,
+    before: sheetName({ ...sheet, ...before }),
+    after: sheetName(updated),
+    previous: before,
+    projectId: sheet.drawingSet.projectId,
+  };
+}

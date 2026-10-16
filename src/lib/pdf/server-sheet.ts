@@ -2,7 +2,8 @@ import "server-only";
 import path from "node:path";
 import { getDownloadUrl } from "@/lib/aps/oss";
 import { groupLines, type SheetLine } from "@/lib/review/lines";
-import { pageTextPieces } from "./text-pieces";
+import { guessSheetNumber } from "@/lib/sheets/sheet-number";
+import { pagePlacedText, pageTextPieces } from "./text-pieces";
 
 // Reads one sheet of a stored drawing set on the server (for connector tools): its text as
 // numbered lines with positions, and optionally a JPEG of the page. pdf.js fetches only the
@@ -14,10 +15,10 @@ type PdfJs = typeof import("pdfjs-dist/legacy/build/pdf.mjs");
 let pdfjs: Promise<PdfJs> | undefined;
 const loadPdfjs = () => (pdfjs ??= import("pdfjs-dist/legacy/build/pdf.mjs"));
 
-export async function readStoredSheet(objectKey: string, pageIndex: number, opts: { image: boolean }) {
+async function openStored(objectKey: string) {
   const lib = await loadPdfjs();
   const { url } = await getDownloadUrl(objectKey, 15);
-  const doc = await lib.getDocument({
+  return lib.getDocument({
     url,
     rangeChunkSize: 256 * 1024,
     disableAutoFetch: true,
@@ -25,6 +26,27 @@ export async function readStoredSheet(objectKey: string, pageIndex: number, opts
     // Metrics for the 14 standard PDF fonts, which drawings often use without embedding.
     standardFontDataUrl: path.join(process.cwd(), "node_modules/pdfjs-dist/standard_fonts/"),
   }).promise;
+}
+
+/** Sheet numbers detected from each page's title block, in page order (null where none). */
+export async function detectStoredSheetNumbers(objectKey: string) {
+  const doc = await openStored(objectKey);
+  try {
+    const numbers: (string | null)[] = [];
+    for (let n = 1; n <= doc.numPages; n++) {
+      const page = await doc.getPage(n);
+      const { items, width, height } = await pagePlacedText(page);
+      numbers.push(guessSheetNumber(items, width, height));
+      page.cleanup();
+    }
+    return numbers;
+  } finally {
+    await doc.loadingTask.destroy();
+  }
+}
+
+export async function readStoredSheet(objectKey: string, pageIndex: number, opts: { image: boolean }) {
+  const doc = await openStored(objectKey);
   try {
     const page = await doc.getPage(pageIndex + 1);
     const lines: SheetLine[] = groupLines(await pageTextPieces(page));

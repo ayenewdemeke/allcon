@@ -3,11 +3,15 @@ import { Layers } from "lucide-react";
 import { PageBody, PageHeader } from "@/components/shell/page-header";
 import { DeleteDrawingSetButton } from "@/components/sheets/delete-drawing-set-button";
 import { DrawingUploader } from "@/components/sheets/drawing-uploader";
+import { FixSheetNumbersButton } from "@/components/sheets/fix-sheet-numbers-dialog";
 import { SheetThumbnail } from "@/components/sheets/sheet-thumbnail";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { db } from "@/lib/db";
 import { requireProject } from "@/lib/auth/session";
+
+// "Fix sheet numbers" re-reads every page's title block on the server.
+export const maxDuration = 120;
 
 function formatSize(bytes: bigint) {
   const mb = Number(bytes) / 1024 / 1024;
@@ -63,7 +67,8 @@ export default async function SheetsPage({ params }: PageProps<"/projects/[proje
                   {set.status === "failed" ? "Upload failed" : "Uploading"}
                 </Badge>
               )}
-              <div className="ml-auto">
+              <div className="ml-auto flex items-center">
+                {set.status === "ready" && <FixSheetNumbersButton drawingSetId={set.id} fileName={set.fileName} />}
                 <DeleteDrawingSetButton drawingSetId={set.id} fileName={set.fileName} sheetCount={set.sheets.length} />
               </div>
             </div>

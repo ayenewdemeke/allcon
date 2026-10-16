@@ -60,7 +60,7 @@ export function UndoButton({ activityId }: { activityId: string }) {
         setBusy(true);
         try {
           await undoActivity(activityId);
-          toast.success("Removed those markups");
+          toast.success("Undone");
         } catch {
           toast.error("Could not undo that");
           setBusy(false);
