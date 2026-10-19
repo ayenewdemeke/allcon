@@ -374,11 +374,14 @@ async function spatialTree(model: FRAGS.FragmentsModel): Promise<TreeNode[]> {
   }
   // The structure alternates kinds and items (IFCSITE → site #15 → IFCBUILDING → …). Spatial
   // items (site, building, levels) are listed directly; elements are grouped by kind.
+  const byName = new Intl.Collator("en", { numeric: true, sensitivity: "base" });
   const group = (node: FRAGS.SpatialTreeItem, parent: string, inherited = "ITEM"): TreeNode[] => {
     if (node.localId !== null) return [item(node, inherited)];
     const category = (node.category ?? inherited).toUpperCase();
     const items = (node.children ?? []).flatMap((child) => group(child, parent, category));
     if (SPATIAL_CATEGORIES.has(category)) return items;
+    // Within a kind, by name ("Rung 2" before "Rung 10"), so like parts sit together.
+    items.sort((x, y) => byName.compare(x.name, y.name));
     return [{ key: `${parent}/${category}`, localId: null, category, name: `${categoryName(category)} (${items.length})`, children: items }];
   };
   const item = (node: FRAGS.SpatialTreeItem, inherited: string): TreeNode => {
@@ -390,8 +393,11 @@ async function spatialTree(model: FRAGS.FragmentsModel): Promise<TreeNode[]> {
       localId,
       category,
       name: names.get(localId) ?? `${categoryName(category)} #${localId}`,
-      children: (node.children ?? []).flatMap((child) => group(child, key)),
+      children: (node.children ?? []).flatMap((child) => group(child, key)).sort(kindsFirst),
     };
   };
+  // Under a level: its rooms and kinds of element alphabetically, after any nested levels.
+  const kindsFirst = (x: TreeNode, y: TreeNode) =>
+    Number(x.localId === null) - Number(y.localId === null) || (x.localId === null && y.localId === null ? byName.compare(x.name, y.name) : 0);
   return group(root, "");
 }

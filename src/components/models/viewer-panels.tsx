@@ -2,19 +2,39 @@
 
 import { useMemo, useState } from "react";
 import {
+  AirVent,
+  AppWindow,
+  Armchair,
   Box,
+  BrickWall,
   Building2,
   ChevronDown,
   ChevronRight,
+  Columns3,
+  Cylinder,
   DoorOpen,
+  Droplet,
   Eye,
   EyeOff,
+  Fan,
+  Fence,
   FolderOpen,
+  Footprints,
   Layers,
+  Lightbulb,
   MapPin,
-  Minus,
+  PanelTop,
+  Plug,
+  RectangleHorizontal,
+  Rows3,
   Search,
+  Shapes,
+  Signpost,
+  Slash,
   Square,
+  SquareDashed,
+  Toilet,
+  Wrench,
   X,
 } from "lucide-react";
 import type { TreeNode } from "@/components/models/model-canvas";
@@ -113,14 +133,34 @@ const TYPE_ICONS: Record<string, React.ComponentType<{ className?: string }>> = 
   IFCBRIDGE: Building2,
   IFCBUILDINGSTOREY: Layers,
   IFCBRIDGEPART: Layers,
-  IFCWALL: Square,
-  IFCWALLSTANDARDCASE: Square,
-  IFCSLAB: Minus,
-  IFCBEAM: Minus,
-  IFCMEMBER: Minus,
+  IFCSPACE: SquareDashed,
+  IFCWALL: BrickWall,
+  IFCWALLSTANDARDCASE: BrickWall,
+  IFCSLAB: RectangleHorizontal,
+  IFCROOF: PanelTop,
+  IFCCOVERING: Rows3,
+  IFCBEAM: Slash,
+  IFCMEMBER: Slash,
+  IFCCOLUMN: Cylinder,
+  IFCPILE: Cylinder,
+  IFCPLATE: Square,
+  IFCCURTAINWALL: Columns3,
   IFCDOOR: DoorOpen,
-  IFCWINDOW: Square,
-  IFCSPACE: Box,
+  IFCWINDOW: AppWindow,
+  IFCSTAIR: Footprints,
+  IFCSTAIRFLIGHT: Footprints,
+  IFCRAILING: Fence,
+  IFCFURNITURE: Armchair,
+  IFCFURNISHINGELEMENT: Armchair,
+  IFCLIGHTFIXTURE: Lightbulb,
+  IFCAIRTERMINAL: AirVent,
+  IFCUNITARYEQUIPMENT: Fan,
+  IFCSANITARYTERMINAL: Toilet,
+  IFCWASTETERMINAL: Droplet,
+  IFCOUTLET: Plug,
+  IFCVALVE: Wrench,
+  IFCSIGN: Signpost,
+  IFCBUILDINGELEMENTPROXY: Shapes,
 };
 
 /** Element ids at and under a node. */
@@ -173,7 +213,7 @@ export function ModelBrowser({
         </span>
       }
       onClose={onClose}
-      className="top-3 left-3 w-72 max-sm:right-3 max-sm:w-auto"
+      className="top-3 left-3 w-80 max-sm:right-3 max-sm:w-auto"
     >
       <div className="sticky top-0 z-10 border-b bg-background/95 px-3 py-2">
         <div className="relative">
