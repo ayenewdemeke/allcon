@@ -37,6 +37,7 @@ model User {
   uploads       ModelVersion[]
   drawingSets   DrawingSet[]
   shareLinks    ShareLink[]
+  modelShares   ModelShareLink[]
   markups       Markup[]
   rules         MappingRule[]
   references    Reference[]
@@ -741,6 +742,7 @@ model IfcModel {
   project        Project            @relation(fields: [projectId], references: [id], onDelete: Cascade)
   revisions      IfcModelRevision[]
   viewCache      IfcModelViewCache?
+  shareLinks     ModelShareLink[]
 
   @@index([projectId])
   @@map("ifc_model")
@@ -771,4 +773,24 @@ model IfcModelViewCache {
   model     IfcModel @relation(fields: [modelId], references: [id], onDelete: Cascade)
 
   @@map("ifc_model_view_cache")
+}
+
+// Read-only links to a 3D model for people without an account. A link always shows the
+// model's latest revision.
+model ModelShareLink {
+  id            String    @id @default(uuid()) @db.Uuid
+  token         String    @unique
+  modelId       String    @map("model_id") @db.Uuid
+  allowDownload Boolean   @default(false) @map("allow_download") // the IFC file, not just the viewer
+  expiresAt     DateTime? @map("expires_at") // null = no expiry; revoke to stop it
+  revokedAt     DateTime? @map("revoked_at")
+  viewCount     Int       @default(0) @map("view_count")
+  lastViewedAt  DateTime? @map("last_viewed_at")
+  createdById   String?   @map("created_by") @db.Uuid
+  createdAt     DateTime  @default(now()) @map("created_at")
+  model         IfcModel  @relation(fields: [modelId], references: [id], onDelete: Cascade)
+  createdBy     User?     @relation(fields: [createdById], references: [id], onDelete: SetNull)
+
+  @@index([modelId])
+  @@map("model_share_link")
 }

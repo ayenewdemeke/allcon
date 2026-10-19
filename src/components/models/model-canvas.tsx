@@ -29,8 +29,12 @@ export type ModelCanvasHandle = {
 type Props = {
   modelId: string;
   revision: number;
-  /** Whether a converted copy of this revision is saved (skips reading the IFC). */
-  cached: boolean;
+  /** The model's IFC. */
+  ifcUrl: string;
+  /** Its saved conversion for the viewer, when there is one (skips reading the IFC). */
+  viewUrl: string | null;
+  /** Where to save the conversion after reading the IFC (PUT), or null to not save it. */
+  saveUrl: string | null;
   tool: "select" | "measure";
   onLoaded: (tree: TreeNode[]) => void;
   onProgress: (percent: number) => void;
@@ -64,7 +68,7 @@ const ModelCanvas = forwardRef<ModelCanvasHandle, Props>(function ModelCanvas(pr
     clearMeasure: () => handle.current?.clearMeasure(),
   }));
 
-  const { modelId, revision, cached } = props;
+  const { modelId, revision, ifcUrl, viewUrl, saveUrl } = props;
 
   useEffect(() => {
     const el = stage.current;
@@ -279,10 +283,10 @@ const ModelCanvas = forwardRef<ModelCanvasHandle, Props>(function ModelCanvas(pr
 
     (async () => {
       try {
-        if (cached) {
+        if (viewUrl) {
           try {
             report(20);
-            const buffer = await fetchOk(`/api/ifc-models/${modelId}/view`);
+            const buffer = await fetchOk(viewUrl);
             report(60);
             model = await fragments.core.load(buffer, { modelId: name, camera: world.camera.three });
           } catch {
@@ -294,7 +298,7 @@ const ModelCanvas = forwardRef<ModelCanvasHandle, Props>(function ModelCanvas(pr
           report(5);
           const loader = components.get(OBC.IfcLoader);
           await loader.setup({ autoSetWasm: false, wasm: { path: `${window.location.origin}/wasm/`, absolute: true } });
-          const ifc = await fetchOk(`/api/ifc-models/${modelId}/ifc`);
+          const ifc = await fetchOk(ifcUrl);
           if (disposed) return;
           report(25);
           model = await loader.load(ifc, true, name, {
@@ -302,14 +306,11 @@ const ModelCanvas = forwardRef<ModelCanvasHandle, Props>(function ModelCanvas(pr
             instanceCallback: (importer) => importer.classes.elements.add(IFCSPACE), // rooms, drawn see-through
           });
           // Save the conversion so the next view of this revision skips the IFC.
-          const saved = model.getBuffer(false);
-          saved
-            .then((buffer) =>
-              buffer.byteLength <= MAX_VIEW_CACHE_BYTES
-                ? fetch(`/api/ifc-models/${modelId}/view?revision=${revision}`, { method: "PUT", body: buffer })
-                : null,
-            )
-            .catch(() => {});
+          if (saveUrl)
+            model
+              .getBuffer(false)
+              .then((buffer) => (buffer.byteLength <= MAX_VIEW_CACHE_BYTES ? fetch(saveUrl, { method: "PUT", body: buffer }) : null))
+              .catch(() => {});
         }
         if (disposed) return;
         report(92);
@@ -340,7 +341,7 @@ const ModelCanvas = forwardRef<ModelCanvasHandle, Props>(function ModelCanvas(pr
       clearMeasure();
       components.dispose();
     };
-  }, [modelId, revision, cached]);
+  }, [modelId, revision, ifcUrl, viewUrl, saveUrl]);
 
   return <div ref={stage} className="absolute inset-0" />;
 });
@@ -364,7 +365,8 @@ async function spatialTree(model: FRAGS.FragmentsModel): Promise<TreeNode[]> {
         const a = (d as Item)[key] as { value?: unknown } | undefined;
         return a?.value ? String(a.value) : null;
       };
-      const name = value("LongName") ?? value("Name");
+      // Rooms: Name is the number, LongName the room name ("101 · Sales").
+      const name = [...new Set([value("Name"), value("LongName")].filter(Boolean))].join(" · ") || null;
       if (name) names.set(ids[i], name);
     });
   } catch {

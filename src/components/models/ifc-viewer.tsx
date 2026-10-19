@@ -2,10 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import dynamic from "next/dynamic";
-import { useRouter } from "next/navigation";
-import { AlertCircle, ArrowLeft, Box, ClipboardList, Download, Info, ListTree, Loader2, Maximize, Maximize2, Minimize, Ruler, Trash2 } from "lucide-react";
-import { toast } from "sonner";
-import { deleteIfcModel } from "@/app/actions/models3d";
+import { AlertCircle, ArrowLeft, Box, ClipboardList, Info, ListTree, Loader2, Maximize, Maximize2, Minimize, Ruler } from "lucide-react";
 import type { ModelCanvasHandle, TreeNode } from "@/components/models/model-canvas";
 import { OrientationCube } from "@/components/models/orientation-cube";
 import { FloatingPanel, ModelBrowser, PropertiesPanel, Rows, Section } from "@/components/models/viewer-panels";
@@ -46,22 +43,39 @@ function distance(m: number, units: string) {
   return units === "mm" ? `${num(m * 1000, 0)} mm` : `${num(m, 3)} m`;
 }
 
+export type ModelSource = {
+  ifc: string;
+  /** The saved conversion for the viewer, when there is one. */
+  view: string | null;
+  /** Where to save the conversion after reading the IFC, or null. */
+  save: string | null;
+};
+
 export function IfcViewer({
-  projectId,
   model,
   summary,
+  source,
+  backHref,
+  actions,
+  subtitle,
+  shared = false,
 }: {
-  projectId: string;
-  model: { id: string; name: string; description: string | null; revision: number; updated: string; detailed?: boolean; cached: boolean };
+  model: { id: string; name: string; description: string | null; revision: number; updated: string; detailed?: boolean };
   summary: ModelSummary;
+  source: ModelSource;
+  backHref?: string;
+  /** Header buttons (share, download, delete for the owner). */
+  actions?: React.ReactNode;
+  subtitle?: React.ReactNode;
+  /** Viewed through a share link: read-only, no notes about editing. */
+  shared?: boolean;
 }) {
-  const router = useRouter();
   const frame = useRef<HTMLDivElement>(null);
   const canvas = useRef<ModelCanvasHandle>(null);
   const [progress, setProgress] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [tree, setTree] = useState<TreeNode[] | null>(null);
-  const [left, setLeft] = useState<LeftPanel>("details");
+  const [left, setLeft] = useState<LeftPanel>(null);
   const [showProps, setShowProps] = useState(false);
   const [selected, setSelected] = useState<{ id: number | null; details: ElementDetails | null }>({ id: null, details: null });
   const [hidden, setHidden] = useState<Set<number>>(new Set());
@@ -98,38 +112,28 @@ export function IfcViewer({
     setTool(tool === "measure" ? "select" : "measure");
   };
 
-  const remove = async () => {
-    if (!window.confirm(`Delete "${model.name}" and its revisions?`)) return;
-    try {
-      await deleteIfcModel(model.id);
-      router.push(`/projects/${projectId}/models`);
-    } catch {
-      toast.error("Could not delete the model");
-    }
-  };
-
   return (
     <div className="flex min-h-0 flex-1 flex-col lg:h-[calc(100svh-3.5rem)] lg:flex-none">
       <header className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-b px-3 py-2">
         <div className="flex min-w-0 items-center gap-2">
-          <LinkButton href={`/projects/${projectId}/models`} variant="ghost" size="icon-sm" aria-label="Back to models">
-            <ArrowLeft />
-          </LinkButton>
-          <h1 className="truncate text-base font-semibold">{model.name}</h1>
-          <Badge variant="outline">IFC</Badge>
-          <Badge variant="secondary" title={`Updated ${model.updated}`}>
-            r{model.revision}
-          </Badge>
-          {model.detailed && <Badge variant="info">Detailed</Badge>}
+          {backHref && (
+            <LinkButton href={backHref} variant="ghost" size="icon-sm" aria-label="Back to models">
+              <ArrowLeft />
+            </LinkButton>
+          )}
+          <div className="min-w-0">
+            <div className="flex min-w-0 items-center gap-2">
+              <h1 className="truncate text-base font-semibold">{model.name}</h1>
+              <Badge variant="outline">IFC</Badge>
+              <Badge variant="secondary" title={`Updated ${model.updated}`}>
+                r{model.revision}
+              </Badge>
+              {model.detailed && <Badge variant="info">Detailed</Badge>}
+            </div>
+            {subtitle && <p className="truncate text-xs text-muted-foreground">{subtitle}</p>}
+          </div>
         </div>
-        <div className="flex items-center gap-1">
-          <LinkButton href={`/api/ifc-models/${model.id}/ifc?download=1`} variant="outline" size="sm" prefetch={false}>
-            <Download /> Download IFC
-          </LinkButton>
-          <Button variant="ghost" size="icon-sm" className="text-destructive hover:text-destructive" onClick={remove} title="Delete model" aria-label="Delete model">
-            <Trash2 />
-          </Button>
-        </div>
+        {actions && <div className="flex items-center gap-1">{actions}</div>}
       </header>
 
       <div ref={frame} className="relative min-h-[70svh] flex-1 overflow-hidden bg-gradient-to-b from-muted/70 to-background lg:min-h-0">
@@ -137,12 +141,11 @@ export function IfcViewer({
           ref={canvas}
           modelId={model.id}
           revision={model.revision}
-          cached={model.cached}
+          ifcUrl={source.ifc}
+          viewUrl={source.view}
+          saveUrl={source.save}
           tool={tool}
-          onLoaded={(t) => {
-            setTree(t);
-            if (window.innerWidth < 640) setLeft(null); // panels would cover the model on a phone
-          }}
+          onLoaded={setTree}
           onProgress={setProgress}
           onError={setError}
           onSelect={(id, details) => {
@@ -211,7 +214,7 @@ export function IfcViewer({
             onClose={() => setLeft(null)}
           />
         )}
-        {ready && left === "details" && <ModelDetails model={model} summary={summary} onClose={() => setLeft(null)} />}
+        {ready && left === "details" && <ModelDetails model={model} summary={summary} shared={shared} onClose={() => setLeft(null)} />}
         {ready && showProps && <PropertiesPanel element={selected.details} onClose={() => setShowProps(false)} />}
 
         {ready && tool === "measure" && (
@@ -241,8 +244,27 @@ function Tool({ icon: Icon, title, active, onClick }: { icon: React.ComponentTyp
   );
 }
 
-/** What the model holds, in collapsible sections: overview, elements by kind, rooms, materials, checks. */
-function ModelDetails({ model, summary, onClose }: { model: { description: string | null; revision: number; updated: string; detailed?: boolean }; summary: ModelSummary; onClose: () => void }) {
+/** A model description as a lead sentence and a list of the rest, one point per sentence. */
+function splitDescription(text: string) {
+  const sentences = text
+    .split(/\n+|(?<=[.!?])\s+(?=[A-Z0-9])/)
+    .map((t) => t.trim())
+    .filter(Boolean);
+  return { lead: sentences[0] ?? "", points: sentences.slice(1) };
+}
+
+/** What the model holds, in collapsible sections: about, overview, elements by kind, rooms, materials, checks. */
+function ModelDetails({
+  model,
+  summary,
+  shared,
+  onClose,
+}: {
+  model: { description: string | null; revision: number; updated: string; detailed?: boolean };
+  summary: ModelSummary;
+  shared: boolean;
+  onClose: () => void;
+}) {
   const size = summary.extents?.size.map((n) => num(n)).join(" × ");
   const overview: Row[] = [
     { label: "Revision", value: `${model.revision} · ${model.updated}` },
@@ -251,14 +273,27 @@ function ModelDetails({ model, summary, onClose }: { model: { description: strin
   if (summary.totalVolumeM3) overview.push({ label: "Total volume", value: `${num(summary.totalVolumeM3)} m³` });
   if (size) overview.push({ label: "Overall size", value: `${size} ${summary.units}` });
   if (summary.rooms.length) overview.push({ label: "Room area", value: `${num(summary.totalRoomAreaM2)} m²` });
+  const about = model.description ? splitDescription(model.description) : null;
 
   return (
     <FloatingPanel title="Model details" onClose={onClose} className="top-3 left-3 w-80 max-sm:right-3 max-sm:w-auto">
       <div className="space-y-3 p-3">
-        {model.description && <p className="text-xs whitespace-pre-line text-muted-foreground">{model.description}</p>}
+        {about && <p className="text-sm leading-snug">{about.lead}</p>}
         <Section name="Overview" defaultOpen>
           <Rows rows={overview} />
         </Section>
+        {about && about.points.length > 0 && (
+          <Section name="Scope and assumptions" count={about.points.length}>
+            <ul className="space-y-1.5 py-0.5 text-xs leading-snug">
+              {about.points.map((p, i) => (
+                <li key={i} className="flex gap-1.5">
+                  <span className="mt-1.5 size-1 shrink-0 rounded-full bg-muted-foreground/60" />
+                  <span>{p}</span>
+                </li>
+              ))}
+            </ul>
+          </Section>
+        )}
         {summary.byType.length > 0 && (
           <Section name={model.detailed ? "IFC classes" : "Elements by kind"} count={summary.byType.length}>
             <Rows
@@ -295,7 +330,9 @@ function ModelDetails({ model, summary, onClose }: { model: { description: strin
         )}
         <p className={cn("flex gap-1.5 border-t pt-2 text-[11px] leading-snug text-muted-foreground")}>
           <Box className="mt-0.5 size-3 shrink-0" />
-          Built by an AI app from the drawings: check key dimensions before relying on it. Ask the app to change it, or undo a change from Connections.
+          {shared
+            ? "Built by an AI app from the drawings: check key dimensions before relying on it."
+            : "Built by an AI app from the drawings: check key dimensions before relying on it. Ask the app to change it, or undo a change from Connections."}
         </p>
       </div>
     </FloatingPanel>
