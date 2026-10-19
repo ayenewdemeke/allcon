@@ -9,4 +9,5 @@ if [ "$VERCEL_ENV" = "production" ]; then
 else
   echo "Skipping migrations (VERCEL_ENV=${VERCEL_ENV:-local})"
 fi
+node scripts/copy-ifc-assets.mjs
 npx next build
