@@ -84,7 +84,25 @@ const ModelCanvas = forwardRef<ModelCanvasHandle, Props>(function ModelCanvas(pr
     const fragments = components.get(OBC.FragmentsManager);
     fragments.init(`${window.location.origin}/fragments/worker.mjs`);
     const controls = world.camera.controls;
-    controls.addEventListener("update", redraw);
+    // Clipping planes follow the camera. Depth precision depends on how close the near plane
+    // is, so a fixed tiny one makes thin layers (a roof membrane over insulation) flicker
+    // from a distance. Outside the model's bounding sphere nothing is nearer than its surface,
+    // so the near plane sits just short of it; inside, at 1% of the distance looked at.
+    const bounds = new THREE.Sphere(new THREE.Vector3(), 10);
+    const clip = () => {
+      const camera = world.camera.three as THREE.PerspectiveCamera;
+      const toCenter = camera.position.distanceTo(bounds.center);
+      const near = Math.max((toCenter - bounds.radius) * 0.9, controls.distance / 100, 0.01);
+      const far = toCenter + bounds.radius * 2 + 1;
+      if (camera.near === near && camera.far === far) return;
+      camera.near = near;
+      camera.far = far;
+      camera.updateProjectionMatrix();
+    };
+    controls.addEventListener("update", () => {
+      clip();
+      redraw();
+    });
     controls.addEventListener("rest", () => fragments.core.update(true).then(redraw));
     fragments.list.onItemSet.add(({ value }) => {
       value.useCamera(world.camera.three);
@@ -299,11 +317,8 @@ const ModelCanvas = forwardRef<ModelCanvasHandle, Props>(function ModelCanvas(pr
         spaces = new Set(Object.values(await model.getItemsOfCategories([/^IFCSPACE$/])).flat());
         if (spaces.size) await model.setOpacity([...spaces], 0.15);
 
-        const size = box().getSize(new THREE.Vector3()).length() || 10;
-        const camera = world.camera.three as THREE.PerspectiveCamera;
-        camera.near = Math.max(size / 2000, 0.01);
-        camera.far = size * 50;
-        camera.updateProjectionMatrix();
+        if (!box().isEmpty()) box().getBoundingSphere(bounds);
+        controls.maxDistance = Math.max(bounds.radius * 20, 50); // zooming out never loses the model
         lookFrom(ISO);
         controls.update(0);
 
