@@ -133,6 +133,12 @@ export function compileIfc(spec: ModelSpec, opts: { modelId: string; name: strin
   const body = add("IFCGEOMETRICREPRESENTATIONSUBCONTEXT", str("Body"), str("Model"), "*", "*", "*", "*", ref(context), "$", enumv("MODEL_VIEW"), "$");
   const project = add("IFCPROJECT", guid("project"), "$", str(opts.name), str("Created with conkit"), "$", "$", "$", list([ref(context)]), ref(units));
   const placement = add("IFCLOCALPLACEMENT", "$", ref(world));
+  if (spec.lod) {
+    // The model's target LOD, where IFC tools (and conkit's detailed models) can read it.
+    const target = add("IFCPROPERTYSINGLEVALUE", str("TargetLOD"), "$", `IFCLABEL(${str(spec.lod)})`, "$");
+    const pset = add("IFCPROPERTYSET", guid("pset:project"), "$", str("Pset_Conkit"), "$", list([ref(target)]));
+    add("IFCRELDEFINESBYPROPERTIES", guid("relp:project"), "$", "$", "$", list([ref(project)]), ref(pset));
+  }
 
   const site = add("IFCSITE", guid("site"), "$", str("Site"), "$", "$", ref(placement), "$", "$", enumv("ELEMENT"), "$", "$", "$", "$", "$");
   const facility =
@@ -217,6 +223,8 @@ export function compileIfc(spec: ModelSpec, opts: { modelId: string; name: strin
       ["ConkitId", e.id],
       ["SourceSheet", e.sheet],
       ["Notes", e.notes],
+      ["LOD", e.lod],
+      ["Basis", e.basis],
     ]
       .filter(([, v]) => v)
       .map(([k, v]) => add("IFCPROPERTYSINGLEVALUE", str(k), "$", `IFCLABEL(${str(v)})`, "$"));
@@ -271,7 +279,7 @@ export function compileIfc(spec: ModelSpec, opts: { modelId: string; name: strin
     add("IFCRELFILLSELEMENT", guid(`relf:${o.id}`), "$", "$", "$", ref(opening), ref(filler));
     contained.set(hostIds.where, [...(contained.get(hostIds.where) ?? []), filler]);
     if (material) byMaterial.set(material.id, [...(byMaterial.get(material.id) ?? []), filler]);
-    const props = [["Mark", o.mark], ["ConkitId", o.id], ["SourceSheet", o.sheet], ["Notes", o.notes]]
+    const props = [["Mark", o.mark], ["ConkitId", o.id], ["SourceSheet", o.sheet], ["Notes", o.notes], ["LOD", o.lod], ["Basis", o.basis]]
       .filter(([, v]) => v)
       .map(([k, v]) => add("IFCPROPERTYSINGLEVALUE", str(k), "$", `IFCLABEL(${str(v)})`, "$"));
     const pset = add("IFCPROPERTYSET", guid(`pset:op:${o.id}`), "$", str("Pset_Conkit"), "$", list(props.map(ref)));
@@ -302,6 +310,11 @@ export function compileIfc(spec: ModelSpec, opts: { modelId: string; name: strin
     const qHeight = add("IFCQUANTITYLENGTH", str("Height"), "$", "$", real(sp.height), "$");
     const qto = add("IFCELEMENTQUANTITY", guid(`qto:sp:${sp.id}`), "$", str("Qto_SpaceBaseQuantities"), "$", "$", list([ref(qArea), ref(qHeight)]));
     add("IFCRELDEFINESBYPROPERTIES", guid(`relq:sp:${sp.id}`), "$", "$", "$", list([ref(space)]), ref(qto));
+    const spProps = [["ConkitId", sp.id], ["SourceSheet", sp.sheet], ["Notes", sp.notes], ["LOD", sp.lod], ["Basis", sp.basis]]
+      .filter(([, v]) => v)
+      .map(([k, v]) => add("IFCPROPERTYSINGLEVALUE", str(k), "$", `IFCLABEL(${str(v)})`, "$"));
+    const spPset = add("IFCPROPERTYSET", guid(`pset:sp:${sp.id}`), "$", str("Pset_Conkit"), "$", list(spProps.map(ref)));
+    add("IFCRELDEFINESBYPROPERTIES", guid(`relp:sp:${sp.id}`), "$", "$", "$", list([ref(space)]), ref(spPset));
   }
   for (const [parent, spaces] of spacesBy) {
     add("IFCRELAGGREGATES", guid(`rela:sp:${parent}`), "$", "$", "$", ref(parent), list(spaces.map(ref)));

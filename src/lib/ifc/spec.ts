@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { BASES, LOD_LEVELS } from "./lod";
 
 // The model format an AI app fills in from drawings, which conkit compiles to IFC. Every
 // element is a cross-section profile swept along a path of straight segments, which covers
@@ -95,6 +96,8 @@ export const elementSchema = z.object({
     ),
   sheet: z.string().max(40).optional().describe("Sheet the element was read from, e.g. B20"),
   notes: z.string().max(500).optional().describe("Assumptions made for this element"),
+  lod: z.enum(LOD_LEVELS).optional().describe("Level of development this element reaches (see the target LOD)"),
+  basis: z.enum(BASES).optional().describe("Where its size and position came from: dimensioned (read from dimensions or schedules), scaled (measured off the drawing) or assumed. Scaled or assumed is at most LOD 200"),
 });
 
 /** A door, window or plain opening cut into a host wall. */
@@ -111,6 +114,8 @@ export const openingSchema = z.object({
   material: id.optional(),
   sheet: z.string().max(40).optional(),
   notes: z.string().max(500).optional(),
+  lod: z.enum(LOD_LEVELS).optional().describe("Level of development this element reaches (see the target LOD)"),
+  basis: z.enum(BASES).optional().describe("Where its size and position came from: dimensioned (read from dimensions or schedules), scaled (measured off the drawing) or assumed. Scaled or assumed is at most LOD 200"),
 });
 
 /** A room: its floor outline extruded up to its height. */
@@ -124,6 +129,8 @@ export const spaceSchema = z.object({
   height: len.describe("Floor to ceiling"),
   sheet: z.string().max(40).optional(),
   notes: z.string().max(500).optional(),
+  lod: z.enum(LOD_LEVELS).optional().describe("Level of development this element reaches (see the target LOD)"),
+  basis: z.enum(BASES).optional().describe("Where its size and position came from: dimensioned (read from dimensions or schedules), scaled (measured off the drawing) or assumed. Scaled or assumed is at most LOD 200"),
 });
 
 const levelsSchema = z
@@ -138,6 +145,7 @@ const facilitySchema = z.enum(["building", "bridge", "site", "other"]);
 export const modelSpecSchema = z.object({
   units: z.enum(UNITS),
   facility: facilitySchema.default("building"),
+  lod: z.enum(LOD_LEVELS).optional().describe("Target level of development for the model"),
   levels: levelsSchema.default([]),
   materials: materialsSchema.default([]),
   elements: z.array(elementSchema).max(20_000),
@@ -164,6 +172,7 @@ export const modelPatchSchema = z.object({
   materials: materialsSchema.optional().describe("Replaces all materials when given"),
   units: z.enum(UNITS).optional(),
   facility: facilitySchema.optional(),
+  lod: z.enum(LOD_LEVELS).optional(),
 });
 export type ModelPatch = z.infer<typeof modelPatchSchema>;
 
@@ -180,6 +189,7 @@ export function applyPatch(spec: ModelSpec, patch: ModelPatch): ModelSpec {
   return {
     units: patch.units ?? spec.units,
     facility: patch.facility ?? spec.facility,
+    lod: patch.lod ?? spec.lod,
     levels: patch.levels ?? spec.levels,
     materials: patch.materials ?? spec.materials,
     elements: merge(spec.elements, patch.upsert_elements, patch.remove_element_ids),

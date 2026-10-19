@@ -10,6 +10,7 @@ Deployed as a Vercel Python function at /api/ifc. Locally: python api/ifc.py (po
 """
 
 import base64
+import collections
 import gzip
 import hashlib
 import hmac
@@ -17,6 +18,7 @@ import importlib
 import inspect
 import json
 import os
+import re
 import time
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
@@ -27,11 +29,13 @@ import ifcopenshell.api.attribute
 import ifcopenshell.api.context
 import ifcopenshell.api.geometry
 import ifcopenshell.api.project
+import ifcopenshell.api.pset
 import ifcopenshell.api.root
 import ifcopenshell.api.unit
 import ifcopenshell.util.element
 import ifcopenshell.util.placement
 import ifcopenshell.util.selector
+import ifcopenshell.util.unit
 import numpy
 
 # Modules an AI app may call. Left out: anything that reads or writes files or other
@@ -151,17 +155,132 @@ def run_operations(model, operations):
 # --- reading ----------------------------------------------------------------------------
 
 
+LOD_LEVELS = ("100", "200", "300", "350")
+# Classes whose many same-named pieces are usually parts of something bigger.
+GROUPABLE = {"IfcMember", "IfcPlate", "IfcSlab", "IfcCovering", "IfcFurniture", "IfcFurnishingElement", "IfcBuildingElementPart", "IfcBuildingElementProxy"}
+CEILING_NAME = re.compile(r"ceiling|soffit|bulkhead", re.IGNORECASE)
+MAX_LOD_FOR_BASIS = {"dimensioned": "350", "scaled": "200", "assumed": "200"}
+# Classes IFC4 and later deprecate, with what to use instead.
+DEPRECATED = {
+    "IfcFurnishingElement": "IfcFurniture (or another specific class)",
+    "IfcWallStandardCase": "IfcWall",
+    "IfcSlabStandardCase": "IfcSlab",
+    "IfcBeamStandardCase": "IfcBeam",
+    "IfcColumnStandardCase": "IfcColumn",
+    "IfcMemberStandardCase": "IfcMember",
+    "IfcPlateStandardCase": "IfcPlate",
+    "IfcDoorStandardCase": "IfcDoor",
+    "IfcWindowStandardCase": "IfcWindow",
+    "IfcOpeningStandardCase": "IfcOpeningElement",
+}
+
+
+def plural(n, one, many=None):
+    return f"{n} {one if n == 1 else (many or one + 's')}"
+
+
+def organization_warnings(model, elements):
+    """How well the model is organized: what makes it hard to browse or to use in other tools."""
+    warnings = []
+    scale = ifcopenshell.util.unit.calculate_unit_scale(model)  # model length unit -> metres
+    storeys = sorted(
+        (s for s in model.by_type("IfcBuildingStorey") if s.Elevation is not None), key=lambda s: s.Elevation
+    )
+    for storey in model.by_type("IfcBuildingStorey"):
+        if CEILING_NAME.search(storey.Name or ""):
+            warnings.append(
+                f"Storey '{storey.Name}' looks like a ceiling, not a floor: storeys are floors people stand on; "
+                "contain ceilings in the floor below, at their height"
+            )
+    for low, high in zip(storeys, storeys[1:]):
+        gap = (high.Elevation - low.Elevation) * scale
+        if 0 < gap < 2 and not (CEILING_NAME.search(low.Name or "") or CEILING_NAME.search(high.Name or "")):
+            warnings.append(
+                f"Storeys '{low.Name}' and '{high.Name}' are only {round(high.Elevation - low.Elevation, 2)} apart: "
+                "storeys are floors people stand on; contain ceilings and similar in the floor below"
+            )
+    proxies = [e for e in elements if e.is_a("IfcBuildingElementProxy")]
+    if proxies:
+        warnings.append(f"{plural(len(proxies), 'generic proxy element')} (IfcBuildingElementProxy): use a specific class where one fits")
+    for cls, instead in DEPRECATED.items():
+        n = len([e for e in elements if e.is_a() == cls])
+        if n:
+            warnings.append(f"{plural(n, cls)} {'uses' if n == 1 else 'use'} a class IFC deprecates: use {instead}")
+    unnamed = [s for s in model.by_type("IfcSpace") if not getattr(s, "LongName", None)]
+    if unnamed:
+        warnings.append(f"{plural(len(unnamed), 'room')} without a LongName: put the room number in Name and the room name in LongName")
+    loose = [
+        e for e in elements
+        if not ifcopenshell.util.element.get_container(e) and not ifcopenshell.util.element.get_aggregate(e)
+        and not (e.is_a("IfcFeatureElement") or getattr(e, "FillsVoids", None))
+    ]
+    if loose:
+        warnings.append(f"{plural(len(loose), 'element')} not placed in a storey (or part of an assembly): use spatial.assign_container")
+    in_facility = [e for e in elements if (c := ifcopenshell.util.element.get_container(e)) and not c.is_a("IfcBuildingStorey") and not c.is_a("IfcSpace")]
+    if in_facility and storeys:
+        warnings.append(f"{plural(len(in_facility), 'element')} contained in the building or site rather than a storey: put each in its storey")
+    for storey in storeys:
+        if not CEILING_NAME.search(storey.Name or "") and not ifcopenshell.util.element.get_decomposition(storey):
+            warnings.append(f"Storey '{storey.Name}' is empty: remove it, or it's probably a height rather than a floor")
+    # Many loose parts with the same name are usually one assembly in pieces (rack shelves,
+    # roof strips, ladder rungs): grouped under their assembly, the model reads far better.
+    loose_parts = collections.Counter(
+        (e.is_a(), re.sub(r"\d+", "#", e.Name or ""))
+        for e in elements
+        if not ifcopenshell.util.element.get_aggregate(e) and e.is_a() in GROUPABLE
+    )
+    repeated = [(cls, name, n) for (cls, name), n in loose_parts.most_common() if n >= 10]
+    for cls, name, n in repeated[:6]:
+        warnings.append(f"{n} separate {cls} named like '{name}': if they're parts of assemblies, group them under each assembly (aggregate.assign_object)")
+    if len(repeated) > 6:
+        warnings.append(f"{len(repeated) - 6} more groups of 10 or more same-named parts are listed separately")
+    return warnings
+
+
+def lod_summary(model, elements):
+    project = model.by_type("IfcProject")
+    target = None
+    if project:
+        target = (ifcopenshell.util.element.get_psets(project[0]).get("Pset_Conkit") or {}).get("TargetLOD")
+    target = target if target in LOD_LEVELS else None
+    by_level, unset, below, overclaimed = {}, 0, 0, 0
+    for e in elements:
+        pset = ifcopenshell.util.element.get_psets(e).get("Pset_Conkit") or {}
+        lod, basis = str(pset.get("LOD") or ""), pset.get("Basis")
+        if lod not in LOD_LEVELS:
+            unset += 1
+            continue
+        by_level[lod] = by_level.get(lod, 0) + 1
+        if target and int(lod) < int(target):
+            below += 1
+        if basis in MAX_LOD_FOR_BASIS and int(lod) > int(MAX_LOD_FOR_BASIS[basis]):
+            overclaimed += 1
+    warnings = []
+    if target and unset:
+        warnings.append(f"{plural(unset, 'element')} without an LOD (Pset_Conkit.LOD)")
+    if below:
+        warnings.append(f"{plural(below, 'element')} below the target LOD {target}")
+    if overclaimed:
+        verb = "claims a higher LOD than its" if overclaimed == 1 else "claim a higher LOD than their"
+        warnings.append(f"{plural(overclaimed, 'element')} {verb} basis allows (scaled or assumed geometry is at most LOD 200)")
+    return {"target": target, "byLevel": by_level, "unset": unset}, warnings
+
+
 def summary(model):
     counts = {}
+    elements = []
     for product in model.by_type("IfcProduct"):
         if product.is_a("IfcOpeningElement") or product.is_a("IfcSpatialStructureElement") or product.is_a("IfcSpatialElement"):
             continue
+        if product.is_a("IfcElement"):
+            elements.append(product)
         counts[product.is_a()] = counts.get(product.is_a(), 0) + 1
     spatial = [
-        {"id": s.id(), "type": s.is_a(), "name": s.Name, "elevation": getattr(s, "Elevation", None)}
+        {"id": s.id(), "type": s.is_a(), "name": s.Name, "longName": getattr(s, "LongName", None), "elevation": getattr(s, "Elevation", None)}
         for s in model.by_type("IfcSpatialElement")
     ][:200]
     contexts = [{"id": c.id(), "identifier": c.ContextIdentifier, "type": c.ContextType} for c in model.by_type("IfcGeometricRepresentationContext")]
+    lod, lod_warnings = lod_summary(model, elements)
     return {
         "schema": model.schema_identifier,
         "elements": sum(counts.values()),
@@ -169,6 +288,8 @@ def summary(model):
         "spatial": spatial,
         "contexts": contexts,
         "openings": len(model.by_type("IfcOpeningElement")),
+        "lod": lod,
+        "warnings": (organization_warnings(model, elements) + lod_warnings)[:30],
     }
 
 
@@ -229,6 +350,9 @@ def create(params):
     model = ifcopenshell.api.project.create_file(version=schema)
     api = ifcopenshell.api
     project = api.root.create_entity(model, ifc_class="IfcProject", name=params.get("name") or "Project")
+    if params.get("lod") in LOD_LEVELS:
+        pset = api.pset.add_pset(model, product=project, name="Pset_Conkit")
+        api.pset.edit_pset(model, pset=pset, properties={"TargetLOD": params["lod"]})
     units = params.get("units", "m")
     if units in ("ft", "in"):
         length = api.unit.add_conversion_based_unit(model, name="foot" if units == "ft" else "inch")

@@ -78,13 +78,13 @@ export async function create3dModel(
   return { modelId: model.id, revision: 1, projectId: project.id, ...links(project.id, model.id), summary: summarizeModel(input.spec) };
 }
 
-export async function update3dModel(ctx: ToolContext, input: { modelId: string; patch: ModelPatch; note?: string }) {
+export async function update3dModel(ctx: ToolContext, input: { modelId: string; patch: ModelPatch; note?: string; description?: string }) {
   const model = await requireModel(ctx, input.modelId);
   const spec = applyPatch(model.spec, input.patch);
   check(spec);
   const revision = model.revision + 1;
   await db.$transaction([
-    db.ifcModel.update({ where: { id: model.id }, data: { spec: asJson(spec), elementCount: spec.elements.length, revision } }),
+    db.ifcModel.update({ where: { id: model.id }, data: { spec: asJson(spec), elementCount: spec.elements.length, revision, ...describe(input.description) } }),
     db.ifcModelRevision.create({ data: { modelId: model.id, revision, spec: asJson(spec), note: input.note?.slice(0, 300) ?? null } }),
     db.ifcModelRevision.deleteMany({ where: { modelId: model.id, revision: { lte: revision - KEEP_REVISIONS } } }),
   ]);
@@ -176,12 +176,28 @@ export async function restore3dModel(orgId: string, modelId: string, revision: n
 
 const asSummary = (v: unknown) => v as Prisma.InputJsonValue;
 
+/** A new model description, when one is given (kept current as the model changes). */
+function describe(description: string | undefined) {
+  return description === undefined ? {} : { description: description.slice(0, 2000) || null };
+}
+
 export async function createDetailedModel(
   ctx: ToolContext,
-  input: { projectId: string; name: string; description?: string; schema: "IFC4" | "IFC4X3"; units: string; facility: string; levels: { name: string; elevation: number }[] },
+  input: {
+    projectId: string;
+    name: string;
+    description?: string;
+    schema: "IFC4" | "IFC4X3";
+    units: string;
+    facility: string;
+    lod?: string;
+    levels: { name: string; elevation: number }[];
+  },
 ) {
   const project = await requireProject(ctx, input.projectId);
-  const made = await engine(() => workerCreate({ schema: input.schema, name: input.name, units: input.units, facility: input.facility, levels: input.levels }));
+  const made = await engine(() =>
+    workerCreate({ schema: input.schema, name: input.name, units: input.units, facility: input.facility, lod: input.lod, levels: input.levels }),
+  );
   const model = await db.ifcModel.create({
     data: {
       projectId: project.id,
@@ -216,14 +232,20 @@ export async function convertToDetailed(ctx: ToolContext, modelId: string) {
   return { modelId: model.id, name: model.name, revision, previousRevision: model.revision, projectId: model.projectId, ...links(model.projectId, model.id), summary };
 }
 
-export async function ifcEdit(ctx: ToolContext, input: { modelId: string; operations: unknown[]; note?: string }) {
+export async function ifcEdit(ctx: ToolContext, input: { modelId: string; operations: unknown[]; note?: string; description?: string }) {
   const model = await requireDetailed(ctx, input.modelId);
+  if (!input.operations.length) {
+    // Only the description changes: no new revision.
+    if (input.description === undefined) throw new ToolError("Give operations, a description, or both");
+    await db.ifcModel.update({ where: { id: model.id }, data: describe(input.description) });
+    return { modelId: model.id, name: model.name, revision: model.revision, previousRevision: model.revision, projectId: model.projectId, results: [], ...links(model.projectId, model.id), summary: model.summary };
+  }
   const edited = await engine(() => workerEdit(model.ifcGz, input.operations));
   const revision = model.revision + 1;
   await db.$transaction([
     db.ifcModel.update({
       where: { id: model.id },
-      data: { ifcGz: edited.ifcGz, summary: asSummary(edited.summary), elementCount: edited.summary.elements, revision },
+      data: { ifcGz: edited.ifcGz, summary: asSummary(edited.summary), elementCount: edited.summary.elements, revision, ...describe(input.description) },
     }),
     db.ifcModelRevision.create({ data: { modelId: model.id, revision, ifcGz: edited.ifcGz, note: input.note?.slice(0, 300) ?? null } }),
     db.ifcModelRevision.deleteMany({ where: { modelId: model.id, revision: { lte: revision - KEEP_REVISIONS } } }),

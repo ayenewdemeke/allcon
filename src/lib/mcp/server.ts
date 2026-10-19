@@ -7,7 +7,9 @@ import { db } from "@/lib/db";
 import { env } from "@/lib/env";
 import { ToolError, type ToolContext } from "@/lib/tools/context";
 import { addCloud, addNote, boxSchema, flagIssue, listMarkups, listSheets, readSheet, renameSheet } from "@/lib/tools/drawings";
+import { LOD_LEVELS } from "@/lib/ifc/lod";
 import { modelPatchSchema, modelSpecSchema } from "@/lib/ifc/spec";
+import { buildModelPrompt, detailedModelPrompt } from "@/lib/mcp/model-prompts";
 import { searchManuals } from "@/lib/tools/library";
 import {
   convertToDetailed,
@@ -36,7 +38,9 @@ To mark something on a sheet, use the [x0,y0,x1,y1] boxes from read_sheet: flag_
 
 To build a 3D model (IFC) from drawings, read the sheets, then describe the structure with create_3d_model (elements are cross-section profiles swept along paths) and refine it with update_3d_model. ${APP_NAME} checks the model, keeps its revisions, shows it in 3D and exports IFC. The build_3d_model prompt has the full procedure.
 
-For detail beyond that format (openings in any element, booleans and clippings, layered walls, types, property sets, alignments), use a detailed model: create_detailed_model (or convert_to_detailed), then ifc_edit with ifcopenshell.api operations; ifc_help explains each operation and ifc_query reads the model. The detailed_ifc_model prompt has the procedure.`;
+For detail beyond that format (openings in any element, booleans and clippings, layered walls, types, property sets, alignments), use a detailed model: create_detailed_model (or convert_to_detailed), then ifc_edit with ifcopenshell.api operations; ifc_help explains each operation and ifc_query reads the model. The detailed_ifc_model prompt has the procedure.
+
+Models are built to a target level of development (LOD 100, 200, 300 or 350): check the drawings support it and ask the user before modelling what they don't. Keep a model's description current: update_3d_model and ifc_edit take a new description.`;
 
 const uuid = z.uuid();
 const readOnly = { readOnlyHint: true, openWorldHint: false } as const;
@@ -294,12 +298,17 @@ Use the drawings' units and real elevations, a meaningful id per element, its ma
       title: "Update a 3D model",
       description:
         "Changes a 3D model without resending it: add or replace elements by id, remove elements, or replace levels or materials. Each update is a new revision the user can undo. Returns the updated summary.",
-      inputSchema: z.object({ model_id: uuid, changes: modelPatchSchema, note: z.string().max(300).optional().describe("What changed and why") }),
+      inputSchema: z.object({
+        model_id: uuid,
+        changes: modelPatchSchema,
+        note: z.string().max(300).optional().describe("What changed and why"),
+        description: z.string().max(2000).optional().describe("The model's updated description, when the change affects what it says"),
+      }),
       annotations: { ...additive, destructiveHint: true },
     },
-    async ({ model_id, changes, note }) =>
+    async ({ model_id, changes, note, description }) =>
       out(
-        await run("update_3d_model", "Updated a 3D model", () => update3dModel(ctx, { modelId: model_id, patch: changes, note }), (v) => ({
+        await run("update_3d_model", "Updated a 3D model", () => update3dModel(ctx, { modelId: model_id, patch: changes, note, description }), (v) => ({
           projectId: v.projectId,
           summary: `Updated 3D model "${v.name}" to revision ${v.revision} (+${v.changed.upserted} / -${v.changed.removed} elements)`,
           undo: { type: "ifc_model_restore", modelId: v.modelId, revision: v.previousRevision },
@@ -340,7 +349,12 @@ Use the drawings' units and real elevations, a meaningful id per element, its ma
         schema: z.enum(["IFC4", "IFC4X3"]).default("IFC4X3"),
         units: z.enum(["m", "mm", "ft", "in"]),
         facility: z.enum(["building", "bridge", "site"]).default("building"),
-        levels: z.array(z.object({ name: z.string().min(1).max(80), elevation: z.number() })).max(200).default([]),
+        lod: z.enum(LOD_LEVELS).optional().describe("Target level of development"),
+        levels: z
+          .array(z.object({ name: z.string().min(1).max(80), elevation: z.number() }))
+          .max(200)
+          .default([])
+          .describe("One storey per floor people stand on (not ceilings)"),
       }),
       annotations: additive,
     },
@@ -381,18 +395,21 @@ Typical element: root.create_entity {ifc_class, name, predefined_type} → spati
         model_id: uuid,
         operations: z
           .array(z.object({ op: z.string().min(3).max(80), args: z.record(z.string(), z.unknown()).default({}), as: z.string().max(60).optional() }))
-          .min(1)
-          .max(500),
+          .max(500)
+          .describe("Leave empty to change only the description"),
         note: z.string().max(300).optional(),
+        description: z.string().max(2000).optional().describe("The model's updated description, when the change affects what it says"),
       }),
       annotations: { ...additive, destructiveHint: true },
     },
-    async ({ model_id, operations, note }) =>
+    async ({ model_id, operations, note, description }) =>
       out(
-        await run("ifc_edit", "Edited a detailed model", () => ifcEdit(ctx, { modelId: model_id, operations, note }), (v) => ({
+        await run("ifc_edit", "Edited a detailed model", () => ifcEdit(ctx, { modelId: model_id, operations, note, description }), (v) => ({
           projectId: v.projectId,
-          summary: `Edited detailed model "${v.name}" (${operations.length} operation${operations.length === 1 ? "" : "s"}) to revision ${v.revision}`,
-          undo: { type: "ifc_model_restore", modelId: v.modelId, revision: v.previousRevision },
+          summary: operations.length
+            ? `Edited detailed model "${v.name}" (${operations.length} operation${operations.length === 1 ? "" : "s"}) to revision ${v.revision}`
+            : `Updated the description of "${v.name}"`,
+          undo: operations.length ? { type: "ifc_model_restore", modelId: v.modelId, revision: v.previousRevision } : undefined,
         })),
       ),
   );
@@ -471,55 +488,29 @@ Typical element: root.create_entity {ifc_class, name, predefined_type} → spati
     "build_3d_model",
     {
       title: "Build a 3D model from drawings",
-      description: "Reads a drawing set and builds a 3D IFC model of it in conkit: structural, architectural or both, at the level of detail you choose.",
+      description: "Reads a drawing set and builds a 3D IFC model of it in conkit (structural, architectural or both) to the level of development (LOD) you choose, checking first that the drawings support it.",
       argsSchema: z.object({
         drawings: z.string().describe("Which drawings, e.g. 'the Jewell bridge set' or 'sheets A101-A105 in Riverside'"),
         discipline: z.string().optional().describe("structural, architectural, or both (default: what the drawings show)"),
-        detail: z.string().optional().describe("massing, standard (default) or detailed"),
+        lod: z.string().optional().describe("Level of development: 100 (massing), 200 (generic), 300 (specific, default) or 350 (coordinated)"),
         focus: z.string().optional().describe("Optional: part to model, e.g. 'level 1 only' or 'the east approach'"),
       }),
     },
-    ({ drawings, discipline, detail, focus }) =>
-      user(`Build a 3D model in ${APP_NAME} from these drawings: ${drawings}. Discipline: ${discipline || "whatever the drawings show"}. Level of detail: ${detail || "standard"}.${focus ? ` Model only: ${focus}.` : ""}
-
-1. Find the project and sheets (list_projects, list_sheets). Read the index or cover sheet first to see what the set contains. Then read the sheets you need with read_sheet. Read text first (include_image false) and ask for the image where the layout matters.
-   - Structural: foundation and framing plans, general notes, elevations or profiles, sections and details.
-   - Architectural: floor plans, building sections and elevations, door and window schedules, the room finish schedule, reflected ceiling plans, roof plan.
-2. Set up before modelling:
-   - Units as on the drawings (ft for US imperial sets, mm or m for metric).
-   - Coordinates: x along the main axis or east, y across or north, z up. Put the origin at a clear reference (grid A/1, begin bridge, station 0+00) and convert stations, grids and offsets to x and y. Use real elevations for z when they're given.
-   - Levels (storeys) from the floor elevations in sections or elevations.
-   - Materials from the general notes, wall types and schedules (e.g. Class D concrete, A709 Grade 50 steel, CMU, gypsum partitions).
-3. What to model:
-   - Structural: footings, piles, piers or columns, caps, girders or beams, deck or slabs, walls, abutments, wingwalls, barriers or railings, bearings; at "detailed", also diaphragms, cross frames, stiffeners and drains where dimensioned.
-   - Architectural: exterior and interior walls at their thicknesses (anchor bottom, on the floor level), floor slabs, roofs, columns, stairs, curtain walls (panels and mullions), ceilings at their heights, doors and windows as openings in their host walls (sizes and sill heights from the schedules), and every room as a space with its name and number. At "massing", only outer walls, floors and roof; at "detailed", also furniture and finishes shown on the drawings.
-4. One element per physical piece, with a meaningful id, its mark and the sheet it came from. Use the drawings' dimensions. Where something isn't given, make a reasonable, consistent assumption and write it in notes. Split curved members into segments about 3 m / 10 ft long.
-5. Create the model with create_3d_model. For a large building or structure, create one level or part first, then add the rest with update_3d_model.
-6. Check the summary returned: compare the extents with the overall dimensions on the drawings, room areas with any area schedule, and volumes with any quantities table. Fix any differences and warnings (e.g. a door that doesn't fit its wall) with update_3d_model.
-7. Finish with what you modelled, the assumptions, what you left out, how the areas or volumes compare with the drawings, and the link to view the model.
-
-Don't invent key dimensions silently: if one can't be read or reasonably inferred, ask me.`),
+    (args) => user(buildModelPrompt(args)),
   );
 
   server.registerPrompt(
     "detailed_ifc_model",
     {
       title: "Build or refine a detailed IFC model",
-      description: "Models in real IFC with IfcOpenShell, for detail beyond the standard format: openings anywhere, clipped and layered elements, types, property sets.",
+      description: "Models in real IFC with IfcOpenShell, for detail beyond the standard format (openings anywhere, assemblies, layered elements, types, property sets), to a target LOD and well organized.",
       argsSchema: z.object({
         task: z.string().describe("What to model or change, e.g. 'add the stair openings in the level 2 slab' or 'model the pier caps with their chamfers'"),
         model: z.string().optional().describe("Existing model id or name, if refining one"),
+        lod: z.string().optional().describe("Level of development: 100, 200, 300 (default) or 350"),
       }),
     },
-    ({ task, model }) =>
-      user(`In ${APP_NAME}, ${model ? `refine the 3D model ${model}` : "build a detailed IFC model"}: ${task}
-
-1. ${model ? "Find the model (list_3d_models). If it's in conkit's format, convert it with convert_to_detailed." : "Find the project, read the drawings you need (read_sheet), then create the model with create_detailed_model and keep the handles it returns (body context, storeys)."}
-2. Use ifc_query to see what's there and get ids, and ifc_help to check an operation's arguments before using it for the first time.
-3. Make changes with ifc_edit in batches of related operations (one element or one kind of change per batch), naming results with "as" and referring to them with "$name". Geometry goes in the Body context; place elements with geometry.edit_object_placement (conkit.matrix builds the matrix). For openings: an IfcOpeningElement with geometry and placement, feature.add_feature to cut it, feature.add_filling for its door or window.
-4. Units are the model's units. Use the drawings' dimensions; note assumptions in the element's description or a property set.
-5. After each batch, check the summary returned. If an operation fails, the whole batch is rejected and the error says which one and why: fix it and resend.
-6. Finish with what you changed, any assumptions, and the link to view the model.`),
+    (args) => user(detailedModelPrompt(args)),
   );
 
   return server;

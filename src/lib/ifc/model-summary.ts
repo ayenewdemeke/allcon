@@ -6,7 +6,7 @@ import { summarizeModel } from "@/lib/ifc/summary";
 /** What the viewer's details panel shows: from the spec for conkit's format, from the IFC engine's counts for detailed models. */
 export function modelSummary(model: { kind: string; spec: unknown; summary: unknown }): ModelSummary {
   if (model.kind !== "ifc") return summarizeModel(modelSpecSchema.parse(model.spec));
-  const s = (model.summary ?? {}) as { byClass?: Record<string, number>; elements?: number };
+  const s = (model.summary ?? {}) as { byClass?: Record<string, number>; elements?: number; lod?: ModelSummary["lod"]; warnings?: string[] };
   return {
     elements: s.elements ?? 0,
     totalVolumeM3: 0,
@@ -16,6 +16,7 @@ export function modelSummary(model: { kind: string; spec: unknown; summary: unkn
     rooms: [],
     totalRoomAreaM2: 0,
     extents: null,
-    warnings: [],
+    lod: s.lod,
+    warnings: s.warnings ?? [],
   };
 }

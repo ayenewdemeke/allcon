@@ -137,7 +137,15 @@ export function humanize(name: string): string {
 
 /** conkit's own property set, written by the model compiler. */
 const CONKIT_SET = "Pset_Conkit";
-const CONKIT_LABELS: Record<string, string> = { Mark: "Mark", ConkitId: "Id in model", SourceSheet: "From sheet", Notes: "Assumed" };
+const CONKIT_LABELS: Record<string, string> = {
+  Mark: "Mark",
+  ConkitId: "Id in model",
+  SourceSheet: "From sheet",
+  Notes: "Assumed",
+  LOD: "LOD",
+  Basis: "Geometry basis",
+  TargetLOD: "Target LOD",
+};
 
 /** "Pset_WallCommon" → "Wall common"; "Qto_WallBaseQuantities" → "Wall base quantities". */
 function setName(name: string): string {

@@ -1,4 +1,5 @@
 import { elementCorners, elementQuantities, openingPlacement, polygonArea, segments } from "./geometry";
+import { lodSummary } from "./lod";
 import { METERS_PER_UNIT, type ModelSpec } from "./spec";
 
 // What an AI app (and the person) needs to check a model without seeing it: counts,
@@ -77,6 +78,19 @@ export function summarizeModel(spec: ModelSpec) {
     return { id: sp.id, number: sp.number ?? null, name: sp.name, level: sp.level ?? null, area: Number(area.toFixed(2)), areaM2: Number((area * m2).toFixed(2)) };
   });
 
+  // Levels a few feet apart are usually ceilings or roof zones, not floors.
+  const ceiling = /ceiling|soffit|bulkhead/i;
+  for (const l of spec.levels)
+    if (ceiling.test(l.name)) warnings.push(`Level "${l.name}" looks like a ceiling, not a floor: put ceilings on the floor level below, at their height`);
+  const sorted = [...spec.levels].sort((x, y) => x.elevation - y.elevation);
+  for (let i = 1; i < sorted.length; i++) {
+    const gapM = (sorted[i].elevation - sorted[i - 1].elevation) * METERS_PER_UNIT[spec.units];
+    if (gapM > 0 && gapM < 2 && !ceiling.test(sorted[i].name) && !ceiling.test(sorted[i - 1].name))
+      warnings.push(`Levels "${sorted[i - 1].name}" and "${sorted[i].name}" are only ${Number((gapM / METERS_PER_UNIT[spec.units]).toFixed(2))} ${spec.units} apart: levels are floors; put ceilings and similar on the floor below`);
+  }
+  const lod = lodSummary(spec.lod ?? null, [...spec.elements, ...spec.openings, ...spec.spaces]);
+  warnings.push(...lod.warnings);
+
   const r = (n: number, d = 3) => Number(n.toFixed(d));
   const noMaterial = warnings.filter((w) => w.endsWith("no material")).length;
   const shown = warnings.filter((w) => !w.endsWith("no material")).slice(0, 30);
@@ -95,6 +109,7 @@ export function summarizeModel(spec: ModelSpec) {
     extents: Number.isFinite(min[0])
       ? { min: min.map((v) => r(v, 2)), max: max.map((v) => r(v, 2)), size: max.map((v, i) => r(v - min[i], 2)) }
       : null,
+    lod: { target: lod.target, byLevel: lod.byLevel, unset: lod.unset },
     warnings: shown,
   };
 }

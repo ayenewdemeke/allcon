@@ -48,7 +48,14 @@ async function call(action: string, params: unknown, ifcGz?: Uint8Array): Promis
 
 const ifcOf = (body: WorkerResponse) => Buffer.from(body.ifc!, "base64");
 
-export async function workerCreate(params: { schema: "IFC4" | "IFC4X3"; name: string; units: string; facility: string; levels: { name: string; elevation: number }[] }) {
+export async function workerCreate(params: {
+  schema: "IFC4" | "IFC4X3";
+  name: string;
+  units: string;
+  facility: string;
+  lod?: string;
+  levels: { name: string; elevation: number }[];
+}) {
   const body = await call("create", params);
   return { ifcGz: ifcOf(body), handles: body.handles, summary: body.summary! };
 }

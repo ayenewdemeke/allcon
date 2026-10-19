@@ -26,6 +26,8 @@ export type ModelSummary = {
   totalRoomAreaM2: number;
   byMaterial: { material: string; count: number; volumeM3: number }[];
   extents: { size: number[] } | null;
+  /** Level of development: the target and how many elements reach each level. */
+  lod?: { target: string | null; byLevel: Record<string, number>; unset: number };
   warnings: string[];
 };
 
@@ -129,6 +131,11 @@ export function IfcViewer({
                 r{model.revision}
               </Badge>
               {model.detailed && <Badge variant="info">Detailed</Badge>}
+              {summary.lod?.target && (
+                <Badge variant="outline" title="Target level of development">
+                  LOD {summary.lod.target}
+                </Badge>
+              )}
             </div>
             {subtitle && <p className="truncate text-xs text-muted-foreground">{subtitle}</p>}
           </div>
@@ -273,6 +280,15 @@ function ModelDetails({
   if (summary.totalVolumeM3) overview.push({ label: "Total volume", value: `${num(summary.totalVolumeM3)} m³` });
   if (size) overview.push({ label: "Overall size", value: `${size} ${summary.units}` });
   if (summary.rooms.length) overview.push({ label: "Room area", value: `${num(summary.totalRoomAreaM2)} m²` });
+  if (summary.lod?.target) overview.push({ label: "Target LOD", value: summary.lod.target });
+  const lodRows: Row[] = summary.lod
+    ? [
+        ...Object.entries(summary.lod.byLevel)
+          .sort(([a], [b]) => Number(b) - Number(a))
+          .map(([level, n]) => ({ label: `LOD ${level}`, value: `${num(n, 0)} element${n === 1 ? "" : "s"}` })),
+        ...(summary.lod.unset ? [{ label: "Not recorded", value: `${num(summary.lod.unset, 0)}` }] : []),
+      ]
+    : [];
   const about = model.description ? splitDescription(model.description) : null;
 
   return (
@@ -292,6 +308,11 @@ function ModelDetails({
                 </li>
               ))}
             </ul>
+          </Section>
+        )}
+        {lodRows.length > 0 && Object.keys(summary.lod?.byLevel ?? {}).length > 0 && (
+          <Section name="Level of development" count={summary.lod?.target ? `target ${summary.lod.target}` : undefined}>
+            <Rows rows={lodRows} />
           </Section>
         )}
         {summary.byType.length > 0 && (
