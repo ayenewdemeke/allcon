@@ -1,5 +1,5 @@
-import { elementCorners, elementQuantities, segments } from "./geometry";
-import type { ModelSpec } from "./spec";
+import { elementCorners, elementQuantities, openingPlacement, polygonArea, segments } from "./geometry";
+import { METERS_PER_UNIT, type ModelSpec } from "./spec";
 
 // What an AI app (and the person) needs to check a model without seeing it: counts,
 // quantities, extents and problems found.
@@ -21,6 +21,13 @@ export function specErrors(spec: ModelSpec): string[] {
   for (const m of spec.materials) {
     if (materialIds.has(m.id)) errors.push(`Duplicate material id "${m.id}"`);
     materialIds.add(m.id);
+  }
+  for (const [label, items] of [["opening", spec.openings], ["space", spec.spaces]] as const) {
+    const ids = new Set<string>();
+    for (const item of items) {
+      if (ids.has(item.id)) errors.push(`Duplicate ${label} id "${item.id}"`);
+      ids.add(item.id);
+    }
   }
   return errors.slice(0, 20);
 }
@@ -53,6 +60,23 @@ export function summarizeModel(spec: ModelSpec) {
     }
   }
 
+  // Doors, windows and openings: each needs a wall to sit in.
+  const elementsById = new Map(spec.elements.map((e) => [e.id, e]));
+  const openingCounts = new Map<string, number>();
+  for (const o of spec.openings) {
+    const host = elementsById.get(o.host);
+    if (!host) warnings.push(`${o.id}: unknown host wall "${o.host}"`);
+    else if (!openingPlacement(host, o)) warnings.push(`${o.id}: doesn't fit in ${o.host} (beyond its length or height, or the host isn't a wall)`);
+    openingCounts.set(o.kind, (openingCounts.get(o.kind) ?? 0) + 1);
+  }
+  // Rooms
+  const m2 = METERS_PER_UNIT[spec.units] ** 2;
+  const rooms = spec.spaces.map((sp) => {
+    if (sp.level && !levels.has(sp.level)) warnings.push(`${sp.id}: unknown level "${sp.level}"`);
+    const area = polygonArea(sp.outline);
+    return { id: sp.id, number: sp.number ?? null, name: sp.name, level: sp.level ?? null, area: Number(area.toFixed(2)), areaM2: Number((area * m2).toFixed(2)) };
+  });
+
   const r = (n: number, d = 3) => Number(n.toFixed(d));
   const noMaterial = warnings.filter((w) => w.endsWith("no material")).length;
   const shown = warnings.filter((w) => !w.endsWith("no material")).slice(0, 30);
@@ -65,6 +89,9 @@ export function summarizeModel(spec: ModelSpec) {
     byType: [...byType].map(([type, v]) => ({ type, count: v.count, volumeM3: r(v.volumeM3), length: r(v.length, 2) })),
     byMaterial: [...byMaterial].map(([material, v]) => ({ material, count: v.count, volumeM3: r(v.volumeM3) })),
     totalVolumeM3: r([...byType.values()].reduce((s, v) => s + v.volumeM3, 0)),
+    openings: Object.fromEntries(openingCounts),
+    rooms: rooms.slice(0, 500),
+    totalRoomAreaM2: r(rooms.reduce((s, x) => s + x.areaM2, 0), 2),
     extents: Number.isFinite(min[0])
       ? { min: min.map((v) => r(v, 2)), max: max.map((v) => r(v, 2)), size: max.map((v, i) => r(v - min[i], 2)) }
       : null,

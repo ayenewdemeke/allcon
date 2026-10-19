@@ -14,6 +14,24 @@ rather than whole companies. Live at https://conkit.app.
 Stack: Next.js 16 (App Router) · TypeScript · Prisma 7 + PostgreSQL (Neon) · Better Auth ·
 Tailwind + shadcn/ui (Base UI) · Autodesk Platform Services (OSS, Model Derivative, Viewer).
 
+## 3D models from drawings
+
+AI apps connected through MCP build 3D models two ways:
+
+- **conkit's model format** (`src/lib/ifc/spec.ts`): structural and architectural elements as
+  profiles swept along paths, doors and windows in host walls, rooms. Compiled to IFC4X3 by
+  `src/lib/ifc/compile.ts` and viewed in the browser (web-ifc + three.js).
+- **Detailed models**: real IFC edited with IfcOpenShell through whitelisted `ifcopenshell.api`
+  operations. The engine is a Python function, `api/ifc.py`, deployed by Vercel alongside the
+  app (dependencies in `requirements.txt`). Only conkit's server can call it.
+
+To run the IfcOpenShell engine locally (port 5328, where the dev server looks for it):
+
+```sh
+python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
+npm run dev:ifc
+```
+
 ## Setup
 
 1. `npm install` (also generates the Prisma client)

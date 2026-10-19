@@ -9,7 +9,17 @@ import { ToolError, type ToolContext } from "@/lib/tools/context";
 import { addCloud, addNote, boxSchema, flagIssue, listMarkups, listSheets, readSheet, renameSheet } from "@/lib/tools/drawings";
 import { modelPatchSchema, modelSpecSchema } from "@/lib/ifc/spec";
 import { searchManuals } from "@/lib/tools/library";
-import { create3dModel, get3dModel, list3dModels, update3dModel } from "@/lib/tools/models3d";
+import {
+  convertToDetailed,
+  create3dModel,
+  createDetailedModel,
+  get3dModel,
+  ifcEdit,
+  ifcHelp,
+  ifcQuery,
+  list3dModels,
+  update3dModel,
+} from "@/lib/tools/models3d";
 import { getProject, listProjects, takeoffSummary } from "@/lib/tools/projects";
 
 // conkit as an MCP server: the user's own AI app (Claude, ChatGPT, Gemini...) does the thinking and
@@ -24,7 +34,9 @@ If a sheet's number or title in ${APP_NAME} is wrong (compare with the title blo
 
 To mark something on a sheet, use the [x0,y0,x1,y1] boxes from read_sheet: flag_issue for a review finding (cloud plus a note with the explanation and citation), add_cloud or add_note for other markups. Markups are added, never deleted, and the user reviews them in ${APP_NAME}. Give the user the links returned so they can open the sheet.
 
-To build a 3D model (IFC) from drawings, read the sheets, then describe the structure with create_3d_model (elements are cross-section profiles swept along paths) and refine it with update_3d_model. ${APP_NAME} checks the model, keeps its revisions, shows it in 3D and exports IFC. The build_3d_model prompt has the full procedure.`;
+To build a 3D model (IFC) from drawings, read the sheets, then describe the structure with create_3d_model (elements are cross-section profiles swept along paths) and refine it with update_3d_model. ${APP_NAME} checks the model, keeps its revisions, shows it in 3D and exports IFC. The build_3d_model prompt has the full procedure.
+
+For detail beyond that format (openings in any element, booleans and clippings, layered walls, types, property sets, alignments), use a detailed model: create_detailed_model (or convert_to_detailed), then ifc_edit with ifcopenshell.api operations; ifc_help explains each operation and ifc_query reads the model. The detailed_ifc_model prompt has the procedure.`;
 
 const uuid = z.uuid();
 const readOnly = { readOnlyHint: true, openWorldHint: false } as const;
@@ -248,6 +260,9 @@ export function buildMcpServer(ctx: ToolContext) {
 - Vertical members (columns, piers, piles, footings, slabs, decks): path goes up or down in z; the profile lies in plan (x east, y north). A slab is a polygon profile swept through its thickness.
 - Horizontal or sloping members (beams, girders, walls, barriers): the profile is across the member (x) and up (y); anchor "bottom" puts a wall on its base line, "top" hangs a girder from the deck line.
 - Curved members: several path points along the curve.
+- Doors and windows go in openings: each names its host wall, its offset along the wall, sill height, width and height; conkit cuts the opening and places the door or window.
+- Rooms go in spaces: name, number, floor outline, floor elevation and height.
+- Sloped roofs: a thin rect profile swept along the eave line and rotated by the pitch.
 Use the drawings' units and real elevations, a meaningful id per element, its mark and source sheet, and note assumptions in notes. Returns a summary (counts, volumes, extents, warnings) to check against the drawings, and links to view and download the IFC.`,
       inputSchema: z.object({
         project_id: uuid,
@@ -310,6 +325,102 @@ Use the drawings' units and real elevations, a meaningful id per element, its ma
     async ({ project_id }) => out(await run("list_3d_models", "Listed 3D models", () => list3dModels(ctx, project_id), () => ({ projectId: project_id }))),
   );
 
+  // --- detailed models (IFC, edited with IfcOpenShell) -------------------------------
+
+  server.registerTool(
+    "create_detailed_model",
+    {
+      title: "Create a detailed IFC model",
+      description:
+        "Starts an empty detailed model (real IFC, edited with IfcOpenShell) with project, units, contexts, site, building or bridge, and storeys. Returns the ids (handles) of these, including the Body context for geometry. Then build it with ifc_edit.",
+      inputSchema: z.object({
+        project_id: uuid,
+        name: z.string().min(1).max(200),
+        description: z.string().max(2000).optional(),
+        schema: z.enum(["IFC4", "IFC4X3"]).default("IFC4X3"),
+        units: z.enum(["m", "mm", "ft", "in"]),
+        facility: z.enum(["building", "bridge", "site"]).default("building"),
+        levels: z.array(z.object({ name: z.string().min(1).max(80), elevation: z.number() })).max(200).default([]),
+      }),
+      annotations: additive,
+    },
+    async ({ project_id, ...rest }) =>
+      out(
+        await run("create_detailed_model", `Created detailed model "${rest.name}"`, () => createDetailedModel(ctx, { projectId: project_id, ...rest }), (v) => ({
+          projectId: v.projectId,
+          undo: { type: "ifc_model_create", modelId: v.modelId },
+        })),
+      ),
+  );
+
+  server.registerTool(
+    "convert_to_detailed",
+    {
+      title: "Convert to a detailed model",
+      description: "Turns a model in conkit's format into a detailed IFC model, so it can be refined with ifc_edit. One way: afterwards update_3d_model no longer applies (earlier revisions can still be restored).",
+      inputSchema: z.object({ model_id: uuid }),
+      annotations: { ...additive, destructiveHint: true },
+    },
+    async ({ model_id }) =>
+      out(
+        await run("convert_to_detailed", "Converted a model to detailed IFC", () => convertToDetailed(ctx, model_id), (v) => ({
+          projectId: v.projectId,
+          summary: `Converted "${v.name}" to a detailed IFC model`,
+          undo: { type: "ifc_model_restore", modelId: v.modelId, revision: v.previousRevision },
+        })),
+      ),
+  );
+
+  server.registerTool(
+    "ifc_edit",
+    {
+      title: "Edit a detailed IFC model",
+      description: `Applies a list of ifcopenshell.api operations to a detailed model, in order, as one revision (all or nothing). Each operation is {"op": "module.function", "args": {...}, "as": "name"}; the model itself is passed for you. In args, "#123" is the entity with id 123 and "$name" is the result of an earlier operation in the same list named with "as". Lists of numbers under "matrix" become 4x4 matrices; "conkit.matrix" builds one from {"location":[x,y,z], "x_axis":[...], "z_axis":[...]} or {"location", "rotation_z": degrees}.
+Typical element: root.create_entity {ifc_class, name, predefined_type} → spatial.assign_container {products:["$el"], relating_structure:"#storey"} → geometry.add_wall_representation / add_slab_representation / add_profile_representation {context:"#body", ...} → geometry.assign_representation → geometry.edit_object_placement {product, matrix}. Openings: create an IfcOpeningElement with geometry and placement, feature.add_feature {feature, element}, then feature.add_filling {opening, element} for the door or window. Use ifc_help for any operation's arguments.`,
+      inputSchema: z.object({
+        model_id: uuid,
+        operations: z
+          .array(z.object({ op: z.string().min(3).max(80), args: z.record(z.string(), z.unknown()).default({}), as: z.string().max(60).optional() }))
+          .min(1)
+          .max(500),
+        note: z.string().max(300).optional(),
+      }),
+      annotations: { ...additive, destructiveHint: true },
+    },
+    async ({ model_id, operations, note }) =>
+      out(
+        await run("ifc_edit", "Edited a detailed model", () => ifcEdit(ctx, { modelId: model_id, operations, note }), (v) => ({
+          projectId: v.projectId,
+          summary: `Edited detailed model "${v.name}" (${operations.length} operation${operations.length === 1 ? "" : "s"}) to revision ${v.revision}`,
+          undo: { type: "ifc_model_restore", modelId: v.modelId, revision: v.previousRevision },
+        })),
+      ),
+  );
+
+  server.registerTool(
+    "ifc_query",
+    {
+      title: "Query a detailed IFC model",
+      description:
+        "Lists elements matching an IfcOpenShell selector (e.g. 'IfcWall', 'IfcSlab, IfcBeam', 'IfcWall, Name=W1') with their ids, or, given an id, returns that entity's attributes, property sets, container, type, material and placement.",
+      inputSchema: z.object({ model_id: uuid, select: z.string().max(500).optional(), id: z.number().int().positive().optional() }),
+      annotations: readOnly,
+    },
+    async ({ model_id, select, id }) =>
+      out(await run("ifc_query", "Queried a detailed model", () => ifcQuery(ctx, { modelId: model_id, select, id }), (v) => ({ projectId: v.projectId }))),
+  );
+
+  server.registerTool(
+    "ifc_help",
+    {
+      title: "IfcOpenShell operation help",
+      description: "The signature and documentation of an ifcopenshell.api operation (e.g. 'geometry.add_wall_representation'), or the list of operations in a module (e.g. 'feature').",
+      inputSchema: z.object({ usecase: z.string().min(2).max(80) }),
+      annotations: readOnly,
+    },
+    async ({ usecase }) => out(await run("ifc_help", `Looked up ${usecase}`, () => ifcHelp(usecase))),
+  );
+
   // --- skills (ready-made prompts) ------------------------------------------------
 
   const user = (text: string) => ({ messages: [{ role: "user" as const, content: { type: "text" as const, text } }] });
@@ -360,32 +471,55 @@ Use the drawings' units and real elevations, a meaningful id per element, its ma
     "build_3d_model",
     {
       title: "Build a 3D model from drawings",
-      description: "Reads a drawing set and builds a 3D IFC model of it in conkit, at the level of detail you choose.",
+      description: "Reads a drawing set and builds a 3D IFC model of it in conkit: structural, architectural or both, at the level of detail you choose.",
       argsSchema: z.object({
         drawings: z.string().describe("Which drawings, e.g. 'the Jewell bridge set' or 'sheets A101-A105 in Riverside'"),
-        detail: z.string().optional().describe("massing, structural (default) or detailed"),
-        focus: z.string().optional().describe("Optional: part to model, e.g. 'the east approach only'"),
+        discipline: z.string().optional().describe("structural, architectural, or both (default: what the drawings show)"),
+        detail: z.string().optional().describe("massing, standard (default) or detailed"),
+        focus: z.string().optional().describe("Optional: part to model, e.g. 'level 1 only' or 'the east approach'"),
       }),
     },
-    ({ drawings, detail, focus }) =>
-      user(`Build a 3D model in ${APP_NAME} from these drawings: ${drawings}. Level of detail: ${detail || "structural"}.${focus ? ` Model only: ${focus}.` : ""}
+    ({ drawings, discipline, detail, focus }) =>
+      user(`Build a 3D model in ${APP_NAME} from these drawings: ${drawings}. Discipline: ${discipline || "whatever the drawings show"}. Level of detail: ${detail || "standard"}.${focus ? ` Model only: ${focus}.` : ""}
 
-1. Find the project and sheets (list_projects, list_sheets). Read the index or general sheet first to see what the set contains. Then read the sheets you need with read_sheet: plans and layouts for positions, elevations and profiles for heights, sections and details for cross-sections. Read text first (include_image false) and ask for the image where the layout matters.
+1. Find the project and sheets (list_projects, list_sheets). Read the index or cover sheet first to see what the set contains. Then read the sheets you need with read_sheet. Read text first (include_image false) and ask for the image where the layout matters.
+   - Structural: foundation and framing plans, general notes, elevations or profiles, sections and details.
+   - Architectural: floor plans, building sections and elevations, door and window schedules, the room finish schedule, reflected ceiling plans, roof plan.
 2. Set up before modelling:
    - Units as on the drawings (ft for US imperial sets, mm or m for metric).
-   - Coordinates: x along the main axis or east, y across or north, z up. Put the origin at a clear reference (grid A/1, begin bridge, station 0+00) and convert stations and offsets to x and y. Use real elevations for z when they're given.
-   - Levels (storeys) for buildings, from the elevations.
-   - Materials from the general notes (e.g. Class D concrete, A709 Grade 50 steel).
-3. Model at the level of detail asked:
-   - massing: overall solids only (deck, piers, abutments; or slabs, walls, columns, roof).
-   - structural: every primary member: footings, piles, piers or columns, caps, girders or beams, deck or slabs, walls, abutments, wingwalls, barriers or railings, bearings.
-   - detailed: also secondary members (diaphragms, cross frames, stiffeners, stairs, drains) where they're dimensioned.
-4. One element per physical piece, with a meaningful id, its mark and the sheet it came from. Use the drawings' dimensions. Where something isn't given, make a reasonable, consistent assumption and write it in the element's notes. Split curved members into segments about 3 m / 10 ft long.
-5. Create the model with create_3d_model. For a large structure, create the main structure first, then add groups of elements with update_3d_model.
-6. Check the summary returned: compare the extents with the overall dimensions on the drawings, and the volumes with any quantities table in the set (e.g. a summary of quantities). Fix differences with update_3d_model.
-7. Finish with what you modelled, the assumptions, what you left out, how the volumes compare with the drawings' quantities if there are any, and the link to view the model.
+   - Coordinates: x along the main axis or east, y across or north, z up. Put the origin at a clear reference (grid A/1, begin bridge, station 0+00) and convert stations, grids and offsets to x and y. Use real elevations for z when they're given.
+   - Levels (storeys) from the floor elevations in sections or elevations.
+   - Materials from the general notes, wall types and schedules (e.g. Class D concrete, A709 Grade 50 steel, CMU, gypsum partitions).
+3. What to model:
+   - Structural: footings, piles, piers or columns, caps, girders or beams, deck or slabs, walls, abutments, wingwalls, barriers or railings, bearings; at "detailed", also diaphragms, cross frames, stiffeners and drains where dimensioned.
+   - Architectural: exterior and interior walls at their thicknesses (anchor bottom, on the floor level), floor slabs, roofs, columns, stairs, curtain walls (panels and mullions), ceilings at their heights, doors and windows as openings in their host walls (sizes and sill heights from the schedules), and every room as a space with its name and number. At "massing", only outer walls, floors and roof; at "detailed", also furniture and finishes shown on the drawings.
+4. One element per physical piece, with a meaningful id, its mark and the sheet it came from. Use the drawings' dimensions. Where something isn't given, make a reasonable, consistent assumption and write it in notes. Split curved members into segments about 3 m / 10 ft long.
+5. Create the model with create_3d_model. For a large building or structure, create one level or part first, then add the rest with update_3d_model.
+6. Check the summary returned: compare the extents with the overall dimensions on the drawings, room areas with any area schedule, and volumes with any quantities table. Fix any differences and warnings (e.g. a door that doesn't fit its wall) with update_3d_model.
+7. Finish with what you modelled, the assumptions, what you left out, how the areas or volumes compare with the drawings, and the link to view the model.
 
 Don't invent key dimensions silently: if one can't be read or reasonably inferred, ask me.`),
+  );
+
+  server.registerPrompt(
+    "detailed_ifc_model",
+    {
+      title: "Build or refine a detailed IFC model",
+      description: "Models in real IFC with IfcOpenShell, for detail beyond the standard format: openings anywhere, clipped and layered elements, types, property sets.",
+      argsSchema: z.object({
+        task: z.string().describe("What to model or change, e.g. 'add the stair openings in the level 2 slab' or 'model the pier caps with their chamfers'"),
+        model: z.string().optional().describe("Existing model id or name, if refining one"),
+      }),
+    },
+    ({ task, model }) =>
+      user(`In ${APP_NAME}, ${model ? `refine the 3D model ${model}` : "build a detailed IFC model"}: ${task}
+
+1. ${model ? "Find the model (list_3d_models). If it's in conkit's format, convert it with convert_to_detailed." : "Find the project, read the drawings you need (read_sheet), then create the model with create_detailed_model and keep the handles it returns (body context, storeys)."}
+2. Use ifc_query to see what's there and get ids, and ifc_help to check an operation's arguments before using it for the first time.
+3. Make changes with ifc_edit in batches of related operations (one element or one kind of change per batch), naming results with "as" and referring to them with "$name". Geometry goes in the Body context; place elements with geometry.edit_object_placement (conkit.matrix builds the matrix). For openings: an IfcOpeningElement with geometry and placement, feature.add_feature to cut it, feature.add_filling for its door or window.
+4. Units are the model's units. Use the drawings' dimensions; note assumptions in the element's description or a property set.
+5. After each batch, check the summary returned. If an operation fails, the whole batch is rejected and the error says which one and why: fix it and resend.
+6. Finish with what you changed, any assumptions, and the link to view the model.`),
   );
 
   return server;

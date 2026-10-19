@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
-import { anchorOffset, elementQuantities, segments, sub, sweepFrame, type Vec3 } from "./geometry";
-import type { ModelElement, ModelSpec, Profile } from "./spec";
+import { anchorOffset, elementQuantities, openingPlacement, polygonArea, segments, sub, sweepFrame, type Vec3 } from "./geometry";
+import { METERS_PER_UNIT, type ModelElement, type ModelSpec, type Profile } from "./spec";
 
 // Compiles a model spec to an IFC4X3 file (STEP text). Geometry is swept solids
 // (IfcExtrudedAreaSolid), each element gets its material, a property set with its mark and
@@ -76,6 +76,12 @@ const ENTITY: Record<ModelElement["type"], EntityInfo> = {
   barrier: { entity: "IFCRAILING", predefined: "GUARDRAIL" },
   stair: { entity: "IFCSTAIRFLIGHT", predefined: "NOTDEFINED" },
   bearing: { entity: "IFCBEARING", predefined: "NOTDEFINED" },
+  roof: { entity: "IFCSLAB", predefined: "ROOF" },
+  ceiling: { entity: "IFCCOVERING", predefined: "CEILING" },
+  covering: { entity: "IFCCOVERING", predefined: "NOTDEFINED" },
+  curtain_panel: { entity: "IFCPLATE", predefined: "CURTAIN_PANEL" },
+  mullion: { entity: "IFCMEMBER", predefined: "MULLION" },
+  furniture: { entity: "IFCFURNITURE", predefined: "NOTDEFINED" },
   other: { entity: "IFCBUILDINGELEMENTPROXY", predefined: "NOTDEFINED" },
 };
 
@@ -153,10 +159,10 @@ export function compileIfc(spec: ModelSpec, opts: { modelId: string; name: strin
 
   // Materials and their colours
   const materials = new Map<string, { id: number; style: number }>();
-  const styleFor = (category: string) => {
+  const styleFor = (category: string, transparency = category === "glass" ? 0.6 : 0) => {
     const [r, g, b] = COLORS[category] ?? COLORS.other;
     const colour = add("IFCCOLOURRGB", str(category), real(r), real(g), real(b));
-    const shading = add("IFCSURFACESTYLESHADING", ref(colour), real(0));
+    const shading = add("IFCSURFACESTYLESHADING", ref(colour), real(transparency));
     return add("IFCSURFACESTYLE", str(category), enumv("BOTH"), list([ref(shading)]));
   };
   const defaultStyle = styleFor("other");
@@ -165,6 +171,7 @@ export function compileIfc(spec: ModelSpec, opts: { modelId: string; name: strin
   }
 
   // Elements
+  const elementIds = new Map<string, { id: number; where: number }>();
   const contained = new Map<number, number[]>();
   const byMaterial = new Map<number, number[]>();
   const skipped: string[] = [];
@@ -201,6 +208,7 @@ export function compileIfc(spec: ModelSpec, opts: { modelId: string; name: strin
 
     const where = (e.level && storeys.get(e.level)) || container;
     contained.set(where, [...(contained.get(where) ?? []), element]);
+    elementIds.set(e.id, { id: element, where });
     if (material) byMaterial.set(material.id, [...(byMaterial.get(material.id) ?? []), element]);
 
     // Mark, source sheet and assumptions
@@ -222,6 +230,82 @@ export function compileIfc(spec: ModelSpec, opts: { modelId: string; name: strin
     const qto = add("IFCELEMENTQUANTITY", guid(`qto:${e.id}`), "$", str("Qto_ConkitBaseQuantities"), "$", "$", list([ref(qLength), ref(qVolume)]));
     add("IFCRELDEFINESBYPROPERTIES", guid(`relq:${e.id}`), "$", "$", "$", list([ref(element)]), ref(qto));
   });
+
+  // Doors, windows and openings: an opening voids its host wall, and a door or window fills it.
+  const unit = METERS_PER_UNIT[spec.units];
+  const panel = 0.05 / unit; // door/window leaf thickness, 50 mm
+  const glass = styleFor("glass");
+  const doorStyle = styleFor("timber");
+  const box = (center: Vec3, along: Vec3, across: Vec3, width: number, height: number, depth: number, style: number) => {
+    const position = add(
+      "IFCAXIS2PLACEMENT3D",
+      ref(point(center.map((c, i) => c - across[i] * (depth / 2)))),
+      ref(direction(across)),
+      ref(direction(along)),
+    );
+    const profile = add("IFCRECTANGLEPROFILEDEF", enumv("AREA"), "$", ref(add("IFCAXIS2PLACEMENT2D", ref(point([0, 0])), ref(direction([1, 0])))), real(width), real(height));
+    const solid = add("IFCEXTRUDEDAREASOLID", ref(profile), ref(position), ref(zAxis), real(depth));
+    add("IFCSTYLEDITEM", ref(solid), list([ref(style)]), "$");
+    const rep = add("IFCSHAPEREPRESENTATION", ref(body), str("Body"), str("SweptSolid"), list([ref(solid)]));
+    return add("IFCPRODUCTDEFINITIONSHAPE", "$", "$", list([ref(rep)]));
+  };
+  for (const o of spec.openings) {
+    const host = spec.elements.find((e) => e.id === o.host);
+    const hostIds = elementIds.get(o.host);
+    const at = host && hostIds ? openingPlacement(host, o) : null;
+    if (!at || !hostIds) {
+      skipped.push(o.id);
+      continue;
+    }
+    const voidShape = box(at.center, at.along, at.across, o.width, o.height, at.thickness + 2 * panel, defaultStyle);
+    const opening = add("IFCOPENINGELEMENT", guid(`op:${o.id}`), "$", str(`Opening ${o.mark ?? o.id}`), "$", "$", ref(placement), ref(voidShape), str(o.id), enumv("OPENING"));
+    add("IFCRELVOIDSELEMENT", guid(`relv:${o.id}`), "$", "$", "$", ref(hostIds.id), ref(opening));
+    if (o.kind === "opening") continue;
+    const material = o.material ? materials.get(o.material) : undefined;
+    const leaf = box(at.center, at.along, at.across, o.width, o.height, Math.min(panel, at.thickness), material?.style ?? (o.kind === "window" ? glass : doorStyle));
+    const head = [guid(`fill:${o.id}`), "$", str(o.name ?? o.mark ?? o.id), "$", "$", ref(placement), ref(leaf), str(o.mark ?? o.id), real(o.height), real(o.width)];
+    const filler =
+      o.kind === "door"
+        ? add("IFCDOOR", ...head, enumv("DOOR"), enumv("NOTDEFINED"), "$")
+        : add("IFCWINDOW", ...head, enumv("WINDOW"), enumv("NOTDEFINED"), "$");
+    add("IFCRELFILLSELEMENT", guid(`relf:${o.id}`), "$", "$", "$", ref(opening), ref(filler));
+    contained.set(hostIds.where, [...(contained.get(hostIds.where) ?? []), filler]);
+    if (material) byMaterial.set(material.id, [...(byMaterial.get(material.id) ?? []), filler]);
+    const props = [["Mark", o.mark], ["ConkitId", o.id], ["SourceSheet", o.sheet], ["Notes", o.notes]]
+      .filter(([, v]) => v)
+      .map(([k, v]) => add("IFCPROPERTYSINGLEVALUE", str(k), "$", `IFCLABEL(${str(v)})`, "$"));
+    const pset = add("IFCPROPERTYSET", guid(`pset:op:${o.id}`), "$", str("Pset_Conkit"), "$", list(props.map(ref)));
+    add("IFCRELDEFINESBYPROPERTIES", guid(`relp:op:${o.id}`), "$", "$", "$", list([ref(filler)]), ref(pset));
+  }
+
+  // Rooms: the floor outline extruded to the ceiling, with floor area and height.
+  const spaceStyle = (() => {
+    const colour = add("IFCCOLOURRGB", str("space"), real(0.45), real(0.65), real(0.95));
+    const shading = add("IFCSURFACESTYLESHADING", ref(colour), real(0.8));
+    return add("IFCSURFACESTYLE", str("space"), enumv("BOTH"), list([ref(shading)]));
+  })();
+  const spacesBy = new Map<number, number[]>();
+  for (const sp of spec.spaces) {
+    const pts = sp.outline.map((q) => point([q[0], q[1]]));
+    const curve = add("IFCPOLYLINE", list([...pts, pts[0]].map(ref)));
+    const profile = add("IFCARBITRARYCLOSEDPROFILEDEF", enumv("AREA"), "$", ref(curve));
+    const position = add("IFCAXIS2PLACEMENT3D", ref(point([0, 0, sp.base])), ref(zAxis), ref(xAxis));
+    const solid = add("IFCEXTRUDEDAREASOLID", ref(profile), ref(position), ref(zAxis), real(sp.height));
+    add("IFCSTYLEDITEM", ref(solid), list([ref(spaceStyle)]), "$");
+    const rep = add("IFCSHAPEREPRESENTATION", ref(body), str("Body"), str("SweptSolid"), list([ref(solid)]));
+    const shape = add("IFCPRODUCTDEFINITIONSHAPE", "$", "$", list([ref(rep)]));
+    const space = add("IFCSPACE", guid(`sp:${sp.id}`), "$", str(sp.number ?? sp.name), "$", "$", ref(placement), ref(shape), str(sp.name), enumv("ELEMENT"), enumv("SPACE"), "$");
+    const parent = (sp.level && storeys.get(sp.level)) || facility || site;
+    spacesBy.set(parent, [...(spacesBy.get(parent) ?? []), space]);
+    const areaM2 = polygonArea(sp.outline) * unit ** 2;
+    const qArea = add("IFCQUANTITYAREA", str("NetFloorArea"), "$", "$", real(areaM2), "$");
+    const qHeight = add("IFCQUANTITYLENGTH", str("Height"), "$", "$", real(sp.height), "$");
+    const qto = add("IFCELEMENTQUANTITY", guid(`qto:sp:${sp.id}`), "$", str("Qto_SpaceBaseQuantities"), "$", "$", list([ref(qArea), ref(qHeight)]));
+    add("IFCRELDEFINESBYPROPERTIES", guid(`relq:sp:${sp.id}`), "$", "$", "$", list([ref(space)]), ref(qto));
+  }
+  for (const [parent, spaces] of spacesBy) {
+    add("IFCRELAGGREGATES", guid(`rela:sp:${parent}`), "$", "$", "$", ref(parent), list(spaces.map(ref)));
+  }
 
   for (const [structure, elements] of contained) {
     add("IFCRELCONTAINEDINSPATIALSTRUCTURE", guid(`relc:${structure}`), "$", "$", "$", list(elements.map(ref)), ref(structure));

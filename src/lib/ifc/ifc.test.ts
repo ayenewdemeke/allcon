@@ -137,12 +137,80 @@ describe("summary and patches", () => {
   });
 
   it("applies upserts and removals", () => {
-    const next = applyPatch(bridge, {
-      upsert_elements: [{ ...bridge.elements[1], profile: { kind: "circle", radius: 3 } }, { ...bridge.elements[0], id: "F2" }],
-      remove_element_ids: ["BAD"],
-    });
+    const next = applyPatch(
+      bridge,
+      modelPatchSchema.parse({
+        upsert_elements: [{ ...bridge.elements[1], profile: { kind: "circle", radius: 3 } }, { ...bridge.elements[0], id: "F2" }],
+        remove_element_ids: ["BAD"],
+      }),
+    );
     expect(next.elements).toHaveLength(13);
     expect(next.elements.find((e) => e.id === "P1")!.profile).toEqual({ kind: "circle", radius: 3 });
     expect(next.elements.some((e) => e.id === "BAD")).toBe(false);
+  });
+});
+
+describe("architecture", () => {
+  // A one-room building in metres: four walls, a door and a window, a floor, a sloped roof
+  // plane, a ceiling, and the room itself.
+  const house = modelSpecSchema.parse({
+    units: "m",
+    facility: "building",
+    levels: [{ id: "L1", name: "Ground floor", elevation: 0 }],
+    materials: [
+      { id: "brick", name: "Brick", category: "masonry" },
+      { id: "conc", name: "Concrete", category: "concrete" },
+    ],
+    elements: [
+      { id: "W-S", type: "wall", level: "L1", material: "brick", anchor: "bottom", profile: { kind: "rect", width: 0.3, depth: 3 }, path: [[0, 0, 0], [6, 0, 0]] },
+      { id: "W-E", type: "wall", level: "L1", material: "brick", anchor: "bottom", profile: { kind: "rect", width: 0.3, depth: 3 }, path: [[6, 0, 0], [6, 4, 0]] },
+      { id: "W-N", type: "wall", level: "L1", material: "brick", anchor: "bottom", profile: { kind: "rect", width: 0.3, depth: 3 }, path: [[6, 4, 0], [0, 4, 0]] },
+      { id: "W-W", type: "wall", level: "L1", material: "brick", anchor: "bottom", profile: { kind: "rect", width: 0.3, depth: 3 }, path: [[0, 4, 0], [0, 0, 0]] },
+      { id: "FL", type: "slab", level: "L1", material: "conc", profile: { kind: "polygon", points: [[0, 0], [6, 0], [6, 4], [0, 4]] }, path: [[0, 0, -0.2], [0, 0, 0]] },
+      { id: "RF", type: "roof", material: "conc", rotation: 20, profile: { kind: "rect", width: 4.5, depth: 0.2 }, path: [[0, 2, 3.5], [6, 2, 3.5]] },
+      { id: "CL", type: "ceiling", level: "L1", profile: { kind: "polygon", points: [[0, 0], [6, 0], [6, 4], [0, 4]] }, path: [[0, 0, 2.7], [0, 0, 2.72]] },
+      { id: "SOFA", type: "furniture", level: "L1", profile: { kind: "rect", width: 2, depth: 0.9 }, path: [[1, 3, 0], [1, 3, 0.8]] },
+    ],
+    openings: [
+      { id: "D1", kind: "door", host: "W-S", offset: 1, width: 0.9, height: 2.1, mark: "D01" },
+      { id: "WN1", kind: "window", host: "W-E", offset: 1.5, sill: 0.9, width: 1.2, height: 1.2, mark: "W01" },
+      { id: "BAD-D", kind: "door", host: "W-S", offset: 5.8, width: 0.9, height: 2.1 }, // runs past the wall's end
+    ],
+    spaces: [{ id: "R101", name: "Living", number: "101", level: "L1", outline: [[0.15, 0.15], [5.85, 0.15], [5.85, 3.85], [0.15, 3.85]], base: 0, height: 2.7 }],
+  });
+
+  it("cuts openings into walls, fills them, and adds rooms", async () => {
+    const { text, skipped } = compileIfc(house, { modelId: "h1", name: "House" });
+    expect(skipped).toEqual(["BAD-D"]);
+    const { api, model } = await parse(text);
+    const count = (type: number) => api.GetLineIDsWithType(model, type).size();
+    expect(count(WebIFC.IFCOPENINGELEMENT)).toBe(2);
+    expect(count(WebIFC.IFCRELVOIDSELEMENT)).toBe(2);
+    expect(count(WebIFC.IFCDOOR)).toBe(1);
+    expect(count(WebIFC.IFCWINDOW)).toBe(1);
+    expect(count(WebIFC.IFCRELFILLSELEMENT)).toBe(2);
+    expect(count(WebIFC.IFCSPACE)).toBe(1);
+    expect(count(WebIFC.IFCCOVERING)).toBe(1);
+    expect(count(WebIFC.IFCFURNITURE)).toBe(1);
+    // Walls, floor, roof, ceiling, sofa, door and window have geometry; rooms are streamed
+    // separately (web-ifc leaves spaces out by default) and have theirs too.
+    const meshes = new Set<number>();
+    api.StreamAllMeshes(model, (mesh) => {
+      if (mesh.geometries.size() > 0) meshes.add(mesh.expressID);
+    });
+    expect(meshes.size).toBe(10);
+    let rooms = 0;
+    api.StreamAllMeshesWithTypes(model, [WebIFC.IFCSPACE], (mesh) => {
+      if (mesh.geometries.size() > 0) rooms++;
+    });
+    expect(rooms).toBe(1);
+    api.CloseModel(model);
+  });
+
+  it("summarizes rooms and openings and flags an opening that doesn't fit", () => {
+    const s = summarizeModel(house);
+    expect(s.rooms[0]).toMatchObject({ number: "101", name: "Living", areaM2: 21.09 });
+    expect(s.openings).toEqual({ door: 2, window: 1 });
+    expect(s.warnings.some((w) => w.startsWith("BAD-D"))).toBe(true);
   });
 });

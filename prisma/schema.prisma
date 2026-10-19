@@ -718,14 +718,19 @@ model McpActivity {
   @@map("mcp_activity")
 }
 
-// A 3D model an AI app built from the project's drawings (through the connector). Kept in
-// conkit's model format (lib/ifc/spec) and compiled to IFC when it's viewed or downloaded.
+// A 3D model an AI app built from the project's drawings (through the connector). Either in
+// conkit's model format (kind "spec", lib/ifc/spec), compiled to IFC when viewed or
+// downloaded, or a detailed model kept as IFC itself and edited with IfcOpenShell (kind
+// "ifc", api/ifc.py).
 model IfcModel {
   id             String             @id @default(uuid()) @db.Uuid
   projectId      String             @map("project_id") @db.Uuid
   name           String
   description    String?
-  spec           Json
+  kind           String             @default("spec")
+  spec           Json?
+  ifcGz          Bytes?             @map("ifc_gz") // gzipped IFC, for kind "ifc"
+  summary        Json? // the IfcOpenShell worker's summary, for kind "ifc"
   elementCount   Int                @default(0) @map("element_count")
   revision       Int                @default(1)
   sourceSheetIds String[]           @map("source_sheet_ids")
@@ -745,7 +750,8 @@ model IfcModelRevision {
   id        String   @id @default(uuid()) @db.Uuid
   modelId   String   @map("model_id") @db.Uuid
   revision  Int
-  spec      Json
+  spec      Json?
+  ifcGz     Bytes?   @map("ifc_gz")
   note      String?
   createdAt DateTime @default(now()) @map("created_at")
   model     IfcModel @relation(fields: [modelId], references: [id], onDelete: Cascade)

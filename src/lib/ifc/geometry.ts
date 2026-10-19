@@ -1,4 +1,4 @@
-import type { ModelElement, ModelSpec, Profile } from "./spec";
+import type { ModelElement, ModelOpening, ModelSpec, Profile } from "./spec";
 import { METERS_PER_UNIT } from "./spec";
 
 // Geometry shared by the IFC compiler and the model summary: profile areas, sizes, and the
@@ -14,6 +14,16 @@ export const unit = (a: Vec3): Vec3 => {
   const n = norm(a);
   return [a[0] / n, a[1] / n, a[2] / n];
 };
+
+/** Area of a plan outline, in model units². */
+export function polygonArea(points: [number, number][]) {
+  let a = 0;
+  points.forEach(([x1, y1], i) => {
+    const [x2, y2] = points[(i + 1) % points.length];
+    a += x1 * y2 - x2 * y1;
+  });
+  return Math.abs(a) / 2;
+}
 
 /** Cross-section area in model units². */
 export function profileArea(p: Profile): number {
@@ -31,14 +41,8 @@ export function profileArea(p: Profile): number {
       return p.flange_width * p.flange_thickness + Math.max(0, p.depth - p.flange_thickness) * p.web_thickness;
     case "angle":
       return p.thickness * (p.depth + p.width - p.thickness);
-    case "polygon": {
-      let a = 0;
-      p.points.forEach(([x1, y1], i) => {
-        const [x2, y2] = p.points[(i + 1) % p.points.length];
-        a += x1 * y2 - x2 * y1;
-      });
-      return Math.abs(a) / 2;
-    }
+    case "polygon":
+      return polygonArea(p.points);
   }
 }
 
@@ -139,4 +143,28 @@ export function elementCorners(e: ModelElement): Vec3[] {
     }
   }
   return out;
+}
+
+/**
+ * Where an opening sits in its host wall: its centre, the wall's direction (along) and the
+ * horizontal across-wall direction, and the wall's thickness. Null if the host isn't a wall
+ * with a horizontal path long enough for the opening.
+ */
+export function openingPlacement(host: ModelElement, o: ModelOpening) {
+  let remaining = o.offset + o.width / 2;
+  for (const seg of segments(host)) {
+    if (remaining > seg.length) {
+      remaining -= seg.length;
+      continue;
+    }
+    const frame = sweepFrame(sub(seg.end, seg.start), host.rotation);
+    if (frame.vertical) return null;
+    const { width: thickness, depth } = profileSize(host.profile);
+    const baseOffset = anchorOffset(host, false) - depth / 2; // wall base, relative to the path
+    const up = o.sill + o.height / 2 + baseOffset;
+    const center: Vec3 = [0, 1, 2].map((i) => seg.start[i] + frame.z[i] * remaining + frame.y[i] * up) as Vec3;
+    if (o.sill + o.height > depth + 1e-9) return null; // taller than the wall
+    return { center, along: frame.z, across: frame.x, thickness };
+  }
+  return null;
 }

@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Download, Loader2, Maximize, Trash2 } from "lucide-react";
+import { Download, Loader2, Maximize, PanelRightClose, PanelRightOpen, Trash2 } from "lucide-react";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { toast } from "sonner";
@@ -10,6 +10,7 @@ import { deleteIfcModel } from "@/app/actions/models3d";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { LinkButton } from "@/components/ui/link-button";
+import { usePanelOpen } from "@/hooks/use-panel-open";
 import { cn } from "@/lib/utils";
 
 // Shows an IFC file in the browser with web-ifc (geometry) and three.js (rendering): no
@@ -23,12 +24,16 @@ type Summary = {
   totalVolumeM3: number;
   units: string;
   byType: { type: string; count: number; volumeM3: number }[];
+  rooms: { id: string; number: string | null; name: string; area: number; areaM2: number }[];
+  totalRoomAreaM2: number;
   byMaterial: { material: string; count: number; volumeM3: number }[];
   extents: { size: number[] } | null;
   warnings: string[];
 };
 
-const label = (type: string) => type.replace(/_/g, " ").replace(/^\w/, (c) => c.toUpperCase());
+const label = (type: string) => (type === "space" ? "Rooms" : type.replace(/_/g, " ").replace(/^\w/, (c) => c.toUpperCase()));
+const PANEL_KEY = "conkit.modelPanel";
+
 
 export function IfcViewer({
   projectId,
@@ -37,7 +42,7 @@ export function IfcViewer({
   summary,
 }: {
   projectId: string;
-  model: { id: string; name: string; description: string | null; revision: number; updated: string };
+  model: { id: string; name: string; description: string | null; revision: number; updated: string; detailed?: boolean };
   elements: ViewerElement[];
   summary: Summary;
 }) {
@@ -45,9 +50,20 @@ export function IfcViewer({
   const stage = useRef<HTMLDivElement>(null);
   const api = useRef<{ fit: () => void; setHidden: (types: Set<string>) => void } | null>(null);
   const [state, setState] = useState<"loading" | "ready" | "error">("loading");
+  // For detailed models, element kinds are read from the IFC as it loads.
+  const [ifcTypes, setIfcTypes] = useState<{ type: string; count: number; volumeM3: null }[]>([]);
   const [selected, setSelected] = useState<ViewerElement | null>(null);
   const [hidden, setHidden] = useState<Set<string>>(new Set());
+  const [panelOpen, togglePanel] = usePanelOpen(PANEL_KEY);
   const byGuid = useMemo(() => new Map(elements.map((e) => [e.globalId, e])), [elements]);
+  // Filter list: every kind of thing in the model, with volumes where they apply.
+  const types = useMemo(() => {
+    const volume = new Map(summary.byType.map((t) => [t.type, t.volumeM3]));
+    const counts = new Map<string, number>();
+    for (const e of elements) counts.set(e.type, (counts.get(e.type) ?? 0) + 1);
+    return [...counts].map(([type, count]) => ({ type, count, volumeM3: volume.get(type) ?? null }));
+  }, [elements, summary.byType]);
+  const shownTypes = model.detailed ? ifcTypes : types;
 
   useEffect(() => {
     const el = stage.current;
@@ -121,7 +137,7 @@ export function IfcViewer({
         const res = await fetch(`/api/ifc-models/${model.id}/ifc`, { cache: "no-store" });
         if (!res.ok) throw new Error("Could not load the model");
         const id = ifc.OpenModel(new Uint8Array(await res.arrayBuffer()), { COORDINATE_TO_ORIGIN: true });
-        ifc.StreamAllMeshes(id, (flat) => {
+        const addMesh = (flat: { expressID: number; geometries: { size(): number; get(i: number): { geometryExpressID: number; color: { x: number; y: number; z: number; w: number }; flatTransformation: number[] } } }) => {
           const placed = flat.geometries;
           for (let i = 0; i < placed.size(); i++) {
             const pg = placed.get(i);
@@ -141,17 +157,49 @@ export function IfcViewer({
             meshes.set(flat.expressID, [...(meshes.get(flat.expressID) ?? []), mesh]);
             geom.delete();
           }
+        };
+        ifc.StreamAllMeshes(id, addMesh);
+        // Rooms aren't in the default stream; drawn see-through so the building stays visible.
+        ifc.StreamAllMeshesWithTypes(id, [WebIFC.IFCSPACE], (flat) => {
+          const before = root.children.length;
+          addMesh(flat);
+          for (const m of root.children.slice(before) as THREE.Mesh[]) {
+            const mat = m.material as THREE.MeshLambertMaterial;
+            mat.transparent = true;
+            mat.opacity = 0.18;
+            mat.depthWrite = false;
+          }
         });
-        // Map geometry back to elements now: the IFC is closed once loaded.
+        // Map geometry back to elements now: the IFC is closed once loaded. Models in conkit's
+        // format have details by GlobalId; detailed models get theirs from the IFC line.
+        const classCounts = new Map<string, number>();
         for (const expressID of meshes.keys()) {
-          const guid = ifc.GetLine(id, expressID)?.GlobalId?.value as string | undefined;
-          const info = guid ? byGuid.get(guid) : undefined;
+          const line = ifc.GetLine(id, expressID);
+          const guid = line?.GlobalId?.value as string | undefined;
+          let info = guid ? byGuid.get(guid) : undefined;
+          if (!info && line) {
+            const cls = ifc.GetNameFromTypeCode(ifc.GetLineType(id, expressID)) || "Element";
+            info = {
+              globalId: guid ?? String(expressID),
+              id: `#${expressID}`,
+              type: cls,
+              name: line.Name?.value ?? null,
+              mark: line.Tag?.value ?? null,
+              sheet: null,
+              notes: line.Description?.value ?? line.ObjectType?.value ?? null,
+              material: null,
+            };
+            classCounts.set(cls, (classCounts.get(cls) ?? 0) + 1);
+          }
           if (info) infoOf.set(expressID, info);
         }
+        if (classCounts.size) setIfcTypes([...classCounts].map(([type, count]) => ({ type, count, volumeM3: null })));
         pick = (e) => {
           const r = renderer.domElement.getBoundingClientRect();
           raycaster.setFromCamera(new THREE.Vector2(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1), camera);
-          const hit = raycaster.intersectObjects(root.children.filter((m) => m.visible), false)[0];
+          // Rooms enclose everything inside them, so prefer any other element that was hit.
+          const hits = raycaster.intersectObjects(root.children.filter((m) => m.visible), false);
+          const hit = hits.find((h) => infoOf.get(h.object.userData.expressID as number)?.type !== "space") ?? hits[0];
           for (const m of highlighted) (m.material as THREE.MeshLambertMaterial).emissive.setHex(0x000000);
           highlighted = [];
           if (!hit) return setSelected(null);
@@ -211,13 +259,16 @@ export function IfcViewer({
           <Button variant="outline" size="icon-sm" className="bg-card" onClick={() => api.current?.fit()} aria-label="Fit model">
             <Maximize />
           </Button>
+          <Button variant="outline" size="icon-sm" className="bg-card" onClick={togglePanel} aria-label={panelOpen ? "Hide panel" : "Show panel"}>
+            {panelOpen ? <PanelRightClose /> : <PanelRightOpen />}
+          </Button>
         </div>
         <p className="pointer-events-none absolute bottom-3 left-3 rounded-md bg-card/90 px-2.5 py-1 text-xs text-muted-foreground shadow-sm">
           Drag to orbit · right-drag to pan · scroll to zoom · click an element for details
         </p>
       </div>
 
-      <aside className="shrink-0 space-y-5 border-t bg-card p-4 text-sm lg:w-80 lg:overflow-y-auto lg:border-t-0 lg:border-l">
+      <aside className={cn("shrink-0 space-y-5 border-t bg-card p-4 text-sm lg:w-80 lg:overflow-y-auto lg:border-t-0 lg:border-l", !panelOpen && "hidden")}>
         <div className="space-y-1">
           <h1 className="text-base font-semibold">{model.name}</h1>
           <p className="text-xs text-muted-foreground">
@@ -262,8 +313,9 @@ export function IfcViewer({
 
         <section className="space-y-1.5">
           <h2 className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">Elements ({summary.elements})</h2>
+          {model.detailed && <p className="text-xs text-muted-foreground">Detailed model: real IFC, edited with IfcOpenShell.</p>}
           <ul className="space-y-0.5">
-            {summary.byType.map((t) => (
+            {shownTypes.map((t) => (
               <li key={t.type}>
                 <label className="flex items-center gap-2 rounded px-1 py-0.5 hover:bg-muted">
                   <input
@@ -280,7 +332,8 @@ export function IfcViewer({
                   />
                   <span className="flex-1">{label(t.type)}</span>
                   <span className="text-xs text-muted-foreground tabular-nums">
-                    {t.count} · {t.volumeM3.toLocaleString("en-US", { maximumFractionDigits: 1 })} m³
+                    {t.count}
+                    {t.volumeM3 !== null && ` · ${t.volumeM3.toLocaleString("en-US", { maximumFractionDigits: 1 })} m³`}
                   </span>
                 </label>
               </li>
@@ -288,6 +341,29 @@ export function IfcViewer({
           </ul>
         </section>
 
+        {summary.rooms.length > 0 && (
+          <section className="space-y-1.5">
+            <h2 className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">
+              Rooms ({summary.rooms.length}) · {summary.totalRoomAreaM2.toLocaleString("en-US", { maximumFractionDigits: 1 })} m²
+            </h2>
+            <table className="w-full text-xs">
+              <tbody>
+                {summary.rooms.map((r) => (
+                  <tr key={r.id}>
+                    <td className="py-0.5 pr-2 text-muted-foreground">{r.number}</td>
+                    <td className="py-0.5">{r.name}</td>
+                    <td className="py-0.5 text-right tabular-nums">
+                      {r.areaM2.toLocaleString("en-US", { maximumFractionDigits: 1 })} m²
+                      {summary.units === "ft" && <span className="text-muted-foreground"> · {Math.round(r.area)} sf</span>}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </section>
+        )}
+
+        {summary.byMaterial.length > 0 && (
         <section className="space-y-1.5">
           <h2 className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">Materials</h2>
           <dl className="grid grid-cols-[1fr_auto] gap-x-3 gap-y-0.5 text-xs">
@@ -303,6 +379,7 @@ export function IfcViewer({
             {size && ` · overall ${size} ${summary.units}`}
           </p>
         </section>
+        )}
 
         {summary.warnings.length > 0 && (
           <section className="space-y-1.5">

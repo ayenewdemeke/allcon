@@ -2,12 +2,13 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Download, Loader2, Maximize, ZoomIn, ZoomOut } from "lucide-react";
+import { Download, Loader2, Maximize, PanelRightClose, PanelRightOpen, ZoomIn, ZoomOut } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { MarkupLayer } from "@/components/sheets/viewer/markup-layer";
 import { SheetController } from "@/components/sheets/viewer/sheet-controller";
 import type { View } from "@/components/sheets/viewer/view";
+import { usePanelOpen } from "@/hooks/use-panel-open";
 import { downloadMarkedUpPdf } from "@/lib/pdf/export-client";
 import { formatMoney } from "@/lib/format";
 import { describeSheet } from "@/lib/sheets/describe";
@@ -36,6 +37,7 @@ export function SharedSheetViewer({
   expiresAt: string | null;
 }) {
   const router = useRouter();
+  const [panelOpen, togglePanel] = usePanelOpen("conkit.sharePanel");
   const stage = useRef<HTMLDivElement>(null);
   const controller = useRef<SheetController | null>(null);
   const [ready, setReady] = useState(false);
@@ -161,6 +163,9 @@ export function SharedSheetViewer({
               <Button variant="ghost" size="icon-sm" onClick={() => controller.current?.fit()} aria-label="Fit sheet">
                 <Maximize />
               </Button>
+              <Button variant="ghost" size="icon-sm" onClick={togglePanel} aria-label={panelOpen ? "Hide panel" : "Show panel"}>
+                {panelOpen ? <PanelRightClose /> : <PanelRightOpen />}
+              </Button>
             </div>
           </div>
 
@@ -190,7 +195,7 @@ export function SharedSheetViewer({
           </div>
         </div>
 
-        <aside className="shrink-0 border-t bg-card lg:w-80 lg:overflow-y-auto lg:border-t-0 lg:border-l">
+        <aside className={cn("shrink-0 border-t bg-card lg:w-80 lg:overflow-y-auto lg:border-t-0 lg:border-l", !panelOpen && "hidden")}>
           <section className="space-y-2 border-b p-4">
             <h2 className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">Totals on this sheet</h2>
             {totals.length ? (

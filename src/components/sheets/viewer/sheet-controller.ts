@@ -149,7 +149,11 @@ export class SheetController {
     if (this.destroyed) return;
 
     viewer.addEventListener(Autodesk.Viewing.CAMERA_CHANGE_EVENT, this.updateView);
-    new ResizeObserver(this.updateView).observe(this.container);
+    // The Viewer only follows window resizes; follow the container too (e.g. the side panel hidden).
+    new ResizeObserver(() => {
+      this.viewer?.resize();
+      this.updateView();
+    }).observe(this.container);
     this.updateView();
 
     const edit2d = (await viewer.loadExtension("Autodesk.Edit2D", { enableArcs: false })) as unknown as Edit2DExtension;

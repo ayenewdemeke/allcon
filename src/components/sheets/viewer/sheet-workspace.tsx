@@ -12,6 +12,8 @@ import {
   Hash,
   Loader2,
   Maximize,
+  PanelRightClose,
+  PanelRightOpen,
   MousePointer2,
   MoveUpRight,
   Pencil,
@@ -39,6 +41,7 @@ import {
 import { LinkButton } from "@/components/ui/link-button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { calibrate, distance, type Point, type UnitSystem } from "@/lib/takeoff";
+import { usePanelOpen } from "@/hooks/use-panel-open";
 import { cn, modKey } from "@/lib/utils";
 import { CalibrateDialog, NoteDialog } from "./dialogs";
 import { ExportPdfDialog, ShareDialog } from "./export-share-dialogs";
@@ -137,6 +140,7 @@ export function SheetWorkspace({
   author: string;
 }) {
   const router = useRouter();
+  const [panelOpen, togglePanel] = usePanelOpen("conkit.sheetPanel");
   const stage = useRef<HTMLDivElement>(null);
   const controller = useRef<SheetController | null>(null);
   const [ready, setReady] = useState(false);
@@ -527,6 +531,9 @@ export function SheetWorkspace({
             <Button variant="ghost" size="icon-sm" onClick={() => controller.current?.fit()} aria-label="Fit sheet">
               <Maximize />
             </Button>
+            <Button variant="ghost" size="icon-sm" onClick={togglePanel} aria-label={panelOpen ? "Hide panel" : "Show panel"}>
+              {panelOpen ? <PanelRightClose /> : <PanelRightOpen />}
+            </Button>
           </div>
         </div>
 
@@ -633,30 +640,32 @@ export function SheetWorkspace({
         </ContextMenu>
       </div>
 
-      <MarkupPanel
-        projectId={projectId}
-        sheet={sheet}
-        onSheetChange={setSheet}
-        markups={markups}
-        selectedId={selectedId}
-        onSelect={selectFromPanel}
-        onPatch={patchMarkup}
-        onDelete={(id) => void removeMarkup(id)}
-        unitSystem={unitSystem}
-        onUnitSystemChange={setUnitSystem}
-        onScale={applyScale}
-        onCalibrate={() => chooseTool("calibrate")}
-        lineItems={lineItems}
-        activeLineItemId={activeLineItemId}
-        onActiveLineItemChange={setActiveLineItemId}
-        onAssign={(id, lineItemId) => void assignLineItem(id, lineItemId)}
-        onDuplicate={(id) => {
-          const m = markups.find((x) => x.id === id);
-          if (m) void duplicate(m);
-        }}
-        editingId={editingId}
-        onEditingChange={setEditingId}
-      />
+      {panelOpen && (
+        <MarkupPanel
+          projectId={projectId}
+          sheet={sheet}
+          onSheetChange={setSheet}
+          markups={markups}
+          selectedId={selectedId}
+          onSelect={selectFromPanel}
+          onPatch={patchMarkup}
+          onDelete={(id) => void removeMarkup(id)}
+          unitSystem={unitSystem}
+          onUnitSystemChange={setUnitSystem}
+          onScale={applyScale}
+          onCalibrate={() => chooseTool("calibrate")}
+          lineItems={lineItems}
+          activeLineItemId={activeLineItemId}
+          onActiveLineItemChange={setActiveLineItemId}
+          onAssign={(id, lineItemId) => void assignLineItem(id, lineItemId)}
+          onDuplicate={(id) => {
+            const m = markups.find((x) => x.id === id);
+            if (m) void duplicate(m);
+          }}
+          editingId={editingId}
+          onEditingChange={setEditingId}
+        />
+      )}
 
       <CalibrateDialog
         open={calibrating !== null}

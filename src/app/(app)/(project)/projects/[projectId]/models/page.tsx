@@ -108,6 +108,7 @@ export default async function ModelsPage({ params }: PageProps<"/projects/[proje
                   <Box className="size-4 text-muted-foreground" />
                   <span className="flex-1 font-medium">{m.name}</span>
                   <span className="text-xs text-muted-foreground">
+                    {m.kind === "ifc" && "Detailed IFC · "}
                     {m.elementCount.toLocaleString()} elements · revision {m.revision} ·{" "}
                     {m.updatedAt.toLocaleDateString("en-US", { dateStyle: "medium" })}
                   </span>

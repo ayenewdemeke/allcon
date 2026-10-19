@@ -14,7 +14,8 @@
     "db:studio": "prisma studio",
     "test": "vitest run",
     "test:watch": "vitest",
-    "vercel-build": "sh scripts/vercel-build.sh"
+    "vercel-build": "sh scripts/vercel-build.sh",
+    "dev:ifc": ".venv/bin/python api/ifc.py"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.129.0",

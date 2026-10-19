@@ -1,0 +1,9 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "functions": {
+    "api/ifc.py": {
+      "maxDuration": 120,
+      "excludeFiles": "{node_modules/**,.next/**,src/**,public/**,prisma/**,samples/**,scripts/**,.git/**,**/*.test.*}"
+    }
+  }
+}
