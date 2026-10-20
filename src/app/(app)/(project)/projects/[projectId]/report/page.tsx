@@ -8,7 +8,7 @@ import { Progress } from "@/components/ui/progress";
 import { Table, TableBody, TableCell, TableFooter, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { formatMoney, formatNumber } from "@/lib/format";
 import { requireProject } from "@/lib/auth/session";
-import { boqTerms, capitalize } from "@/lib/line-items/terms";
+import { BOQ, capitalize } from "@/lib/line-items/terms";
 import { buildReport } from "@/lib/report";
 import { cn } from "@/lib/utils";
 
@@ -40,7 +40,6 @@ export default async function ReportPage({ params }: PageProps<"/projects/[proje
   const report = await buildReport(project.id);
   const { totals, model, lines } = report;
   const money = (v: number) => formatMoney(v, project.currency);
-  const terms = boqTerms(project.measurementStandard);
 
   return (
     <PageBody>
@@ -104,7 +103,7 @@ export default async function ReportPage({ params }: PageProps<"/projects/[proje
           <CardHeader className="flex flex-row items-start justify-between">
             <div className="space-y-1">
               <CardTitle>Largest unmapped groups</CardTitle>
-              <CardDescription>Model elements not yet linked to {terms.anItem} of the {terms.short}.</CardDescription>
+              <CardDescription>Model elements not yet linked to {BOQ.anItem} of the {BOQ.title}.</CardDescription>
             </div>
             <LinkButton variant="ghost" size="sm" href={`/projects/${project.id}/mapping`}>
               Map <ArrowRight />
@@ -140,7 +139,7 @@ export default async function ReportPage({ params }: PageProps<"/projects/[proje
           <Table>
             <TableHeader className="bg-muted/50">
               <TableRow>
-                <TableHead className="pl-4">{capitalize(terms.item)}</TableHead>
+                <TableHead className="pl-4">{capitalize(BOQ.item)}</TableHead>
                 <TableHead>Unit</TableHead>
                 <TableHead className="text-right">Contract</TableHead>
                 <TableHead className="text-right">Model</TableHead>

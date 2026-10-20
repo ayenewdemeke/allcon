@@ -28,7 +28,7 @@ import {
   type Field,
 } from "@/lib/line-items/import";
 import { cn } from "@/lib/utils";
-import { useBoqTerms } from "@/components/line-items/boq-terms";
+import { BOQ } from "@/lib/line-items/terms";
 
 type Sheet = { name: string; rows: (string | number | null)[][] };
 
@@ -48,7 +48,6 @@ export function ImportDialog({
   label?: string;
   variant?: "outline" | "default";
 }) {
-  const terms = useBoqTerms();
   const [open, setOpen] = useState(false);
   const [fileName, setFileName] = useState<string | null>(null);
   const [sheets, setSheets] = useState<Sheet[] | null>(null);
@@ -121,7 +120,7 @@ export function ImportDialog({
           isHeading,
         })),
       });
-      toast.success(`Imported ${result.imported} ${terms.items}${result.headings ? ` in ${result.headings} sections` : ""}`);
+      toast.success(`Imported ${result.imported} ${BOQ.items}${result.headings ? ` in ${result.headings} sections` : ""}`);
       setOpen(false);
       reset();
     } catch (err) {
@@ -241,7 +240,7 @@ export function ImportDialog({
             </div>
 
             <div className="flex flex-wrap items-center gap-2 text-sm">
-              <Badge variant="secondary">{lines.length} {terms.items}</Badge>
+              <Badge variant="secondary">{lines.length} {BOQ.items}</Badge>
               {items.length - lines.length > 0 && <Badge variant="secondary">{items.length - lines.length} section headings</Badge>}
               {warnings > 0 && <Badge variant="warning">{warnings} to check</Badge>}
               <span className="ml-auto font-medium">Total {formatMoney(total, currency)}</span>
@@ -289,10 +288,10 @@ export function ImportDialog({
             {hasItems && (
               <div className="flex flex-wrap gap-4 text-sm">
                 <label className="flex items-center gap-2">
-                  <input type="radio" checked={mode === "append"} onChange={() => setMode("append")} /> Add to existing {terms.items}
+                  <input type="radio" checked={mode === "append"} onChange={() => setMode("append")} /> Add to existing {BOQ.items}
                 </label>
                 <label className="flex items-center gap-2">
-                  <input type="radio" checked={mode === "replace"} onChange={() => setMode("replace")} /> Replace all {terms.items}
+                  <input type="radio" checked={mode === "replace"} onChange={() => setMode("replace")} /> Replace all {BOQ.items}
                   <span className="text-xs text-muted-foreground">(removes their mappings)</span>
                 </label>
               </div>

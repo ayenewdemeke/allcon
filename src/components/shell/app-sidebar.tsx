@@ -45,14 +45,14 @@ import {
   useSidebar,
 } from "@/components/ui/sidebar";
 import { LogoMark, Wordmark } from "@/components/brand/logo";
-import { useBoqTerms } from "@/components/line-items/boq-terms";
+import { BOQ } from "@/lib/line-items/terms";
 import { authClient } from "@/lib/auth/client";
 import { cn } from "@/lib/utils";
 
 type NavItem = { name: string; href: string; icon: LucideIcon; exact?: boolean };
 
 export type SidebarUser = { name: string | null; email: string };
-export type SidebarProject = { id: string; name: string; standard?: string };
+export type SidebarProject = { id: string; name: string };
 
 const mainNav: NavItem[] = [
   { name: "Projects", href: "/projects", icon: FolderKanban },
@@ -208,7 +208,6 @@ export function AppSidebar({
   project?: SidebarProject;
   projects?: SidebarProject[];
 }) {
-  const terms = useBoqTerms();
   return (
     <Sidebar collapsible="icon" className={cn(project && "sidebar-project")}>
       <SidebarHeader className="gap-2 border-b border-sidebar-border">
@@ -244,7 +243,7 @@ export function AppSidebar({
         <SidebarGroup>
           {project && <SidebarGroupLabel className="text-sidebar-foreground/50">Project</SidebarGroupLabel>}
           <SidebarGroupContent>
-            <NavList items={project ? projectNav(project.id, terms.title) : mainNav} />
+            <NavList items={project ? projectNav(project.id, BOQ.title) : mainNav} />
           </SidebarGroupContent>
         </SidebarGroup>
       </SidebarContent>

@@ -11,7 +11,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import { ProjectForm } from "./project-form";
+import { ProjectDetailsForm } from "./project-form";
 
 export function NewProjectDialog({ label = "New project" }: { label?: string }) {
   return (
@@ -23,9 +23,9 @@ export function NewProjectDialog({ label = "New project" }: { label?: string }) 
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>New project</DialogTitle>
-          <DialogDescription>You can change any of these later in project settings.</DialogDescription>
+          <DialogDescription>Only a name is needed. Currency, units and billing settings follow the location, and can be changed in project settings.</DialogDescription>
         </DialogHeader>
-        <ProjectForm action={createProject} submitLabel="Create project" pendingLabel="Creating…" />
+        <ProjectDetailsForm action={createProject} submitLabel="Create project" pendingLabel="Creating…" />
       </DialogContent>
     </Dialog>
   );

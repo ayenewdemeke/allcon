@@ -13,7 +13,7 @@ import { formatMeasure, measureMarkup, SCALE_PRESETS, type UnitSystem } from "@/
 import { cn, modKey } from "@/lib/utils";
 import { unitDimension } from "@/lib/line-items/units";
 import type { SheetInfo, SheetLineItem } from "./sheet-workspace";
-import { useBoqTerms } from "@/components/line-items/boq-terms";
+import { BOQ } from "@/lib/line-items/terms";
 
 const COLORS = ["#2563eb", "#16a34a", "#dc2626", "#ca8a04", "#9333ea", "#0891b2", "#ea580c", "#475569"];
 
@@ -113,7 +113,6 @@ export function MarkupPanel({
   editingId: string | null;
   onEditingChange: (id: string | null) => void;
 }) {
-  const terms = useBoqTerms();
   const router = useRouter();
   const mpp = sheet.metersPerPoint;
   const rows = useRef(new Map<string, HTMLLIElement>());
@@ -244,7 +243,7 @@ export function MarkupPanel({
 
       <Section title="Pricing">
         {lineItems.length === 0 ? (
-          <p className="text-xs text-muted-foreground">Import the {terms.title.toLowerCase()} to price these measurements.</p>
+          <p className="text-xs text-muted-foreground">Import the {BOQ.title} to price these measurements.</p>
         ) : (
           <div className="grid gap-1.5">
             <Label htmlFor="active-line-item" className="text-xs">
@@ -256,7 +255,7 @@ export function MarkupPanel({
               value={activeLineItemId ?? ""}
               onChange={(e) => onActiveLineItemChange(e.target.value || null)}
             >
-              <option value="">{`No ${terms.item} (just measure)`}</option>
+              <option value="">{`No ${BOQ.item} (just measure)`}</option>
               {lineItems.map((i) => (
                 <option key={i.id} value={i.id}>
                   {itemText(i)}

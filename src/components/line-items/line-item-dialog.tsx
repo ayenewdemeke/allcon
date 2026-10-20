@@ -15,7 +15,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { parseNumber } from "@/lib/line-items/import";
-import { useBoqTerms } from "@/components/line-items/boq-terms";
+import { BOQ } from "@/lib/line-items/terms";
 import { capitalize } from "@/lib/line-items/terms";
 
 export type EditableLineItem = LineItemInput & { id: string };
@@ -36,7 +36,6 @@ export function LineItemDialog({
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }) {
-  const terms = useBoqTerms();
   const [pending, setPending] = useState(false);
   const [billingType, setBillingType] = useState(item?.billingType ?? "unit_price");
   const [isHeading, setIsHeading] = useState(item?.isHeading ?? false);
@@ -57,7 +56,7 @@ export function LineItemDialog({
     try {
       if (item) await updateLineItem(item.id, input);
       else await createLineItem(projectId, input);
-      toast.success(`${capitalize(terms.item)} ${item ? "updated" : "added"}`);
+      toast.success(`${capitalize(BOQ.item)} ${item ? "updated" : "added"}`);
       onOpenChange(false);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Could not save");
@@ -71,7 +70,7 @@ export function LineItemDialog({
       <DialogContent className="sm:max-w-lg">
         <form action={submit} className="grid gap-4">
           <DialogHeader>
-            <DialogTitle>{`${item ? "Edit" : "Add"} ${terms.item}`}</DialogTitle>
+            <DialogTitle>{`${item ? "Edit" : "Add"} ${BOQ.item}`}</DialogTitle>
             <DialogDescription>A line of your schedule of values or bill of quantities.</DialogDescription>
           </DialogHeader>
 
@@ -141,7 +140,7 @@ export function LineItemDialog({
               Cancel
             </Button>
             <Button type="submit" disabled={pending}>
-              {pending ? "Saving…" : item ? "Save changes" : `Add ${terms.item}`}
+              {pending ? "Saving…" : item ? "Save changes" : `Add ${BOQ.item}`}
             </Button>
           </DialogFooter>
         </form>

@@ -5,7 +5,7 @@ import { Palette, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { initViewerRuntime } from "@/lib/aps/viewer-runtime";
 import { cn } from "@/lib/utils";
-import { useBoqTerms } from "@/components/line-items/boq-terms";
+import { BOQ } from "@/lib/line-items/terms";
 
 export type MappingColors = { mapped: number[]; unmapped: number[]; missing: number[] };
 
@@ -27,7 +27,6 @@ export function ModelViewer({
   isolateLabel?: string;
   colors?: MappingColors;
 }) {
-  const terms = useBoqTerms();
   const container = useRef<HTMLDivElement>(null);
   const viewerRef = useRef<Autodesk.Viewing.GuiViewer3D | null>(null);
   const [loaded, setLoaded] = useState(false);
@@ -104,7 +103,7 @@ export function ModelViewer({
             <div className="space-y-1 rounded-md bg-card/95 px-3 py-2 text-xs shadow-sm">
               {(
                 [
-                  ["mapped", `Mapped to ${terms.anItem}`],
+                  ["mapped", `Mapped to ${BOQ.anItem}`],
                   ["unmapped", "Not mapped yet"],
                   ["missing", "No quantity in model"],
                 ] as const

@@ -4,7 +4,7 @@ import { LineItemsTable } from "@/components/line-items/line-items-table";
 import { PageBody, PageHeader } from "@/components/shell/page-header";
 import { Card, CardContent } from "@/components/ui/card";
 import { db } from "@/lib/db";
-import { boqTerms } from "@/lib/line-items/terms";
+import { BOQ } from "@/lib/line-items/terms";
 import { requireProject } from "@/lib/auth/session";
 import { currentModelVersion, measuredQuantities } from "@/lib/mapping/server";
 
@@ -34,12 +34,11 @@ export default async function LineItemsPage({ params }: PageProps<"/projects/[pr
     })(),
   }));
 
-  const terms = boqTerms(project.measurementStandard);
   return (
     <PageBody>
       <PageHeader
-        title={terms.title}
-        description={`The contract's priced ${terms.items}. Model quantities and sheet measurements are priced against them.`}
+        title={BOQ.title}
+        description={`The contract's priced ${BOQ.items}. Model quantities and sheet measurements are priced against them.`}
         actions={items.length > 0 && <ImportDialog projectId={project.id} currency={project.currency} hasItems />}
       />
       {items.length === 0 ? (
@@ -48,9 +47,9 @@ export default async function LineItemsPage({ params }: PageProps<"/projects/[pr
             <div className="flex size-12 items-center justify-center rounded-full bg-accent text-accent-foreground">
               <ListChecks className="size-6" />
             </div>
-            <p className="font-medium">No {terms.title.toLowerCase()} yet</p>
+            <p className="font-medium">No {BOQ.title} yet</p>
             <p className="max-w-md text-sm text-muted-foreground">
-              Import your {terms.title.toLowerCase()} from Excel or CSV, in whatever layout you have it.
+              Import your {BOQ.title} from Excel or CSV, in whatever layout you have it.
             </p>
             <ImportDialog projectId={project.id} currency={project.currency} hasItems={false} label="Import from Excel or CSV" variant="default" />
           </CardContent>

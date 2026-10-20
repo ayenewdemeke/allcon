@@ -7,7 +7,7 @@ import { toLineItemUnit } from "@/lib/line-items/units";
 import { KEY_DIMENSION } from "@/lib/mapping/server";
 import { buildReport } from "@/lib/report";
 import { measureMarkup, type Point } from "@/lib/takeoff";
-import { boqTerms, capitalize } from "@/lib/line-items/terms";
+import { BOQ, capitalize } from "@/lib/line-items/terms";
 
 
 const HEADER_FILL: ExcelJS.Fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFE2E8F0" } };
@@ -27,7 +27,7 @@ export async function GET(_request: NextRequest, ctx: RouteContext<"/api/project
   if (!access) return new Response("Not found", { status: 404 });
   const report = await buildReport(access.project.id);
   const { project, version, lines, totals } = report;
-  const itemHeader = capitalize(boqTerms(project.measurementStandard).item);
+  const itemHeader = capitalize(BOQ.item);
   const money = `"${project.currency === "USD" ? "$" : project.currency + " "}"#,##0.00`;
 
   const wb = new ExcelJS.Workbook();

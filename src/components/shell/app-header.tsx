@@ -12,7 +12,7 @@ import {
   BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb";
 import { Separator } from "@/components/ui/separator";
-import { useBoqTerms } from "@/components/line-items/boq-terms";
+import { BOQ } from "@/lib/line-items/terms";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 
 const SECTION_LABELS: Record<string, string> = {
@@ -33,7 +33,7 @@ type Crumb = { label: string; href: string };
  */
 function useCrumbs(projectName?: string) {
   const pathname = usePathname();
-  const boq = useBoqTerms().title;
+  const boq = BOQ.title;
   const segments = pathname.split("/").filter(Boolean);
   if (segments[0] === "library") return { crumbs: [{ label: "Library", href: "/library" }], pathname };
   if (segments[0] === "connections") return { crumbs: [{ label: "Connections", href: "/connections" }], pathname };

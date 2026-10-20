@@ -4,7 +4,7 @@ import { PageBody, PageHeader } from "@/components/shell/page-header";
 import { LinkButton } from "@/components/ui/link-button";
 import { Card, CardContent } from "@/components/ui/card";
 import { db } from "@/lib/db";
-import { boqTerms } from "@/lib/line-items/terms";
+import { BOQ } from "@/lib/line-items/terms";
 import { requireProject } from "@/lib/auth/session";
 import { currentModelVersion, elementGroups, type GroupConditions } from "@/lib/mapping/server";
 import { suggest } from "@/lib/mapping/suggest";
@@ -35,12 +35,11 @@ export default async function MappingPage({ params }: PageProps<"/projects/[proj
     </PageBody>
   );
   if (!lines.length) {
-    const terms = boqTerms(project.measurementStandard);
     return empty(
-      `Import your ${terms.title.toLowerCase()} first`,
-      `Mapping links model elements to the ${terms.items} of your ${terms.title.toLowerCase()}.`,
+      `Import your ${BOQ.title} first`,
+      `Mapping links model elements to the ${BOQ.items} of your ${BOQ.title}.`,
       `/projects/${project.id}/line-items`,
-      `Go to ${terms.title.toLowerCase()}`,
+      `Go to ${BOQ.title}`,
     );
   }
   if (!version) {

@@ -1,5 +1,5 @@
-import { updateProject } from "@/app/actions/projects";
-import { ProjectForm } from "@/components/projects/project-form";
+import { updateProjectBilling, updateProjectDetails } from "@/app/actions/projects";
+import { ProjectBillingForm, ProjectDetailsForm } from "@/components/projects/project-form";
 import { PageBody, PageHeader } from "@/components/shell/page-header";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { requireProject } from "@/lib/auth/session";
@@ -9,23 +9,34 @@ export default async function ProjectSettingsPage({ params }: PageProps<"/projec
 
   return (
     <PageBody>
-      <PageHeader title="Settings" description="Project details used across measurement and valuation." />
+      <PageHeader title="Settings" description="The project's details, and the settings used for quantities, pricing and payment valuation." />
       <Card className="max-w-2xl">
         <CardHeader>
           <CardTitle>Project details</CardTitle>
-          <CardDescription>Currency and retainage apply to exports and payment applications.</CardDescription>
         </CardHeader>
         <CardContent>
-          <ProjectForm
-            action={updateProject.bind(null, project.id)}
+          <ProjectDetailsForm
+            action={updateProjectDetails.bind(null, project.id)}
+            initial={{ name: project.name, description: project.description ?? "", location: project.location ?? "" }}
+            submitLabel="Save changes"
+            pendingLabel="Saving…"
+          />
+        </CardContent>
+      </Card>
+      <Card className="max-w-2xl">
+        <CardHeader>
+          <CardTitle>Units and billing</CardTitle>
+          <CardDescription>Units apply to measurements; the rest to the SOV / BoQ, exports and payment applications.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <ProjectBillingForm
+            action={updateProjectBilling.bind(null, project.id)}
             initial={{
-              name: project.name,
               currency: project.currency,
               measurementStandard: project.measurementStandard,
               retentionPct: project.retentionPct.toString(),
+              unitSystem: project.unitSystem,
             }}
-            submitLabel="Save changes"
-            pendingLabel="Saving…"
           />
         </CardContent>
       </Card>

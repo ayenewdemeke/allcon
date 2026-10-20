@@ -113,6 +113,8 @@ model Project {
   id                  String         @id @default(uuid()) @db.Uuid
   orgId               String         @map("org_id") @db.Uuid
   name                String
+  description         String?
+  location            String? // free text, e.g. "Fargo, ND" or "Nairobi, Kenya"; picks regional defaults
   currency            String         @default("USD")
   measurementStandard String         @default("CSI") @map("measurement_standard") // CSI, NRM2, SMM7, custom
   retentionPct        Decimal        @default(10) @map("retention_pct") @db.Decimal(5, 2) // "retainage" in the US

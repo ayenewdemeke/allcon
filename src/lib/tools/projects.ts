@@ -12,6 +12,7 @@ export async function listProjects(ctx: ToolContext) {
   return projects.map((p) => ({
     id: p.id,
     name: p.name,
+    location: p.location,
     currency: p.currency,
     units: p.unitSystem,
     drawingSets: p._count.drawingSets,
@@ -40,6 +41,8 @@ export async function getProject(ctx: ToolContext, projectId: string) {
   return {
     id: project.id,
     name: project.name,
+    description: project.description,
+    location: project.location, // the jurisdiction whose codes apply
     currency: project.currency,
     units: project.unitSystem,
     measurementStandard: project.measurementStandard,
