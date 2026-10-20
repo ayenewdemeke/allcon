@@ -20,6 +20,10 @@ import { BOQ } from "@/lib/line-items/terms";
 
 export type GroupRow = ElementGroup & {
   key: string;
+  /** Where to see the group's elements: the uploaded model (with them highlighted) or the AI-built model. */
+  viewHref: string | null;
+  /** The models it comes from, by name. */
+  modelLabel: string;
   rules: { id: string; lineItemId: string; quantityKey: string; isAuto: boolean }[];
   suggestion: Suggestion | null;
 };
@@ -27,7 +31,7 @@ export type LineItemOption = { id: string; code: string | null; description: str
 
 type Filter = "all" | "unmapped" | "suggested" | "mapped";
 
-const KEY_LABELS: Record<string, string> = { volume: "volume", area: "area", length: "length", count: "count" };
+const KEY_LABELS: Record<string, string> = { volume: "volume", area: "area", length: "length", perimeter: "perimeter", count: "count" };
 const selectClass = "h-8 w-full rounded-lg border border-input bg-card px-2 text-sm";
 
 function groupName(g: Pick<GroupRow, "category" | "typeName">) {
@@ -36,13 +40,11 @@ function groupName(g: Pick<GroupRow, "category" | "typeName">) {
 
 export function MappingWorkspace({
   projectId,
-  modelVersionId,
   unitSystem,
   groups,
   lineItems,
 }: {
   projectId: string;
-  modelVersionId: string;
   unitSystem: UnitSystem;
   groups: GroupRow[];
   lineItems: LineItemOption[];
@@ -167,6 +169,7 @@ export function MappingWorkspace({
                       <p className="truncate text-xs text-muted-foreground">
                         {category} · {g.count.toLocaleString()} element{g.count === 1 ? "" : "s"}
                         {quantitiesText(g) && ` · ${quantitiesText(g)}`}
+                        {g.modelLabel && ` · ${g.modelLabel}`}
                       </p>
                     </div>
                     {g.rules.length > 0 ? (
@@ -203,8 +206,6 @@ export function MappingWorkspace({
           <GroupPanel
             key={selected.key}
             group={selected}
-            projectId={projectId}
-            modelVersionId={modelVersionId}
             unitSystem={unitSystem}
             lineItems={lineItems}
             itemLabel={itemLabel}
@@ -224,8 +225,6 @@ export function MappingWorkspace({
 
 function GroupPanel({
   group,
-  projectId,
-  modelVersionId,
   unitSystem,
   lineItems,
   itemLabel,
@@ -234,8 +233,6 @@ function GroupPanel({
   onRemove,
 }: {
   group: GroupRow;
-  projectId: string;
-  modelVersionId: string;
   unitSystem: UnitSystem;
   lineItems: LineItemOption[];
   itemLabel: (id: string) => string;
@@ -252,7 +249,15 @@ function GroupPanel({
   // Quantities this group can offer for the chosen line item's unit
   const dim = item ? unitDimension(item.unit) : null;
   const keyOptions: QuantityKey[] =
-    dim === "count" || dim === "lump" ? ["count"] : dim === "volume" || dim === "area" || dim === "length" ? (group.quantities[dim] ? [dim] : []) : [];
+    dim === "count" || dim === "lump"
+      ? ["count"]
+      : dim === "volume" || dim === "area"
+        ? group.quantities[dim]
+          ? [dim]
+          : []
+        : dim === "length"
+          ? (["length", "perimeter"] as const).filter((k) => group.quantities[k])
+          : [];
 
   const sections = [...new Set(lineItems.map((i) => i.section))];
   const { title, category } = groupName(group);
@@ -372,14 +377,11 @@ function GroupPanel({
           </Button>
         </div>
 
-        <LinkButton
-          variant="outline"
-          size="sm"
-          className="w-full"
-          href={`/projects/${projectId}/models/${modelVersionId}?focus=${focus}`}
-        >
-          <Box /> Show in model
-        </LinkButton>
+        {group.viewHref && (
+          <LinkButton variant="outline" size="sm" className="w-full" href={group.viewHref.includes("?") ? `${group.viewHref}${focus}` : group.viewHref}>
+            <Box /> Show in model
+          </LinkButton>
+        )}
       </CardContent>
     </Card>
   );

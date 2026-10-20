@@ -11,6 +11,7 @@ import { requireProject } from "@/lib/auth/session";
 import { BOQ, capitalize } from "@/lib/line-items/terms";
 import { buildReport } from "@/lib/report";
 import { cn } from "@/lib/utils";
+import { modelNames } from "@/lib/mapping/server";
 
 const pct = (v: number) => `${Math.round(v * 100)}%`;
 // Coverage rounds down, so 99.7% never reads as "100%" while a line is still unmeasured.
@@ -76,7 +77,7 @@ export default async function ReportPage({ params }: PageProps<"/projects/[proje
         <Card>
           <CardHeader>
             <CardTitle>Where model quantities come from</CardTitle>
-            <CardDescription>{report.version ? report.version.fileName : "No model processed yet"}</CardDescription>
+            <CardDescription>{report.models.sources.length ? modelNames(report.models) : "No model processed yet"}</CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
             {SOURCES.map(([key, label, color]) => {

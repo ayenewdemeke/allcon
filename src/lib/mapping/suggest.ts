@@ -11,13 +11,13 @@ export type GroupForSuggestion = {
   typeName: string | null;
   assemblyCode: string | null; // UNIFORMAT, from Revit's Assembly Code
   assemblyDescription: string | null;
-  quantities: Partial<Record<"volume" | "area" | "length", number>>; // totals, SI
+  quantities: Partial<Record<"volume" | "area" | "length" | "perimeter", number>>; // totals, SI
 };
 
 export type LineItemForSuggestion = { id: string; code: string | null; description: string; unit: string | null };
 
 export type Suggestion = { lineItemId: string; score: number; quantityKey: QuantityKey };
-export type QuantityKey = "volume" | "area" | "length" | "count";
+export type QuantityKey = "volume" | "area" | "length" | "perimeter" | "count";
 
 // --- vocabulary ----------------------------------------------------------------
 
@@ -93,7 +93,10 @@ const csiDivision = (code: string | null) => code?.trim().match(/^(\d{2})/)?.[1]
 export function quantityKeyFor(unit: string | null, available: GroupForSuggestion["quantities"]): QuantityKey | null {
   const dim: UnitDimension | null = unitDimension(unit);
   if (dim === "count" || dim === "lump") return "count";
-  if (dim === "volume" || dim === "area" || dim === "length") return (available[dim] ?? 0) > 0 ? dim : null;
+  if (dim === "volume" || dim === "area" || dim === "length") {
+    if ((available[dim] ?? 0) > 0) return dim;
+    return dim === "length" && (available.perimeter ?? 0) > 0 ? "perimeter" : null; // rooms: skirting by perimeter
+  }
   return null; // weight and unknown units need a manual choice
 }
 

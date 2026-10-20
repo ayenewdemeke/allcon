@@ -6,15 +6,15 @@ import { Card, CardContent } from "@/components/ui/card";
 import { db } from "@/lib/db";
 import { BOQ } from "@/lib/line-items/terms";
 import { requireProject } from "@/lib/auth/session";
-import { currentModelVersion, elementGroups, type GroupConditions } from "@/lib/mapping/server";
+import { countedModels, elementGroups, modelNames, type GroupConditions } from "@/lib/mapping/server";
 import { suggest } from "@/lib/mapping/suggest";
 
 const groupKey = (g: GroupConditions) => `${g.category ?? ""}\u0000${g.typeName ?? ""}`;
 
 export default async function MappingPage({ params }: PageProps<"/projects/[projectId]/mapping">) {
   const { project } = await requireProject((await params).projectId);
-  const [version, items] = await Promise.all([
-    currentModelVersion(project.id),
+  const [scope, items] = await Promise.all([
+    countedModels(project.id),
     db.lineItem.findMany({ where: { projectId: project.id }, orderBy: { sortOrder: "asc" } }),
   ]);
   const lines = items.filter((i) => !i.isHeading);
@@ -42,15 +42,24 @@ export default async function MappingPage({ params }: PageProps<"/projects/[proj
       `Go to ${BOQ.title}`,
     );
   }
-  if (!version) {
-    return empty("No model to map yet", "Upload a Revit or IFC model; once it's processed its elements appear here.", `/projects/${project.id}/models`, "Go to models");
+  if (!scope.sources.length) {
+    return empty(
+      "No model to map yet",
+      "Upload a Revit or IFC model, or have your AI app build one from the drawings. Models switched off on the Models page don't count.",
+      `/projects/${project.id}/models`,
+      "Go to models",
+    );
   }
 
   const [groups, rules] = await Promise.all([
-    elementGroups(version.id),
+    elementGroups(scope),
     db.mappingRule.findMany({ where: { projectId: project.id }, orderBy: { createdAt: "asc" } }),
   ]);
 
+  const names = new Map<string, string>([
+    ...(scope.upload ? ([[scope.upload.id, scope.upload.fileName]] as [string, string][]) : []),
+    ...scope.built.map((m) => [m.id, m.name] as [string, string]),
+  ]);
   const suggestionItems = lines.map((l) => ({ id: l.id, code: l.code, description: l.description, unit: l.unit }));
   const rulesByGroup = new Map<string, typeof rules>();
   for (const r of rules) {
@@ -61,13 +70,27 @@ export default async function MappingPage({ params }: PageProps<"/projects/[proj
   const rows: GroupRow[] = groups.map((g) => {
     const groupRules = rulesByGroup.get(groupKey(g)) ?? [];
     const s = groupRules.length ? null : suggest(g, suggestionItems);
+    const upload = g.sources.find((src) => src.kind === "upload");
+    const built = g.sources.filter((src) => src.kind === "built");
     return {
       ...g,
       key: groupKey(g),
+      // An uploaded model highlights the group (the focus is appended); an AI-built one opens.
+      viewHref: upload
+        ? `/projects/${project.id}/models/${upload.id}?focus=`
+        : built[0]
+          ? `/projects/${project.id}/models/ifc/${built[0].id}`
+          : null,
+      modelLabel: scope.sources.length > 1 ? g.sources.map((src) => names.get(src.id) ?? "").filter(Boolean).join(", ") : "",
       rules: groupRules.map((r) => ({ id: r.id, lineItemId: r.lineItemId, quantityKey: r.quantityKey, isAuto: r.isAuto })),
       suggestion: s,
     };
   });
+
+  // The same kind of element in two counted models is usually the same thing modelled twice.
+  const modelsByCategory = new Map<string, Set<string>>();
+  for (const g of groups) for (const src of g.sources) modelsByCategory.set(g.category ?? "", (modelsByCategory.get(g.category ?? "") ?? new Set()).add(src.id));
+  const overlapping = [...modelsByCategory].filter(([category, ids]) => category && ids.size > 1).map(([category]) => category);
 
   const headings = new Map(items.filter((i) => i.isHeading).map((h) => [h.id, h]));
   const options: LineItemOption[] = lines.map((l) => ({
@@ -84,14 +107,20 @@ export default async function MappingPage({ params }: PageProps<"/projects/[proj
         title="Mapping"
         description={
           <>
-            Link element groups from <span className="font-medium text-foreground">{version.fileName}</span> to your line
-            items. Each mapping is a rule, so it carries over to future model versions.
+            Link element groups from <span className="font-medium text-foreground">{modelNames(scope)}</span> to your{" "}
+            {BOQ.title} {BOQ.items}. Each mapping is a rule: it applies to matching groups in every counted model and carries over as models change.
           </>
         }
       />
+      {overlapping.length > 0 && (
+        <p className="rounded-lg border border-warning/40 bg-warning/10 px-3 py-2 text-sm">
+          {overlapping.slice(0, 4).join(", ")}
+          {overlapping.length > 4 && ` and ${overlapping.length - 4} more`} come from more than one counted model: check they&apos;re not counted
+          twice, and switch off a model on the Models page if they are.
+        </p>
+      )}
       <MappingWorkspace
         projectId={project.id}
-        modelVersionId={version.id}
         unitSystem={project.unitSystem}
         groups={rows}
         lineItems={options}

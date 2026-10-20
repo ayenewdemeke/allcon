@@ -81,7 +81,7 @@ export async function extractElements(modelVersionId: string) {
     }
 
     // Mappings survive revisions: the project's rules are re-applied to the new version.
-    await applyAllRules(model.projectId, model.id);
+    await applyAllRules(model.projectId, { kind: "upload", id: model.id });
 
     await db.modelVersion.update({
       where: { id: model.id },

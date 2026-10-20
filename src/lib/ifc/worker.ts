@@ -25,7 +25,27 @@ export type WorkerSummary = {
   openings: number;
 };
 
-type WorkerResponse = { ok: boolean; error?: string; ifc?: string; summary?: WorkerSummary; results?: unknown; handles?: unknown; result?: unknown };
+/** An element as mapping reads it (see api/ifc.py element_rows). */
+export type WorkerElement = {
+  stableId: string;
+  category: string;
+  typeName: string;
+  level: string | null;
+  quantities: { volume?: number; area?: number; length?: number };
+  quantitySource: "qto_set" | "geometry" | "missing";
+  properties: Record<string, string>;
+};
+
+type WorkerResponse = {
+  ok: boolean;
+  error?: string;
+  ifc?: string;
+  summary?: WorkerSummary;
+  results?: unknown;
+  handles?: unknown;
+  result?: unknown;
+  elements?: WorkerElement[];
+};
 
 async function call(action: string, params: unknown, ifcGz?: Uint8Array): Promise<WorkerResponse> {
   let res: Response;
@@ -71,6 +91,11 @@ export async function workerQuery(ifcGz: Uint8Array, params: { select?: string; 
 
 export async function workerSummary(ifcGz: Uint8Array) {
   return (await call("summary", {}, ifcGz)).summary!;
+}
+
+/** A detailed model's elements with their quantities (in SI), for mapping to the SOV / BoQ. */
+export async function workerElements(ifcGz: Uint8Array) {
+  return (await call("elements", {}, ifcGz)).elements ?? [];
 }
 
 export async function workerHelp(usecase: string) {

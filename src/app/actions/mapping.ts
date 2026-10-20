@@ -5,13 +5,13 @@ import { z } from "zod";
 import { db } from "@/lib/db";
 import { getCurrentUser, isUuid, requireProject } from "@/lib/auth/session";
 import { unitDimension } from "@/lib/line-items/units";
-import { createRule, currentModelVersion } from "@/lib/mapping/server";
+import { countedModels, createRule } from "@/lib/mapping/server";
 
 const groupMapping = z.object({
   category: z.string().nullable(),
   typeName: z.string().nullable(),
   lineItemId: z.uuid(),
-  quantityKey: z.enum(["volume", "area", "length", "count"]),
+  quantityKey: z.enum(["volume", "area", "length", "perimeter", "count"]),
 });
 
 const refresh = (projectId: string) => revalidatePath(`/projects/${projectId}`, "layout");
@@ -26,7 +26,7 @@ async function requireLineItemIn(projectId: string, lineItemId: string) {
 export async function mapGroups(projectId: string, input: { mappings: unknown[]; fromSuggestions?: boolean }) {
   const { project, user } = await requireProject(projectId);
   const mappings = z.array(groupMapping).min(1).max(500).parse(input.mappings);
-  const version = await currentModelVersion(project.id);
+  const scope = await countedModels(project.id);
   for (const m of mappings) {
     await requireLineItemIn(project.id, m.lineItemId);
     const existing = await db.mappingRule.findFirst({
@@ -35,7 +35,7 @@ export async function mapGroups(projectId: string, input: { mappings: unknown[];
     if (existing) continue; // already mapped this way
     await createRule({
       projectId: project.id,
-      modelVersionId: version?.id ?? null,
+      scope,
       conditions: { category: m.category, typeName: m.typeName },
       lineItemId: m.lineItemId,
       quantityKey: m.quantityKey,

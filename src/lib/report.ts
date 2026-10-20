@@ -1,7 +1,7 @@
 import "server-only";
 import { db } from "@/lib/db";
 import { lineValue } from "@/lib/line-items/import";
-import { currentModelVersion, elementGroups, measuredQuantities } from "@/lib/mapping/server";
+import { countedModels, elementGroups, elementsIn, measuredQuantities } from "@/lib/mapping/server";
 
 // Everything the validation report and the Excel export show, computed once.
 
@@ -30,13 +30,13 @@ export type ReportLine = {
 
 export async function buildReport(projectId: string) {
   const project = await db.project.findUniqueOrThrow({ where: { id: projectId } });
-  const version = await currentModelVersion(projectId);
+  const models = await countedModels(projectId);
   const [items, measured, groups, sources] = await Promise.all([
     db.lineItem.findMany({ where: { projectId }, orderBy: { sortOrder: "asc" } }),
-    measuredQuantities(projectId, version?.id ?? null),
-    version ? elementGroups(version.id) : Promise.resolve([]),
-    version
-      ? db.element.groupBy({ by: ["quantitySource"], where: { modelVersionId: version.id }, _count: { _all: true } })
+    measuredQuantities(projectId, models),
+    elementGroups(models),
+    models.sources.length
+      ? db.element.groupBy({ by: ["quantitySource"], where: elementsIn(models), _count: { _all: true } })
       : Promise.resolve([]),
   ]);
 
@@ -91,7 +91,7 @@ export async function buildReport(projectId: string) {
 
   return {
     project,
-    version,
+    models,
     lines,
     totals: {
       contractValue,

@@ -4,7 +4,7 @@ import { APP_NAME } from "@/lib/app-config";
 import { findAccessibleProject } from "@/lib/auth/session";
 import { db } from "@/lib/db";
 import { toLineItemUnit } from "@/lib/line-items/units";
-import { KEY_DIMENSION } from "@/lib/mapping/server";
+import { elementsIn, KEY_DIMENSION, modelNames } from "@/lib/mapping/server";
 import { buildReport } from "@/lib/report";
 import { measureMarkup, type Point } from "@/lib/takeoff";
 import { BOQ, capitalize } from "@/lib/line-items/terms";
@@ -26,7 +26,7 @@ export async function GET(_request: NextRequest, ctx: RouteContext<"/api/project
   const access = await findAccessibleProject((await ctx.params).projectId);
   if (!access) return new Response("Not found", { status: 404 });
   const report = await buildReport(access.project.id);
-  const { project, version, lines, totals } = report;
+  const { project, models, lines, totals } = report;
   const itemHeader = capitalize(BOQ.item);
   const money = `"${project.currency === "USD" ? "$" : project.currency + " "}"#,##0.00`;
 
@@ -37,7 +37,7 @@ export async function GET(_request: NextRequest, ctx: RouteContext<"/api/project
   // 1. Priced quantities
   const ws = wb.addWorksheet("Priced quantities");
   ws.addRow([project.name]).font = { bold: true, size: 14 };
-  ws.addRow([`Priced quantities · ${new Date().toLocaleDateString("en-US", { dateStyle: "long" })}${version ? ` · model: ${version.fileName}` : ""}`]);
+  ws.addRow([`Priced quantities · ${new Date().toLocaleDateString("en-US", { dateStyle: "long" })}${models.sources.length ? ` · models: ${modelNames(models)}` : ""}`]);
   ws.addRow([]);
   header(
     ws,
@@ -78,9 +78,9 @@ export async function GET(_request: NextRequest, ctx: RouteContext<"/api/project
   const units = new Map(lines.map((l) => [l.id, l]));
   const es = wb.addWorksheet("Model elements");
   header(es, [itemHeader, "Category", "Type", "Level", "Element ID (stable)", "Quantity from", "Quantity", "Unit"], [14, 22, 40, 14, 44, 12, 12, 7]);
-  if (version) {
+  if (models.sources.length) {
     const mappings = await db.elementMapping.findMany({
-      where: { element: { modelVersionId: version.id } },
+      where: { element: elementsIn(models) },
       include: { element: true },
       orderBy: [{ lineItemId: "asc" }],
     });

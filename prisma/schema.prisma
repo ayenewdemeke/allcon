@@ -119,6 +119,7 @@ model Project {
   measurementStandard String         @default("CSI") @map("measurement_standard") // CSI, NRM2, SMM7, custom
   retentionPct        Decimal        @default(10) @map("retention_pct") @db.Decimal(5, 2) // "retainage" in the US
   unitSystem          UnitSystem     @default(imperial) @map("unit_system") // how measurements are displayed
+  countUploads        Boolean        @default(true) @map("count_uploads") // the latest uploaded model feeds SOV / BoQ quantities
   createdAt           DateTime       @default(now()) @map("created_at")
   org                 Organization   @relation(fields: [orgId], references: [id], onDelete: Cascade)
   modelVersions       ModelVersion[]
@@ -181,9 +182,12 @@ enum ModelStatus {
   failed
 }
 
+// An element of an uploaded model version, or of a 3D model an AI app built (its current
+// revision only; earlier revisions live in IfcModelRevision).
 model Element {
   id             String           @id @default(uuid()) @db.Uuid
-  modelVersionId String           @map("model_version_id") @db.Uuid
+  modelVersionId String?          @map("model_version_id") @db.Uuid
+  ifcModelId     String?          @map("ifc_model_id") @db.Uuid
   stableId       String           @map("stable_id") // Revit UniqueId / IFC GlobalId (APS externalId). Never key on dbId.
   dbId           Int?             @map("db_id") // Viewer object id; valid only within this model version
   category       String?
@@ -193,11 +197,14 @@ model Element {
   quantities     Json             @default("{}") // { volume, area, length, count, ... } in project units
   quantitySource QuantitySource   @default(missing) @map("quantity_source")
   properties     Json             @default("{}") // selected property groups, kept small
-  modelVersion   ModelVersion     @relation(fields: [modelVersionId], references: [id], onDelete: Cascade)
+  modelVersion   ModelVersion?    @relation(fields: [modelVersionId], references: [id], onDelete: Cascade)
+  ifcModel       IfcModel?        @relation(fields: [ifcModelId], references: [id], onDelete: Cascade)
   mappings       ElementMapping[]
 
   @@unique([modelVersionId, stableId])
+  @@unique([ifcModelId, stableId])
   @@index([modelVersionId, category])
+  @@index([ifcModelId, category])
   @@map("element")
 }
 
@@ -745,6 +752,9 @@ model IfcModel {
   revisions      IfcModelRevision[]
   viewCache      IfcModelViewCache?
   shareLinks     ModelShareLink[]
+  elements       Element[]
+  countInQuantities Boolean        @default(true) @map("count_in_quantities") // feeds SOV / BoQ quantities
+  elementsRevision  Int?           @map("elements_revision") // the revision its elements were read from
 
   @@index([projectId])
   @@map("ifc_model")

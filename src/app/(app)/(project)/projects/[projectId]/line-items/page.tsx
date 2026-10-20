@@ -6,15 +6,12 @@ import { Card, CardContent } from "@/components/ui/card";
 import { db } from "@/lib/db";
 import { BOQ } from "@/lib/line-items/terms";
 import { requireProject } from "@/lib/auth/session";
-import { currentModelVersion, measuredQuantities } from "@/lib/mapping/server";
+import { countedModels, measuredQuantities } from "@/lib/mapping/server";
 
 export default async function LineItemsPage({ params }: PageProps<"/projects/[projectId]/line-items">) {
   const { project } = await requireProject((await params).projectId);
-  const [items, version] = await Promise.all([
-    db.lineItem.findMany({ where: { projectId: project.id }, orderBy: { sortOrder: "asc" } }),
-    currentModelVersion(project.id),
-  ]);
-  const measured = items.length ? await measuredQuantities(project.id, version?.id ?? null) : new Map();
+  const items = await db.lineItem.findMany({ where: { projectId: project.id }, orderBy: { sortOrder: "asc" } });
+  const measured = items.length ? await measuredQuantities(project.id, await countedModels(project.id)) : new Map();
 
   const rows = items.map((i) => ({
     id: i.id,

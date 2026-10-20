@@ -32,9 +32,11 @@ import ifcopenshell.api.project
 import ifcopenshell.api.pset
 import ifcopenshell.api.root
 import ifcopenshell.api.unit
+import ifcopenshell.geom
 import ifcopenshell.util.element
 import ifcopenshell.util.placement
 import ifcopenshell.util.selector
+import ifcopenshell.util.shape
 import ifcopenshell.util.unit
 import numpy
 
@@ -293,6 +295,146 @@ def summary(model):
     }
 
 
+# --- elements for mapping to the SOV / BoQ ---------------------------------------------
+
+# Categories named as in Revit, so conkit's mapping suggestions apply to these elements too.
+REVIT_CATEGORY = {
+    "IfcWall": "Walls", "IfcWallStandardCase": "Walls", "IfcCurtainWall": "Curtain Walls",
+    "IfcSlab": "Floors", "IfcRoof": "Roofs", "IfcBeam": "Structural Framing",
+    "IfcColumn": "Structural Columns", "IfcFooting": "Structural Foundations", "IfcPile": "Structural Foundations",
+    "IfcDoor": "Doors", "IfcWindow": "Windows", "IfcRailing": "Railings", "IfcStair": "Stairs",
+    "IfcStairFlight": "Stairs", "IfcRamp": "Ramps", "IfcRampFlight": "Ramps", "IfcFurniture": "Furniture",
+    "IfcFurnishingElement": "Furniture", "IfcSanitaryTerminal": "Plumbing Fixtures",
+    "IfcLightFixture": "Lighting Fixtures", "IfcAirTerminal": "Air Terminals",
+    "IfcBuildingElementProxy": "Generic Models", "IfcPlate": "Plates", "IfcMember": "Members",
+}
+BY_PREDEFINED = {
+    ("IfcSlab", "ROOF"): "Roofs", ("IfcSlab", "LANDING"): "Stairs", ("IfcCovering", "CEILING"): "Ceilings",
+    ("IfcCovering", "FLOORING"): "Floor Finishes", ("IfcCovering", "CLADDING"): "Wall Finishes",
+    ("IfcCovering", "ROOFING"): "Roofs", ("IfcCovering", "MEMBRANE"): "Roofs", ("IfcCovering", "INSULATION"): "Insulation",
+    ("IfcMember", "MULLION"): "Curtain Wall Mullions", ("IfcPlate", "CURTAIN_PANEL"): "Curtain Panels",
+    ("IfcBeam", "LINTEL"): "Structural Framing", ("IfcMember", "BRACE"): "Structural Framing",
+}
+QTO_VOLUME = ("NetVolume", "GrossVolume", "Volume")
+QTO_AREA = ("NetSideArea", "GrossSideArea", "NetArea", "GrossArea", "NetFootprintArea", "GrossFootprintArea", "NetSurfaceArea", "Area")
+QTO_LENGTH = ("Length", "NetLength", "GrossLength", "Height", "Depth")
+# Kinds measured by their face (walls) or their top (slabs, roofs, finishes) when computed from geometry.
+FACE_AREA = {"Walls", "Curtain Walls", "Curtain Panels", "Wall Finishes", "Plates"}
+TOP_AREA = {"Floors", "Roofs", "Ceilings", "Floor Finishes", "Insulation", "Structural Foundations"}
+
+
+def category_of(e):
+    predefined = getattr(e, "PredefinedType", None)
+    if (e.is_a(), predefined) in BY_PREDEFINED:
+        return BY_PREDEFINED[(e.is_a(), predefined)]
+    if e.is_a() in REVIT_CATEGORY:
+        return REVIT_CATEGORY[e.is_a()]
+    return re.sub(r"(?<=[a-z])(?=[A-Z])", " ", e.is_a()[3:]) + "s"
+
+
+IDENTIFIER = re.compile(r"[A-Z0-9#()\-/.]*\d[A-Z0-9#()\-/.]*")
+
+
+def type_of(e):
+    """What groups like elements: their type, else their name without trailing ids ("Roof deck DK-N-12" -> "Roof deck")."""
+    etype = ifcopenshell.util.element.get_type(e)
+    if etype is not None and etype.Name:
+        return etype.Name
+    if getattr(e, "ObjectType", None):
+        return e.ObjectType
+    words = (e.Name or "").split()
+    while len(words) > 1 and IDENTIFIER.fullmatch(words[-1]):
+        words.pop()
+    return " ".join(words) or e.is_a()[3:]
+
+
+def quantities_from_qto(e, scales):
+    q = {}
+    for values in ifcopenshell.util.element.get_psets(e, qtos_only=True).values():
+        for key, names in (("volume", QTO_VOLUME), ("area", QTO_AREA), ("length", QTO_LENGTH)):
+            if key not in q:
+                found = next((values[n] for n in names if isinstance(values.get(n), (int, float)) and values[n] > 0), None)
+                if found is not None:
+                    q[key] = found * scales[key]
+    return q
+
+
+def element_rows(model):
+    scales = {
+        "length": ifcopenshell.util.unit.calculate_unit_scale(model, "LENGTHUNIT"),
+        "area": ifcopenshell.util.unit.calculate_unit_scale(model, "AREAUNIT"),
+        "volume": ifcopenshell.util.unit.calculate_unit_scale(model, "VOLUMEUNIT"),
+    }
+    elements = [e for e in model.by_type("IfcElement") if not e.is_a("IfcFeatureElement") and getattr(e, "GlobalId", None)]
+    category = {e.id(): category_of(e) for e in elements}
+    quantities = {e.id(): quantities_from_qto(e, scales) for e in elements}
+    from_qto = {i for i, q in quantities.items() if q}
+
+    # Whatever the quantity sets don't give is measured from the geometry (in metres), in parallel.
+    def needs(e):
+        q = quantities[e.id()]
+        return "volume" not in q or ("area" not in q and category[e.id()] in FACE_AREA | TOP_AREA)
+
+    todo = [e for e in elements if needs(e)]
+    if todo:
+        settings = ifcopenshell.geom.settings()
+        iterator = ifcopenshell.geom.iterator(settings, model, max(1, os.cpu_count() or 1), include=todo)
+        if iterator.initialize():
+            while True:
+                shape = iterator.get()
+                q, cat, g = quantities.get(shape.id), category.get(shape.id), shape.geometry
+                if q is not None:
+                    try:
+                        q.setdefault("volume", ifcopenshell.util.shape.get_volume(g))
+                        if "area" not in q and cat in FACE_AREA:
+                            q["area"] = ifcopenshell.util.shape.get_max_side_area(g)
+                        elif "area" not in q and cat in TOP_AREA:
+                            q["area"] = ifcopenshell.util.shape.get_footprint_area(g)
+                        q.setdefault("length", max(ifcopenshell.util.shape.get_x(g), ifcopenshell.util.shape.get_y(g), ifcopenshell.util.shape.get_z(g)))
+                    except Exception:
+                        pass
+                if not iterator.next():
+                    break
+
+    # A name used once ("South exterior CMU wall") groups better by its material, with the
+    # other elements of its kind made of the same thing.
+    types = {e.id(): type_of(e) for e in elements}
+    uses = collections.Counter((category[e.id()], types[e.id()]) for e in elements)
+    materials = {}
+    for e in elements:
+        material = ifcopenshell.util.element.get_material(e, should_skip_usage=True)
+        name = getattr(material, "Name", None) if material is not None else None
+        if not name and material is not None and material.is_a("IfcMaterialLayerSet"):
+            name = material.LayerSetName
+        if name:
+            materials[e.id()] = name
+        if uses[(category[e.id()], types[e.id()])] == 1 and name and not ifcopenshell.util.element.get_type(e) and not getattr(e, "ObjectType", None):
+            types[e.id()] = name
+
+    rows = []
+    for e in elements:
+        q = {k: round(v, 6) for k, v in quantities[e.id()].items() if v and v > 0}
+        container = ifcopenshell.util.element.get_container(e)
+        if container is None and ifcopenshell.util.element.get_aggregate(e) is not None:
+            container = ifcopenshell.util.element.get_container(ifcopenshell.util.element.get_aggregate(e))
+        conkit = ifcopenshell.util.element.get_psets(e).get("Pset_Conkit") or {}
+        properties = {k: str(conkit[k]) for k in ("Mark", "SourceSheet", "LOD") if conkit.get(k)}
+        if getattr(e, "Tag", None) and "Mark" not in properties:
+            properties["Mark"] = e.Tag
+        if e.id() in materials:
+            properties["Material"] = materials[e.id()]
+        rows.append({
+            "stableId": e.GlobalId,
+            "category": category[e.id()],
+            "typeName": types[e.id()],
+            "level": container.Name if container is not None and container.is_a("IfcBuildingStorey") else None,
+            "quantities": q,
+            "quantitySource": ("qto_set" if e.id() in from_qto else "geometry") if q else "missing",
+            "properties": properties,
+        })
+    return rows
+
+
 def element_details(model, entity):
     info = {k: to_json(v) for k, v in entity.get_info(recursive=False).items()}
     out = {"entity": info}
@@ -414,6 +556,8 @@ def handle(payload):
         return {"result": query(model, params)}
     if action == "summary":
         return {"summary": summary(model)}
+    if action == "elements":
+        return {"elements": element_rows(model)}
     raise ValueError(f"Unknown action '{action}'")
 
 

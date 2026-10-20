@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { Box } from "lucide-react";
+import { CountToggle } from "@/components/models/count-toggle";
 import { ModelStatus } from "@/components/models/model-status";
 import { ModelUploader } from "@/components/models/model-uploader";
 import { PageBody, PageHeader } from "@/components/shell/page-header";
@@ -29,13 +30,15 @@ export default async function ModelsPage({ params }: PageProps<"/projects/[proje
     db.ifcModel.findMany({
       where: { projectId: project.id },
       orderBy: { updatedAt: "desc" },
-      select: { id: true, name: true, kind: true, elementCount: true, revision: true, updatedAt: true },
+      select: { id: true, name: true, kind: true, elementCount: true, revision: true, updatedAt: true, countInQuantities: true },
     }),
   ]);
   const rows = [
     ...uploads.map((m) => ({ kind: "upload" as const, at: m.uploadedAt, m })),
     ...built.map((m) => ({ kind: "built" as const, at: m.updatedAt, m })),
   ].sort((a, b) => b.at.getTime() - a.at.getTime());
+  // Only the newest processed upload counts (earlier ones are its past versions).
+  const latestUpload = uploads.find((m) => m.status === "ready")?.id;
 
   return (
     <PageBody>
@@ -65,7 +68,10 @@ export default async function ModelsPage({ params }: PageProps<"/projects/[proje
                 <TableHead>Elements</TableHead>
                 <TableHead>Version</TableHead>
                 <TableHead>Updated</TableHead>
-                <TableHead className="pr-4">Status</TableHead>
+                <TableHead>Status</TableHead>
+                <TableHead className="pr-4" title="Whether its quantities feed the SOV / BoQ">
+                  Quantities
+                </TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -88,8 +94,15 @@ export default async function ModelsPage({ params }: PageProps<"/projects/[proje
                     <TableCell className="text-muted-foreground">
                       {day(row.m.uploadedAt)} · {row.m.uploadedBy?.name || row.m.uploadedBy?.email || "Former member"}
                     </TableCell>
-                    <TableCell className="pr-4">
+                    <TableCell>
                       <ModelStatus key={row.m.status} modelId={row.m.id} initialStatus={row.m.status} initialProgress={row.m.translationProgress} />
+                    </TableCell>
+                    <TableCell className="pr-4">
+                      {row.m.id === latestUpload ? (
+                        <CountToggle projectId={project.id} target={{ kind: "upload" }} counted={project.countUploads} />
+                      ) : (
+                        <span className="text-xs text-muted-foreground">{row.m.status === "ready" ? "Earlier version" : "—"}</span>
+                      )}
                     </TableCell>
                   </TableRow>
                 ) : (
@@ -103,8 +116,11 @@ export default async function ModelsPage({ params }: PageProps<"/projects/[proje
                     <TableCell className="tabular-nums">{row.m.elementCount.toLocaleString()}</TableCell>
                     <TableCell className="text-muted-foreground">Revision {row.m.revision}</TableCell>
                     <TableCell className="text-muted-foreground">{day(row.m.updatedAt)}</TableCell>
-                    <TableCell className="pr-4">
+                    <TableCell>
                       <Badge variant="success">Ready</Badge>
+                    </TableCell>
+                    <TableCell className="pr-4">
+                      <CountToggle projectId={project.id} target={{ kind: "built", id: row.m.id }} counted={row.m.countInQuantities} />
                     </TableCell>
                   </TableRow>
                 ),
