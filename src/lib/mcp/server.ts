@@ -28,7 +28,7 @@ import { getProject, listProjects, takeoffSummary } from "@/lib/tools/projects";
 // calls these tools; conkit does exact work on the project and keeps the results. Each call
 // is recorded in the activity log, so people can see what was done on their behalf.
 
-const INSTRUCTIONS = `${APP_NAME} is the user's construction project workspace: PDF drawing sets (sheets), building models, a schedule of values, and a library of design manuals.
+const INSTRUCTIONS = `${APP_NAME} is the user's construction project workspace: PDF drawing sets (sheets), building models, a bill of quantities or schedule of values (its priced lines, also called line items), and a library of design manuals.
 
 Typical flow: list_projects, then get_project or list_sheets to find what the user means, then read_sheet to see a sheet (text lines with positions, and an image). Use search_manuals to find the manual sections that apply, and cite them.
 
@@ -97,7 +97,7 @@ export function buildMcpServer(ctx: ToolContext) {
     "get_project",
     {
       title: "Get project",
-      description: "A project's drawing sets, models, line item count and the library manuals available for review.",
+      description: "A project's drawing sets, models, number of BoQ / schedule of values lines (line items) and the library manuals available for review.",
       inputSchema: z.object({ project_id: uuid }),
       annotations: readOnly,
     },
@@ -140,7 +140,7 @@ export function buildMcpServer(ctx: ToolContext) {
     "list_markups",
     {
       title: "List markups",
-      description: "Markups on a sheet: measurements with their quantities, notes, clouds, and the line items they price.",
+      description: "Markups on a sheet: measurements with their quantities, notes, clouds, and the BoQ / schedule of values lines (line items) they price.",
       inputSchema: z.object({ sheet_id: uuid }),
       annotations: readOnly,
     },
@@ -163,7 +163,7 @@ export function buildMcpServer(ctx: ToolContext) {
     "takeoff_summary",
     {
       title: "Takeoff summary",
-      description: "Quantities and amounts by line item (contract, measured from the model and drawings, variance), as the project's report shows.",
+      description: "Quantities and amounts by bill of quantities / schedule of values line (contract, measured from the model and drawings, variance), as the project's report shows.",
       inputSchema: z.object({ project_id: uuid }),
       annotations: readOnly,
     },
@@ -477,7 +477,7 @@ Typical element: root.create_entity {ifc_class, name, predefined_type} → spati
     "quantity_summary",
     {
       title: "Summarize quantities and cost",
-      description: "A readable summary of a project's measured quantities against its schedule of values.",
+      description: "A readable summary of a project's measured quantities against its bill of quantities or schedule of values.",
       argsSchema: z.object({ project: z.string().describe("Project id or name") }),
     },
     ({ project }) =>

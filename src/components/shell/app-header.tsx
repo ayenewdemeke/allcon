@@ -12,13 +12,13 @@ import {
   BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb";
 import { Separator } from "@/components/ui/separator";
+import { useBoqTerms } from "@/components/line-items/boq-terms";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 
 const SECTION_LABELS: Record<string, string> = {
   models: "Models",
   sheets: "Sheets",
   reviews: "Review",
-  "line-items": "Line items",
   mapping: "Mapping",
   report: "Report",
   settings: "Settings",
@@ -33,6 +33,7 @@ type Crumb = { label: string; href: string };
  */
 function useCrumbs(projectName?: string) {
   const pathname = usePathname();
+  const boq = useBoqTerms().title;
   const segments = pathname.split("/").filter(Boolean);
   if (segments[0] === "library") return { crumbs: [{ label: "Library", href: "/library" }], pathname };
   if (segments[0] === "connections") return { crumbs: [{ label: "Connections", href: "/connections" }], pathname };
@@ -41,7 +42,8 @@ function useCrumbs(projectName?: string) {
     const projectHref = `/projects/${segments[1]}`;
     crumbs.push({ label: projectName, href: projectHref });
     if (segments[2]) {
-      crumbs.push({ label: SECTION_LABELS[segments[2]] ?? segments[2], href: `${projectHref}/${segments[2]}` });
+      const label = segments[2] === "line-items" ? boq : (SECTION_LABELS[segments[2]] ?? segments[2]);
+      crumbs.push({ label, href: `${projectHref}/${segments[2]}` });
     }
   }
   return { crumbs, pathname };

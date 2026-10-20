@@ -4,6 +4,7 @@ import { PageBody, PageHeader } from "@/components/shell/page-header";
 import { LinkButton } from "@/components/ui/link-button";
 import { Card, CardContent } from "@/components/ui/card";
 import { db } from "@/lib/db";
+import { boqTerms } from "@/lib/line-items/terms";
 import { requireProject } from "@/lib/auth/session";
 import { currentModelVersion, elementGroups, type GroupConditions } from "@/lib/mapping/server";
 import { suggest } from "@/lib/mapping/suggest";
@@ -34,7 +35,13 @@ export default async function MappingPage({ params }: PageProps<"/projects/[proj
     </PageBody>
   );
   if (!lines.length) {
-    return empty("Import your line items first", "Mapping links model elements to the lines of your schedule of values.", `/projects/${project.id}/line-items`, "Go to line items");
+    const terms = boqTerms(project.measurementStandard);
+    return empty(
+      `Import your ${terms.title.toLowerCase()} first`,
+      `Mapping links model elements to the ${terms.items} of your ${terms.title.toLowerCase()}.`,
+      `/projects/${project.id}/line-items`,
+      `Go to ${terms.title.toLowerCase()}`,
+    );
   }
   if (!version) {
     return empty("No model to map yet", "Upload a Revit or IFC model; once it's processed its elements appear here.", `/projects/${project.id}/models`, "Go to models");

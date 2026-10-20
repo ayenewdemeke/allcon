@@ -16,6 +16,7 @@ import type { ElementGroup } from "@/lib/mapping/server";
 import { HIGH_CONFIDENCE, quantityKeyFor, type QuantityKey, type Suggestion } from "@/lib/mapping/suggest";
 import { formatMeasure, type UnitSystem } from "@/lib/takeoff";
 import { cn } from "@/lib/utils";
+import { useBoqTerms } from "@/components/line-items/boq-terms";
 
 export type GroupRow = ElementGroup & {
   key: string;
@@ -46,6 +47,7 @@ export function MappingWorkspace({
   groups: GroupRow[];
   lineItems: LineItemOption[];
 }) {
+  const terms = useBoqTerms();
   const [filter, setFilter] = useState<Filter>("all");
   const [query, setQuery] = useState("");
   const [selectedKey, setSelectedKey] = useState<string | null>(groups.find((g) => !g.rules.length)?.key ?? groups[0]?.key ?? null);
@@ -101,7 +103,7 @@ export function MappingWorkspace({
 
   const itemLabel = (id: string) => {
     const i = itemById.get(id);
-    return i ? `${i.code ? `${i.code} · ` : ""}${i.description}` : "Deleted line item";
+    return i ? `${i.code ? `${i.code} · ` : ""}${i.description}` : `Deleted ${terms.item}`;
   };
 
   return (
@@ -242,6 +244,7 @@ function GroupPanel({
   onMap: (lineItemId: string, key: QuantityKey, fromSuggestion?: boolean) => void;
   onRemove: (ruleId: string) => void;
 }) {
+  const terms = useBoqTerms();
   const [lineItemId, setLineItemId] = useState(group.suggestion?.lineItemId ?? "");
   const item = lineItems.find((i) => i.id === lineItemId);
   const defaultKey = item ? quantityKeyFor(item.unit, group.quantities) : null;
@@ -317,7 +320,7 @@ function GroupPanel({
 
         <div className="space-y-2">
           <Label htmlFor="map-item" className="text-xs">
-            {group.rules.length ? "Also map to" : "Map to a line item"}
+            {group.rules.length ? "Also map to" : `Map to ${terms.anItem}`}
           </Label>
           <select
             id="map-item"
@@ -328,7 +331,7 @@ function GroupPanel({
               setKeyOverride(null);
             }}
           >
-            <option value="">Choose a line item…</option>
+            <option value="">{`Choose ${terms.anItem}…`}</option>
             {sections.map((s) => (
               <optgroup key={s} label={s}>
                 {lineItems

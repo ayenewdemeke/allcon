@@ -1,4 +1,5 @@
 import { cookies } from "next/headers";
+import { BoqTermsProvider } from "@/components/line-items/boq-terms";
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
 import { AppHeader } from "./app-header";
 import { AppSidebar, type SidebarProject, type SidebarUser } from "./app-sidebar";
@@ -20,11 +21,13 @@ export async function AppShell({
 
   return (
     <SidebarProvider defaultOpen={defaultOpen}>
-      <AppSidebar user={user} project={project} projects={projects} />
-      <SidebarInset className="min-w-0 bg-background">
-        <AppHeader projectName={project?.name} />
-        <div className="flex flex-1 flex-col">{children}</div>
-      </SidebarInset>
+      <BoqTermsProvider standard={project?.standard ?? ""}>
+        <AppSidebar user={user} project={project} projects={projects} />
+        <SidebarInset className="min-w-0 bg-background">
+          <AppHeader projectName={project?.name} />
+          <div className="flex flex-1 flex-col">{children}</div>
+        </SidebarInset>
+      </BoqTermsProvider>
     </SidebarProvider>
   );
 }

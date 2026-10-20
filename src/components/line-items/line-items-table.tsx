@@ -9,6 +9,8 @@ import { Table, TableBody, TableCell, TableFooter, TableHead, TableHeader, Table
 import { formatMoney, formatNumber } from "@/lib/format";
 import { lineValue } from "@/lib/line-items/import";
 import { LineItemDialog, type EditableLineItem } from "./line-item-dialog";
+import { useBoqTerms } from "@/components/line-items/boq-terms";
+import { capitalize } from "@/lib/line-items/terms";
 
 export type LineItemRow = EditableLineItem & {
   parentId: string | null;
@@ -24,6 +26,7 @@ export function LineItemsTable({
   currency: string;
   items: LineItemRow[];
 }) {
+  const terms = useBoqTerms();
   const [editing, setEditing] = useState<EditableLineItem | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
   const money = (v: number) => formatMoney(v, currency);
@@ -36,7 +39,7 @@ export function LineItemsTable({
     if (!confirm(`Delete "${item.description}"?${item.isHeading ? " Lines under this heading are deleted too." : ""}`)) return;
     try {
       await deleteLineItem(item.id);
-      toast.success("Line item deleted");
+      toast.success(`${capitalize(terms.item)} deleted`);
     } catch {
       toast.error("Could not delete");
     }
@@ -51,7 +54,7 @@ export function LineItemsTable({
     <>
       <div className="flex justify-end">
         <Button variant="outline" size="sm" onClick={() => open(null)}>
-          <Plus /> Add line item
+          <Plus /> Add {terms.item}
         </Button>
       </div>
       <div className="overflow-x-auto rounded-xl bg-card ring-1 ring-foreground/10">

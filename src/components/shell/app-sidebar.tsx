@@ -45,13 +45,14 @@ import {
   useSidebar,
 } from "@/components/ui/sidebar";
 import { LogoMark, Wordmark } from "@/components/brand/logo";
+import { useBoqTerms } from "@/components/line-items/boq-terms";
 import { authClient } from "@/lib/auth/client";
 import { cn } from "@/lib/utils";
 
 type NavItem = { name: string; href: string; icon: LucideIcon; exact?: boolean };
 
 export type SidebarUser = { name: string | null; email: string };
-export type SidebarProject = { id: string; name: string };
+export type SidebarProject = { id: string; name: string; standard?: string };
 
 const mainNav: NavItem[] = [
   { name: "Projects", href: "/projects", icon: FolderKanban },
@@ -61,14 +62,14 @@ const mainNav: NavItem[] = [
   { name: "Connections", href: "/connections", icon: Plug },
 ];
 
-function projectNav(projectId: string): NavItem[] {
+function projectNav(projectId: string, boq: string): NavItem[] {
   const base = `/projects/${projectId}`;
   return [
     { name: "Overview", href: base, icon: LayoutDashboard, exact: true },
     { name: "Models", href: `${base}/models`, icon: Box },
     { name: "Sheets", href: `${base}/sheets`, icon: Layers },
     { name: "Review", href: `${base}/reviews`, icon: FileSearch },
-    { name: "Line items", href: `${base}/line-items`, icon: ListChecks },
+    { name: boq, href: `${base}/line-items`, icon: ListChecks },
     { name: "Mapping", href: `${base}/mapping`, icon: GitMerge },
     { name: "Report", href: `${base}/report`, icon: ClipboardCheck },
     { name: "Settings", href: `${base}/settings`, icon: Settings },
@@ -207,6 +208,7 @@ export function AppSidebar({
   project?: SidebarProject;
   projects?: SidebarProject[];
 }) {
+  const terms = useBoqTerms();
   return (
     <Sidebar collapsible="icon" className={cn(project && "sidebar-project")}>
       <SidebarHeader className="gap-2 border-b border-sidebar-border">
@@ -242,7 +244,7 @@ export function AppSidebar({
         <SidebarGroup>
           {project && <SidebarGroupLabel className="text-sidebar-foreground/50">Project</SidebarGroupLabel>}
           <SidebarGroupContent>
-            <NavList items={project ? projectNav(project.id) : mainNav} />
+            <NavList items={project ? projectNav(project.id, terms.title) : mainNav} />
           </SidebarGroupContent>
         </SidebarGroup>
       </SidebarContent>

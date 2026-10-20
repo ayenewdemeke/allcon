@@ -184,7 +184,7 @@ export function SheetWorkspace({
       setMarkups((list) => list.map((m) => (m.id === markupId ? { ...m, lineItemId } : m)));
       return true;
     } catch (err) {
-      if (!quiet) toast.error(err instanceof Error ? err.message : "Could not assign the line item");
+      if (!quiet) toast.error(err instanceof Error ? err.message : "Could not save the assignment");
       return false;
     }
   }, []);

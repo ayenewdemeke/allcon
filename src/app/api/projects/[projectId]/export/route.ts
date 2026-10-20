@@ -7,6 +7,7 @@ import { toLineItemUnit } from "@/lib/line-items/units";
 import { KEY_DIMENSION } from "@/lib/mapping/server";
 import { buildReport } from "@/lib/report";
 import { measureMarkup, type Point } from "@/lib/takeoff";
+import { boqTerms, capitalize } from "@/lib/line-items/terms";
 
 
 const HEADER_FILL: ExcelJS.Fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFE2E8F0" } };
@@ -26,6 +27,7 @@ export async function GET(_request: NextRequest, ctx: RouteContext<"/api/project
   if (!access) return new Response("Not found", { status: 404 });
   const report = await buildReport(access.project.id);
   const { project, version, lines, totals } = report;
+  const itemHeader = capitalize(boqTerms(project.measurementStandard).item);
   const money = `"${project.currency === "USD" ? "$" : project.currency + " "}"#,##0.00`;
 
   const wb = new ExcelJS.Workbook();
@@ -75,7 +77,7 @@ export async function GET(_request: NextRequest, ctx: RouteContext<"/api/project
   // 2. Model elements behind each line
   const units = new Map(lines.map((l) => [l.id, l]));
   const es = wb.addWorksheet("Model elements");
-  header(es, ["Line item", "Category", "Type", "Level", "Element ID (stable)", "Quantity from", "Quantity", "Unit"], [14, 22, 40, 14, 44, 12, 12, 7]);
+  header(es, [itemHeader, "Category", "Type", "Level", "Element ID (stable)", "Quantity from", "Quantity", "Unit"], [14, 22, 40, 14, 44, 12, 12, 7]);
   if (version) {
     const mappings = await db.elementMapping.findMany({
       where: { element: { modelVersionId: version.id } },
@@ -92,7 +94,7 @@ export async function GET(_request: NextRequest, ctx: RouteContext<"/api/project
 
   // 3. Drawing measurements behind each line
   const ds = wb.addWorksheet("Drawing measurements");
-  header(ds, ["Line item", "Drawing set", "Sheet", "Measurement", "Kind", "Quantity", "Unit"], [14, 30, 18, 28, 10, 12, 7]);
+  header(ds, [itemHeader, "Drawing set", "Sheet", "Measurement", "Kind", "Quantity", "Unit"], [14, 30, 18, 28, 10, 12, 7]);
   const markups = await db.markup.findMany({
     where: { lineItemId: { not: null }, sheet: { drawingSet: { projectId: project.id } } },
     include: { sheet: { include: { drawingSet: true } } },
