@@ -22,6 +22,8 @@ export type Row = { label: string; value: string; mono?: boolean };
 export type Group = { name: string; rows: Row[]; open: boolean };
 
 export type ElementDetails = {
+  /** Its IFC GlobalId, for linking it to what conkit knows about it. */
+  guid: string | null;
   /** The element's name, or its type when it has none. */
   title: string;
   /** What kind of element: "Wall". */
@@ -351,6 +353,7 @@ export function readElement(element: Item, units: ModelUnits): ElementDetails {
   }
 
   return {
+    guid,
     title: withoutElementId(name ?? objectType ?? categoryName(ifcClass)),
     category: categoryName(ifcClass),
     summary,

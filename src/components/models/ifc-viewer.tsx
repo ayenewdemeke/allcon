@@ -45,6 +45,9 @@ function distance(m: number, units: string) {
   return units === "mm" ? `${num(m * 1000, 0)} mm` : `${num(m, 3)} m`;
 }
 
+/** What the SOV / BoQ prices from this model: items by element GlobalId, and how much of it is mapped. */
+export type ModelPricing = { byGuid: Record<string, Row[]>; mapped: number; total: number };
+
 export type ModelSource = {
   ifc: string;
   /** The saved conversion for the viewer, when there is one. */
@@ -60,6 +63,7 @@ export function IfcViewer({
   backHref,
   actions,
   subtitle,
+  pricing,
   shared = false,
 }: {
   model: { id: string; name: string; description: string | null; revision: number; updated: string; detailed?: boolean };
@@ -69,6 +73,8 @@ export function IfcViewer({
   /** Header buttons (share, download, delete for the owner). */
   actions?: React.ReactNode;
   subtitle?: React.ReactNode;
+  /** For the owner: which SOV / BoQ items elements are priced in. */
+  pricing?: ModelPricing;
   /** Viewed through a share link: read-only, no notes about editing. */
   shared?: boolean;
 }) {
@@ -221,8 +227,14 @@ export function IfcViewer({
             onClose={() => setLeft(null)}
           />
         )}
-        {ready && left === "details" && <ModelDetails model={model} summary={summary} shared={shared} onClose={() => setLeft(null)} />}
-        {ready && showProps && <PropertiesPanel element={selected.details} onClose={() => setShowProps(false)} />}
+        {ready && left === "details" && <ModelDetails model={model} summary={summary} pricing={pricing} shared={shared} onClose={() => setLeft(null)} />}
+        {ready && showProps && (
+          <PropertiesPanel
+            element={selected.details}
+            pricedIn={selected.details?.guid ? pricing?.byGuid[selected.details.guid] : undefined}
+            onClose={() => setShowProps(false)}
+          />
+        )}
 
         {ready && tool === "measure" && (
           <div className="absolute bottom-4 left-1/2 z-10 flex -translate-x-1/2 items-center gap-3 rounded-md bg-foreground/85 px-4 py-2 text-sm text-background shadow-lg">
@@ -264,11 +276,13 @@ function splitDescription(text: string) {
 function ModelDetails({
   model,
   summary,
+  pricing,
   shared,
   onClose,
 }: {
   model: { description: string | null; revision: number; updated: string; detailed?: boolean };
   summary: ModelSummary;
+  pricing?: ModelPricing;
   shared: boolean;
   onClose: () => void;
 }) {
@@ -281,6 +295,8 @@ function ModelDetails({
   if (size) overview.push({ label: "Overall size", value: `${size} ${summary.units}` });
   if (summary.rooms.length) overview.push({ label: "Room area", value: `${num(summary.totalRoomAreaM2)} m²` });
   if (summary.lod?.target) overview.push({ label: "Target LOD", value: summary.lod.target });
+  if (pricing?.total)
+    overview.push({ label: "Mapped to SOV / BoQ", value: `${Math.round((pricing.mapped / pricing.total) * 100)}% (${num(pricing.mapped, 0)} of ${num(pricing.total, 0)})` });
   const lodRows: Row[] = summary.lod
     ? [
         ...Object.entries(summary.lod.byLevel)

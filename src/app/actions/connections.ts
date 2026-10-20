@@ -26,6 +26,8 @@ const modelUndo = z.discriminatedUnion("type", [
   z.object({ type: z.literal("ifc_model_restore"), modelId: z.uuid(), revision: z.number().int() }),
 ]);
 
+const mappingUndo = z.object({ type: z.literal("mapping_rules_create"), ruleIds: z.array(z.uuid()) });
+
 const renameUndo = z.object({
   type: z.literal("rename_sheet"),
   sheetId: z.uuid(),
@@ -40,7 +42,8 @@ export async function undoActivity(activityId: string) {
   const row = await db.mcpActivity.findFirst({ where: { id: activityId, userId: user.id } });
   const rename = renameUndo.safeParse(row?.undo);
   const model = modelUndo.safeParse(row?.undo);
-  if (!row || (!row.markupIds.length && !rename.success && !model.success)) throw new Error("Nothing to undo");
+  const mapping = mappingUndo.safeParse(row?.undo);
+  if (!row || (!row.markupIds.length && !rename.success && !model.success && !mapping.success)) throw new Error("Nothing to undo");
   if (model.success) {
     // 3D models: delete one the app created, or put an updated one back to its earlier revision.
     if (model.data.type === "ifc_model_create") {
@@ -52,6 +55,13 @@ export async function undoActivity(activityId: string) {
   const inOrg = { drawingSet: { project: { orgId: user.orgId } } };
   await db.$transaction([
     db.markup.deleteMany({ where: { id: { in: row.markupIds }, sheet: inOrg } }),
+    // Mappings the app made: its rules and the element mappings they created.
+    ...(mapping.success
+      ? [
+          db.elementMapping.deleteMany({ where: { ruleId: { in: mapping.data.ruleIds }, rule: { project: { orgId: user.orgId } } } }),
+          db.mappingRule.deleteMany({ where: { id: { in: mapping.data.ruleIds }, project: { orgId: user.orgId } } }),
+        ]
+      : []),
     ...(rename.success
       ? [db.sheet.updateMany({ where: { id: rename.data.sheetId, ...inOrg }, data: { number: rename.data.number, title: rename.data.title } })]
       : []),

@@ -1,5 +1,5 @@
 import { ifcGuid } from "./compile";
-import { openingPlacement, polygonArea, profileArea, profileSize, segments } from "./geometry";
+import { openingDeductions, polygonArea, profileArea, profileSize, segments } from "./geometry";
 import { METERS_PER_UNIT, type ModelElement, type ModelSpec } from "./spec";
 
 // The elements of a model in conkit's format, as mapping reads them: the same shape as an
@@ -123,16 +123,15 @@ export function modelElements(modelId: string, spec: ModelSpec): ModelElementRow
     });
   }
 
-  // Doors and windows count, with their opening area; every opening is taken out of its wall.
+  // Every opening is taken out of its wall; doors and windows count, with their opening area.
+  for (const [hostId, d] of openingDeductions(spec)) {
+    const q = rows.get(hostId)?.quantities;
+    if (!q) continue;
+    q.volume = Math.max(0, (q.volume ?? 0) - d.volume * m ** 3);
+    if (q.area !== undefined) q.area = Math.max(0, q.area - d.area * m * m);
+  }
   for (const o of spec.openings) {
     const host = spec.elements.find((e) => e.id === o.host);
-    const placement = host && openingPlacement(host, o);
-    const hostRow = host && rows.get(host.id);
-    if (placement && hostRow) {
-      const q = hostRow.quantities;
-      q.volume = Math.max(0, (q.volume ?? 0) - o.width * o.height * placement.thickness * m ** 3);
-      if (q.area !== undefined) q.area = Math.max(0, q.area - o.width * o.height * m * m);
-    }
     if (o.kind === "opening") continue;
     const material = (o.material && materials.get(o.material)) || null;
     rows.set(`fill:${o.id}`, {

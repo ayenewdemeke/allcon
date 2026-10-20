@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { anchorOffset, elementQuantities, openingPlacement, polygonArea, segments, sub, sweepFrame, type Vec3 } from "./geometry";
+import { anchorOffset, elementQuantities, openingDeductions, openingPlacement, polygonArea, segments, sub, sweepFrame, type Vec3 } from "./geometry";
 import { METERS_PER_UNIT, type ModelElement, type ModelSpec, type Profile } from "./spec";
 
 // Compiles a model spec to an IFC4X3 file (STEP text). Geometry is swept solids
@@ -181,6 +181,7 @@ export function compileIfc(spec: ModelSpec, opts: { modelId: string; name: strin
   const contained = new Map<number, number[]>();
   const byMaterial = new Map<number, number[]>();
   const skipped: string[] = [];
+  const deductions = openingDeductions(spec); // net volumes leave out doors, windows and openings
   spec.elements.forEach((e) => {
     const segs = segments(e);
     if (!segs.length) {
@@ -234,8 +235,10 @@ export function compileIfc(spec: ModelSpec, opts: { modelId: string; name: strin
     // Base quantities (volume in m³, length in model units)
     const q = elementQuantities(e, spec);
     const qLength = add("IFCQUANTITYLENGTH", str("Length"), "$", "$", real(q.length), "$");
-    const qVolume = add("IFCQUANTITYVOLUME", str("NetVolume"), "$", "$", real(q.volumeM3), "$");
-    const qto = add("IFCELEMENTQUANTITY", guid(`qto:${e.id}`), "$", str("Qto_ConkitBaseQuantities"), "$", "$", list([ref(qLength), ref(qVolume)]));
+    const cut = (deductions.get(e.id)?.volume ?? 0) * METERS_PER_UNIT[spec.units] ** 3;
+    const qVolume = add("IFCQUANTITYVOLUME", str("NetVolume"), "$", "$", real(Math.max(0, q.volumeM3 - cut)), "$");
+    const qGross = add("IFCQUANTITYVOLUME", str("GrossVolume"), "$", "$", real(q.volumeM3), "$");
+    const qto = add("IFCELEMENTQUANTITY", guid(`qto:${e.id}`), "$", str("Qto_ConkitBaseQuantities"), "$", "$", list([ref(qLength), ref(qVolume), ref(qGross)]));
     add("IFCRELDEFINESBYPROPERTIES", guid(`relq:${e.id}`), "$", "$", "$", list([ref(element)]), ref(qto));
   });
 

@@ -1,4 +1,4 @@
-import { elementCorners, elementQuantities, openingPlacement, polygonArea, segments } from "./geometry";
+import { elementCorners, elementQuantities, openingDeductions, openingPlacement, polygonArea, segments } from "./geometry";
 import { lodSummary } from "./lod";
 import { METERS_PER_UNIT, type ModelSpec } from "./spec";
 
@@ -39,6 +39,7 @@ export function summarizeModel(spec: ModelSpec) {
   const warnings: string[] = [];
   const byType = new Map<string, { count: number; volumeM3: number; length: number }>();
   const byMaterial = new Map<string, { count: number; volumeM3: number }>();
+  const deductions = openingDeductions(spec); // volumes are net of doors, windows and openings
   const min = [Infinity, Infinity, Infinity];
   const max = [-Infinity, -Infinity, -Infinity];
 
@@ -47,7 +48,8 @@ export function summarizeModel(spec: ModelSpec) {
     if (e.level && !levels.has(e.level)) warnings.push(`${e.id}: unknown level "${e.level}"`);
     if (e.material && !materials.has(e.material)) warnings.push(`${e.id}: unknown material "${e.material}"`);
     if (!e.material) warnings.push(`${e.id}: no material`);
-    const q = elementQuantities(e, spec);
+    const raw = elementQuantities(e, spec);
+    const q = { ...raw, volumeM3: Math.max(0, raw.volumeM3 - (deductions.get(e.id)?.volume ?? 0) * METERS_PER_UNIT[spec.units] ** 3) };
     const t = byType.get(e.type) ?? { count: 0, volumeM3: 0, length: 0 };
     byType.set(e.type, { count: t.count + 1, volumeM3: t.volumeM3 + q.volumeM3, length: t.length + q.length });
     const mName = (e.material && materials.get(e.material)?.name) || "No material";

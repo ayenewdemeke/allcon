@@ -90,7 +90,7 @@ export function Rows({ rows }: { rows: Row[] }) {
 }
 
 /** The selected element: what it is, where, what it's made of and how big, then its property sets and identifiers. */
-export function PropertiesPanel({ element, onClose }: { element: ElementDetails | null; onClose: () => void }) {
+export function PropertiesPanel({ element, pricedIn, onClose }: { element: ElementDetails | null; pricedIn?: Row[]; onClose: () => void }) {
   return (
     <FloatingPanel title="Properties" onClose={onClose} className="top-3 right-24 w-80 max-sm:right-3 max-sm:left-3 max-sm:w-auto">
       <div className="p-3">
@@ -106,6 +106,11 @@ export function PropertiesPanel({ element, onClose }: { element: ElementDetails 
               <p className="text-sm leading-snug font-semibold break-words">{element.title}</p>
             </div>
             {element.summary.length > 0 && <Rows rows={element.summary} />}
+            {pricedIn && pricedIn.length > 0 && (
+              <Section name="SOV / BoQ" count={pricedIn.length} defaultOpen>
+                <Rows rows={pricedIn} />
+              </Section>
+            )}
             {element.quantities.length > 0 && (
               <Section name="Quantities" count={element.quantities.length} defaultOpen>
                 <Rows rows={element.quantities} />

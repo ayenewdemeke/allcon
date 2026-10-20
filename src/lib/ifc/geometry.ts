@@ -168,3 +168,17 @@ export function openingPlacement(host: ModelElement, o: ModelOpening) {
   }
   return null;
 }
+
+/** What doors, windows and openings take out of their host walls: volume and face area, in model units. */
+export function openingDeductions(spec: Pick<ModelSpec, "elements" | "openings">) {
+  const byHost = new Map<string, { volume: number; area: number }>();
+  const elements = new Map(spec.elements.map((e) => [e.id, e]));
+  for (const o of spec.openings) {
+    const host = elements.get(o.host);
+    const placement = host && openingPlacement(host, o);
+    if (!placement) continue;
+    const d = byHost.get(o.host) ?? { volume: 0, area: 0 };
+    byHost.set(o.host, { volume: d.volume + o.width * o.height * placement.thickness, area: d.area + o.width * o.height });
+  }
+  return byHost;
+}

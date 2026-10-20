@@ -22,6 +22,7 @@ import {
   list3dModels,
   update3dModel,
 } from "@/lib/tools/models3d";
+import { listElementGroups, mapGroups } from "@/lib/tools/mapping";
 import { getProject, listProjects, takeoffSummary } from "@/lib/tools/projects";
 
 // conkit as an MCP server: the user's own AI app (Claude, ChatGPT, Gemini...) does the thinking and
@@ -39,6 +40,8 @@ To mark something on a sheet, use the [x0,y0,x1,y1] boxes from read_sheet: flag_
 To build a 3D model (IFC) from drawings, read the sheets, then describe the structure with create_3d_model (elements are cross-section profiles swept along paths) and refine it with update_3d_model. ${APP_NAME} checks the model, keeps its revisions, shows it in 3D and exports IFC. The build_3d_model prompt has the full procedure.
 
 For detail beyond that format (openings in any element, booleans and clippings, layered walls, types, property sets, alignments), use a detailed model: create_detailed_model (or convert_to_detailed), then ifc_edit with ifcopenshell.api operations; ifc_help explains each operation and ifc_query reads the model. The detailed_ifc_model prompt has the procedure.
+
+To measure SOV / BoQ items from the models, use list_element_groups and map_groups (the map_to_boq prompt has the procedure).
 
 Models are built to a target level of development (LOD 100, 200, 300 or 350): check the drawings support it and ask the user before modelling what they don't. Keep a model's description current: update_3d_model and ifc_edit take a new description.`;
 
@@ -169,6 +172,53 @@ export function buildMcpServer(ctx: ToolContext) {
     },
     async ({ project_id }) =>
       out(await run("takeoff_summary", "Summarized quantities", () => takeoffSummary(ctx, project_id), (v) => ({ projectId: project_id, summary: `Summarized quantities for ${v.project}` }))),
+  );
+
+  // --- mapping models to the SOV / BoQ ---------------------------------------------
+
+  server.registerTool(
+    "list_element_groups",
+    {
+      title: "List element groups",
+      description:
+        "The element groups (category + type) of the project's counted models, with their quantities, what each is mapped to, and conkit's suggested SOV / BoQ item; plus the SOV / BoQ items with their ids. Use it before map_groups.",
+      inputSchema: z.object({ project_id: uuid, only_unmapped: z.boolean().default(false) }),
+      annotations: readOnly,
+    },
+    async ({ project_id, only_unmapped }) =>
+      out(await run("list_element_groups", "Listed element groups", () => listElementGroups(ctx, project_id, only_unmapped), () => ({ projectId: project_id }))),
+  );
+
+  server.registerTool(
+    "map_groups",
+    {
+      title: "Map element groups to SOV / BoQ items",
+      description:
+        "Maps element groups to SOV / BoQ items, so the items are measured from the models. Each mapping is a rule (category + type → item, by volume, area, length, perimeter or count) that applies to every counted model and carries over as models change. The quantity must match the item's unit. Returns what the items now measure against their contract quantities.",
+      inputSchema: z.object({
+        project_id: uuid,
+        mappings: z
+          .array(
+            z.object({
+              category: z.string().nullable().describe("Exactly as list_element_groups gives it"),
+              type_name: z.string().nullable().describe("Exactly as list_element_groups gives it"),
+              item_id: uuid,
+              quantity: z.enum(["volume", "area", "length", "perimeter", "count"]),
+            }),
+          )
+          .min(1)
+          .max(200),
+      }),
+      annotations: additive,
+    },
+    async ({ project_id, mappings }) =>
+      out(
+        await run("map_groups", "Mapped element groups", () => mapGroups(ctx, project_id, mappings), (v) => ({
+          projectId: project_id,
+          summary: `Mapped ${v.created} element group${v.created === 1 ? "" : "s"} to SOV / BoQ items`,
+          undo: v.ruleIds.length ? { type: "mapping_rules_create", ruleIds: v.ruleIds } : undefined,
+        })),
+      ),
   );
 
   // --- marking up (adds only) ----------------------------------------------------
@@ -482,6 +532,23 @@ Typical element: root.create_entity {ifc_class, name, predefined_type} → spati
     },
     ({ project }) =>
       user(`Summarize quantities and cost for this ${APP_NAME} project: ${project}. Find it with list_projects if needed, then use takeoff_summary. Give the totals, the lines with the largest variance between contract and measured quantities, lines with no measured quantity, and anything flagged. Use a compact table, and end with the link to the report.`),
+  );
+
+  server.registerPrompt(
+    "map_to_boq",
+    {
+      title: "Map models to the SOV / BoQ",
+      description: "Links the project's model elements to its SOV / BoQ items so they're measured from the models, checking the results against the contract quantities.",
+      argsSchema: z.object({ project: z.string().describe("Project id or name") }),
+    },
+    ({ project }) =>
+      user(`Map the models in ${APP_NAME} project ${project} to its SOV / BoQ.
+
+1. Find the project (list_projects), then call list_element_groups. It gives the element groups of the models that count, conkit's suggestion for each, and the SOV / BoQ items with their ids.
+2. For each group, decide which item it belongs to and by which quantity: volume for concrete (m³, CY), area for walls, slabs, finishes and roofing (m², SF), length for beams, railings and skirting (m, LF; perimeter for rooms), count for doors, windows, fixtures and furniture (EA, nr). Use the suggestion when it fits; read the item descriptions and codes, not just the names. A group can price more than one item (e.g. a concrete wall: its volume for concrete, its area for formwork).
+3. Leave groups unmapped when nothing in the SOV / BoQ fits, and don't force a match. If you're unsure about a mapping that matters (a large quantity or value), ask me first.
+4. Map with map_groups, in batches. Check what each item now measures against its contract quantity, and look into large differences: a wrong group, a missing one, or the same thing in two models (switch a duplicate model off on the Models page).
+5. Finish with a table of what you mapped (group → item, quantity), the items still unmeasured, notable differences from the contract, and the link to the mapping page.`),
   );
 
   server.registerPrompt(
