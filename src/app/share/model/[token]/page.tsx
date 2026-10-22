@@ -30,6 +30,7 @@ export default async function SharedModelPage({ params }: PageProps<"/share/mode
           description: model.description,
           revision: model.revision,
           updated: model.updatedAt.toLocaleString("en-US", { dateStyle: "medium", timeStyle: "short" }),
+          uploaded: !model.clientId,
         }}
         summary={modelSummary(model)}
         source={{ ifc: `${api}/ifc`, view: hasViewCopy(model) ? `${api}/view` : null, save: null }}

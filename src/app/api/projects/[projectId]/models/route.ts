@@ -20,6 +20,8 @@ export async function POST(request: NextRequest, ctx: RouteContext<"/api/project
   const { fileName, fileSize } = parsed.data;
 
   const ext = extensionOf(fileName);
+  // IFC files skip Autodesk: they go to file storage through /ifc-uploads.
+  if (ext === ".ifc") return Response.json({ error: "Upload IFC files through /ifc-uploads" }, { status: 400 });
   if (!ACCEPTED_EXTENSIONS.includes(ext)) {
     return Response.json({ error: `Supported formats: ${ACCEPTED_EXTENSIONS.join(", ")}` }, { status: 400 });
   }

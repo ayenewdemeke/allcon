@@ -31,7 +31,7 @@ export default async function ModelsPage({ params }: PageProps<"/projects/[proje
     db.ifcModel.findMany({
       where: { projectId: project.id },
       orderBy: { updatedAt: "desc" },
-      select: { id: true, name: true, elementCount: true, revision: true, updatedAt: true, countInQuantities: true },
+      select: { id: true, name: true, elementCount: true, revision: true, updatedAt: true, countInQuantities: true, clientId: true },
     }),
   ]);
   const rows = [
@@ -117,7 +117,7 @@ export default async function ModelsPage({ params }: PageProps<"/projects/[proje
                         {row.m.name}
                       </Link>
                     </TableCell>
-                    <TableCell className="text-muted-foreground">Built by AI from drawings</TableCell>
+                    <TableCell className="text-muted-foreground">{row.m.clientId ? "Built by AI from drawings" : "Uploaded · IFC"}</TableCell>
                     <TableCell className="tabular-nums">{row.m.elementCount.toLocaleString()}</TableCell>
                     <TableCell className="text-muted-foreground">Revision {row.m.revision}</TableCell>
                     <TableCell className="text-muted-foreground">{day(row.m.updatedAt)}</TableCell>

@@ -66,7 +66,7 @@ export function IfcViewer({
   pricing,
   shared = false,
 }: {
-  model: { id: string; name: string; description: string | null; revision: number; updated: string };
+  model: { id: string; name: string; description: string | null; revision: number; updated: string; uploaded?: boolean };
   summary: ModelSummary;
   source: ModelSource;
   backHref?: string;
@@ -282,7 +282,7 @@ function ModelDetails({
   shared,
   onClose,
 }: {
-  model: { description: string | null; revision: number; updated: string };
+  model: { description: string | null; revision: number; updated: string; uploaded?: boolean };
   summary: ModelSummary;
   pricing?: ModelPricing;
   shared: boolean;
@@ -369,9 +369,13 @@ function ModelDetails({
         )}
         <p className={cn("flex gap-1.5 border-t pt-2 text-[11px] leading-snug text-muted-foreground")}>
           <Box className="mt-0.5 size-3 shrink-0" />
-          {shared
-            ? "Built by an AI app from the drawings: check key dimensions before relying on it."
-            : "Built by an AI app from the drawings: check key dimensions before relying on it. Ask the app to change it, or undo a change from Connections."}
+          {model.uploaded
+            ? shared
+              ? "An uploaded IFC model."
+              : "An uploaded IFC model. Your AI app can read and change it too (undo from Connections)."
+            : shared
+              ? "Built by an AI app from the drawings: check key dimensions before relying on it."
+              : "Built by an AI app from the drawings: check key dimensions before relying on it. Ask the app to change it, or undo a change from Connections."}
         </p>
       </div>
     </FloatingPanel>

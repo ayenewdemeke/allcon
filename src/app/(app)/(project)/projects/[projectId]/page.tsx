@@ -36,13 +36,14 @@ export default async function ProjectOverviewPage({ params }: PageProps<"/projec
   const { project } = await requireProject((await params).projectId);
   const where = { projectId: project.id };
 
-  const [sets, sheetCount, markupCount, uploads, uploadCount, built, reviews, reviewCount, flagged, items, activity] = await Promise.all([
+  const [sets, sheetCount, markupCount, uploads, uploadCount, built, ifcUploads, reviews, reviewCount, flagged, items, activity] = await Promise.all([
     db.drawingSet.findMany({ where: { ...where, status: "ready" }, orderBy: { uploadedAt: "desc" }, select: { id: true, fileName: true, pageCount: true, uploadedAt: true } }),
     db.sheet.count({ where: { drawingSet: where } }),
     db.markup.count({ where: { sheet: { drawingSet: where } } }),
     db.modelVersion.findMany({ where, orderBy: { uploadedAt: "desc" }, take: 10, select: { id: true, fileName: true, status: true, uploadedAt: true } }),
     db.modelVersion.count({ where }),
-    db.ifcModel.count({ where }),
+    db.ifcModel.count({ where: { ...where, clientId: { not: null } } }),
+    db.ifcModel.count({ where: { ...where, clientId: null } }),
     db.review.findMany({ where, orderBy: { createdAt: "desc" }, take: 10, select: { id: true, name: true, createdAt: true } }),
     db.review.count({ where }),
     db.reviewIssue.count({ where: { review: where, status: "kept" } }),
@@ -54,7 +55,8 @@ export default async function ProjectOverviewPage({ params }: PageProps<"/projec
   const appName = new Map(clients.map((c) => [c.clientId, c.name || "Your AI app"]));
 
   const base = `/projects/${project.id}`;
-  const models = uploadCount + built;
+  const uploaded = uploadCount + ifcUploads;
+  const models = uploaded + built;
   const recent = [
     ...sets.map((s) => ({ at: s.uploadedAt, icon: Upload, text: `Uploaded ${s.fileName}${s.pageCount ? ` (${plural(s.pageCount, "sheet")})` : ""}`, href: `${base}/sheets` })),
     ...uploads.map((m) => ({ at: m.uploadedAt, icon: Upload, text: `Uploaded model ${m.fileName}`, href: m.status === "ready" ? `${base}/models/${m.id}` : `${base}/models` })),
@@ -81,7 +83,7 @@ export default async function ProjectOverviewPage({ params }: PageProps<"/projec
           icon={Box}
           title="Models"
           value={models ? plural(models, "model") : "No models yet"}
-          hint={models ? `${built} built from drawings · ${uploadCount} uploaded` : "Upload Revit or IFC, or have your AI app build one"}
+          hint={models ? `${built} built from drawings · ${uploaded} uploaded` : "Upload Revit or IFC, or have your AI app build one"}
         />
         <Section
           href={`${base}/reviews`}

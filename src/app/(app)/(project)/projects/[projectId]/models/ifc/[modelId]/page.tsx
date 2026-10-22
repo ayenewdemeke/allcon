@@ -27,6 +27,7 @@ export default async function IfcModelPage({ params }: PageProps<"/projects/[pro
           viewFor: true,
           elementsFor: true,
           updatedAt: true,
+          clientId: true,
         },
       })
     : null;
@@ -37,6 +38,7 @@ export default async function IfcModelPage({ params }: PageProps<"/projects/[pro
     description: model.description,
     revision: model.revision,
     updated: model.updatedAt.toLocaleString("en-US", { dateStyle: "medium", timeStyle: "short" }),
+    uploaded: !model.clientId,
   };
   const api = `/api/ifc-models/${model.id}`;
   const pricing = model.elementsFor === model.fileKey ? await modelPricing(model.id) : undefined;
