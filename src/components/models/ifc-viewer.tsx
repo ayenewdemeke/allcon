@@ -66,7 +66,7 @@ export function IfcViewer({
   pricing,
   shared = false,
 }: {
-  model: { id: string; name: string; description: string | null; revision: number; updated: string; detailed?: boolean };
+  model: { id: string; name: string; description: string | null; revision: number; updated: string };
   summary: ModelSummary;
   source: ModelSource;
   backHref?: string;
@@ -136,7 +136,6 @@ export function IfcViewer({
               <Badge variant="secondary" title={`Updated ${model.updated}`}>
                 r{model.revision}
               </Badge>
-              {model.detailed && <Badge variant="info">Detailed</Badge>}
               {summary.lod?.target && (
                 <Badge variant="outline" title="Target level of development">
                   LOD {summary.lod.target}
@@ -280,7 +279,7 @@ function ModelDetails({
   shared,
   onClose,
 }: {
-  model: { description: string | null; revision: number; updated: string; detailed?: boolean };
+  model: { description: string | null; revision: number; updated: string };
   summary: ModelSummary;
   pricing?: ModelPricing;
   shared: boolean;
@@ -332,7 +331,7 @@ function ModelDetails({
           </Section>
         )}
         {summary.byType.length > 0 && (
-          <Section name={model.detailed ? "IFC classes" : "Elements by kind"} count={summary.byType.length}>
+          <Section name="Elements by kind" count={summary.byType.length}>
             <Rows
               rows={summary.byType.map((t) => ({
                 label: label(t.type),

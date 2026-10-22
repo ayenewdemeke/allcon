@@ -8,20 +8,9 @@ import { env } from "@/lib/env";
 import { ToolError, type ToolContext } from "@/lib/tools/context";
 import { addCloud, addNote, boxSchema, flagIssue, listMarkups, listSheets, readSheet, renameSheet } from "@/lib/tools/drawings";
 import { LOD_LEVELS } from "@/lib/ifc/lod";
-import { modelPatchSchema, modelSpecSchema } from "@/lib/ifc/spec";
-import { buildModelPrompt, detailedModelPrompt } from "@/lib/mcp/model-prompts";
+import { buildModelPrompt, editModelPrompt } from "@/lib/mcp/model-prompts";
 import { searchManuals } from "@/lib/tools/library";
-import {
-  convertToDetailed,
-  create3dModel,
-  createDetailedModel,
-  get3dModel,
-  ifcEdit,
-  ifcHelp,
-  ifcQuery,
-  list3dModels,
-  update3dModel,
-} from "@/lib/tools/models3d";
+import { createModel, editModel, getModel, ifcHelp, ifcQuery, listModels } from "@/lib/tools/models3d";
 import { listElementGroups, mapGroups } from "@/lib/tools/mapping";
 import { getProject, listProjects, takeoffSummary } from "@/lib/tools/projects";
 
@@ -37,13 +26,11 @@ If a sheet's number or title in ${APP_NAME} is wrong (compare with the title blo
 
 To mark something on a sheet, use the [x0,y0,x1,y1] boxes from read_sheet: flag_issue for a review finding (cloud plus a note with the explanation and citation), add_cloud or add_note for other markups. Markups are added, never deleted, and the user reviews them in ${APP_NAME}. Give the user the links returned so they can open the sheet.
 
-To build a 3D model (IFC) from drawings, read the sheets, then describe the structure with create_3d_model (elements are cross-section profiles swept along paths) and refine it with update_3d_model. ${APP_NAME} checks the model, keeps its revisions, shows it in 3D and exports IFC. The build_3d_model prompt has the full procedure.
-
-For detail beyond that format (openings in any element, booleans and clippings, layered walls, types, property sets, alignments), use a detailed model: create_detailed_model (or convert_to_detailed), then ifc_edit with ifcopenshell.api operations; ifc_help explains each operation and ifc_query reads the model. The detailed_ifc_model prompt has the procedure.
+To build a 3D model (IFC) from drawings, read the sheets, start the model with create_3d_model, then build it with ifc_edit using ifcopenshell.api operations; ifc_help explains each operation and ifc_query reads the model. ${APP_NAME} checks the model, keeps one backup for undo, shows it in 3D and exports the IFC. The build_3d_model prompt has the full procedure, and edit_3d_model the one for changing a model.
 
 To measure SOV / BoQ items from the models, use list_element_groups and map_groups (the map_to_boq prompt has the procedure).
 
-Models are built to a target level of development (LOD 100, 200, 300 or 350): check the drawings support it and ask the user before modelling what they don't. Keep a model's description current: update_3d_model and ifc_edit take a new description.`;
+Models are built to a target level of development (LOD 100, 200, 300 or 350): check the drawings support it and ask the user before modelling what they don't. Keep a model's description current: ifc_edit takes a new description.`;
 
 const uuid = z.uuid();
 const readOnly = { readOnlyHint: true, openWorldHint: false } as const;
@@ -304,98 +291,19 @@ export function buildMcpServer(ctx: ToolContext) {
       ),
   );
 
-  // --- 3D models (IFC) from drawings ------------------------------------------------
+  // --- 3D models (IFC, built with IfcOpenShell) ------------------------------------------
 
   server.registerTool(
     "create_3d_model",
     {
       title: "Create a 3D model",
-      description: `Creates a 3D model (compiled to IFC4X3) in a project from a structured description you build from the drawings. Each element is a cross-section profile swept along a path of points:
-- Vertical members (columns, piers, piles, footings, slabs, decks): path goes up or down in z; the profile lies in plan (x east, y north). A slab is a polygon profile swept through its thickness.
-- Horizontal or sloping members (beams, girders, walls, barriers): the profile is across the member (x) and up (y); anchor "bottom" puts a wall on its base line, "top" hangs a girder from the deck line.
-- Curved members: several path points along the curve.
-- Doors and windows go in openings: each names its host wall, its offset along the wall, sill height, width and height; conkit cuts the opening and places the door or window.
-- Rooms go in spaces: name, number, floor outline, floor elevation and height.
-- Sloped roofs: a thin rect profile swept along the eave line and rotated by the pitch.
-Use the drawings' units and real elevations, a meaningful id per element, its mark and source sheet, and note assumptions in notes. Returns a summary (counts, volumes, extents, warnings) to check against the drawings, and links to view and download the IFC.`,
+      description:
+        "Starts a 3D model (real IFC, built with IfcOpenShell) with its project, units, contexts, site, building or bridge, and storeys (one per floor people stand on). Returns the ids (handles) of these, including the Body context for geometry. Then build it with ifc_edit.",
       inputSchema: z.object({
         project_id: uuid,
         name: z.string().min(1).max(200),
-        description: z.string().max(2000).optional().describe("What was modelled, from which sheets, the level of detail and key assumptions"),
+        description: z.string().max(2000).optional().describe("What it is, which sheets it comes from, the target LOD, what's included and the main assumptions"),
         source_sheet_ids: z.array(uuid).max(500).optional(),
-        model: modelSpecSchema,
-      }),
-      annotations: additive,
-    },
-    async ({ project_id, name, description, source_sheet_ids, model }) =>
-      out(
-        await run(
-          "create_3d_model",
-          `Created 3D model "${name}"`,
-          () => create3dModel(ctx, { projectId: project_id, name, description, sourceSheetIds: source_sheet_ids, spec: model }),
-          (v) => ({
-            projectId: v.projectId,
-            summary: `Created 3D model "${name}" (${v.summary.elements} elements)`,
-            undo: { type: "ifc_model_create", modelId: v.modelId },
-          }),
-        ),
-      ),
-  );
-
-  server.registerTool(
-    "update_3d_model",
-    {
-      title: "Update a 3D model",
-      description:
-        "Changes a 3D model without resending it: add or replace elements by id, remove elements, or replace levels or materials. Each update is a new revision the user can undo. Returns the updated summary.",
-      inputSchema: z.object({
-        model_id: uuid,
-        changes: modelPatchSchema,
-        note: z.string().max(300).optional().describe("What changed and why"),
-        description: z.string().max(2000).optional().describe("The model's updated description, when the change affects what it says"),
-      }),
-      annotations: { ...additive, destructiveHint: true },
-    },
-    async ({ model_id, changes, note, description }) =>
-      out(
-        await run("update_3d_model", "Updated a 3D model", () => update3dModel(ctx, { modelId: model_id, patch: changes, note, description }), (v) => ({
-          projectId: v.projectId,
-          summary: `Updated 3D model "${v.name}" to revision ${v.revision} (+${v.changed.upserted} / -${v.changed.removed} elements)`,
-          undo: { type: "ifc_model_restore", modelId: v.modelId, revision: v.previousRevision },
-        })),
-      ),
-  );
-
-  server.registerTool(
-    "get_3d_model",
-    {
-      title: "Get a 3D model",
-      description: "A 3D model's summary (counts, volumes by type and material, extents, warnings), levels, materials and revisions; set include_elements to get the elements too.",
-      inputSchema: z.object({ model_id: uuid, include_elements: z.boolean().default(false) }),
-      annotations: readOnly,
-    },
-    async ({ model_id, include_elements }) =>
-      out(await run("get_3d_model", "Opened a 3D model", () => get3dModel(ctx, model_id, include_elements), (v) => ({ projectId: v.projectId, summary: `Opened 3D model "${v.name}"` }))),
-  );
-
-  server.registerTool(
-    "list_3d_models",
-    { title: "List 3D models", description: "The 3D models built in a project.", inputSchema: z.object({ project_id: uuid }), annotations: readOnly },
-    async ({ project_id }) => out(await run("list_3d_models", "Listed 3D models", () => list3dModels(ctx, project_id), () => ({ projectId: project_id }))),
-  );
-
-  // --- detailed models (IFC, edited with IfcOpenShell) -------------------------------
-
-  server.registerTool(
-    "create_detailed_model",
-    {
-      title: "Create a detailed IFC model",
-      description:
-        "Starts an empty detailed model (real IFC, edited with IfcOpenShell) with project, units, contexts, site, building or bridge, and storeys. Returns the ids (handles) of these, including the Body context for geometry. Then build it with ifc_edit.",
-      inputSchema: z.object({
-        project_id: uuid,
-        name: z.string().min(1).max(200),
-        description: z.string().max(2000).optional(),
         schema: z.enum(["IFC4", "IFC4X3"]).default("IFC4X3"),
         units: z.enum(["m", "mm", "ft", "in"]),
         facility: z.enum(["building", "bridge", "site"]).default("building"),
@@ -408,9 +316,9 @@ Use the drawings' units and real elevations, a meaningful id per element, its ma
       }),
       annotations: additive,
     },
-    async ({ project_id, ...rest }) =>
+    async ({ project_id, source_sheet_ids, ...rest }) =>
       out(
-        await run("create_detailed_model", `Created detailed model "${rest.name}"`, () => createDetailedModel(ctx, { projectId: project_id, ...rest }), (v) => ({
+        await run("create_3d_model", `Created 3D model "${rest.name}"`, () => createModel(ctx, { projectId: project_id, sourceSheetIds: source_sheet_ids, ...rest }), (v) => ({
           projectId: v.projectId,
           undo: { type: "ifc_model_create", modelId: v.modelId },
         })),
@@ -418,29 +326,29 @@ Use the drawings' units and real elevations, a meaningful id per element, its ma
   );
 
   server.registerTool(
-    "convert_to_detailed",
+    "get_3d_model",
     {
-      title: "Convert to a detailed model",
-      description: "Turns a model in conkit's format into a detailed IFC model, so it can be refined with ifc_edit. One way: afterwards update_3d_model no longer applies (earlier revisions can still be restored).",
+      title: "Get a 3D model",
+      description: "A 3D model's summary: elements by IFC class, storeys and rooms, contexts, LOD, and warnings about how it's organized.",
       inputSchema: z.object({ model_id: uuid }),
-      annotations: { ...additive, destructiveHint: true },
+      annotations: readOnly,
     },
-    async ({ model_id }) =>
-      out(
-        await run("convert_to_detailed", "Converted a model to detailed IFC", () => convertToDetailed(ctx, model_id), (v) => ({
-          projectId: v.projectId,
-          summary: `Converted "${v.name}" to a detailed IFC model`,
-          undo: { type: "ifc_model_restore", modelId: v.modelId, revision: v.previousRevision },
-        })),
-      ),
+    async ({ model_id }) => out(await run("get_3d_model", "Opened a 3D model", () => getModel(ctx, model_id), (v) => ({ projectId: v.projectId, summary: `Opened 3D model "${v.name}"` }))),
+  );
+
+  server.registerTool(
+    "list_3d_models",
+    { title: "List 3D models", description: "The 3D models built in a project.", inputSchema: z.object({ project_id: uuid }), annotations: readOnly },
+    async ({ project_id }) => out(await run("list_3d_models", "Listed 3D models", () => listModels(ctx, project_id), () => ({ projectId: project_id }))),
   );
 
   server.registerTool(
     "ifc_edit",
     {
-      title: "Edit a detailed IFC model",
-      description: `Applies a list of ifcopenshell.api operations to a detailed model, in order, as one revision (all or nothing). Each operation is {"op": "module.function", "args": {...}, "as": "name"}; the model itself is passed for you. In args, "#123" is the entity with id 123 and "$name" is the result of an earlier operation in the same list named with "as". Lists of numbers under "matrix" become 4x4 matrices; "conkit.matrix" builds one from {"location":[x,y,z], "x_axis":[...], "z_axis":[...]} or {"location", "rotation_z": degrees}.
-Typical element: root.create_entity {ifc_class, name, predefined_type} → spatial.assign_container {products:["$el"], relating_structure:"#storey"} → geometry.add_wall_representation / add_slab_representation / add_profile_representation {context:"#body", ...} → geometry.assign_representation → geometry.edit_object_placement {product, matrix}. Openings: create an IfcOpeningElement with geometry and placement, feature.add_feature {feature, element}, then feature.add_filling {opening, element} for the door or window. Use ifc_help for any operation's arguments.`,
+      title: "Edit a 3D model",
+      description: `Applies a list of ifcopenshell.api operations to a 3D model, in order, as one change (all or nothing). Each operation is {"op": "module.function", "args": {...}, "as": "name"}; the model itself is passed for you. In args, "#123" is the entity with id 123 and "$name" is the result of an earlier operation in the same list named with "as". Lists of numbers under "matrix" become 4x4 matrices; "conkit.matrix" builds one from {"location":[x,y,z], "x_axis":[...], "z_axis":[...]} or {"location", "rotation_z": degrees}.
+Typical element: root.create_entity {ifc_class, name, predefined_type} → spatial.assign_container {products:["$el"], relating_structure:"#storey"} → geometry.add_wall_representation / add_slab_representation / add_profile_representation {context:"#body", ...} → geometry.assign_representation → geometry.edit_object_placement {product, matrix}. Openings: create an IfcOpeningElement with geometry and placement, feature.add_feature {feature, element}, then feature.add_filling {opening, element} for the door or window. Use ifc_help for any operation's arguments.
+Edits in one request build one revision of the model; the user can undo the whole request from Connections.`,
       inputSchema: z.object({
         model_id: uuid,
         operations: z
@@ -454,12 +362,12 @@ Typical element: root.create_entity {ifc_class, name, predefined_type} → spati
     },
     async ({ model_id, operations, note, description }) =>
       out(
-        await run("ifc_edit", "Edited a detailed model", () => ifcEdit(ctx, { modelId: model_id, operations, note, description }), (v) => ({
+        await run("ifc_edit", "Edited a 3D model", () => editModel(ctx, { modelId: model_id, operations, note, description }), (v) => ({
           projectId: v.projectId,
           summary: operations.length
-            ? `Edited detailed model "${v.name}" (${operations.length} operation${operations.length === 1 ? "" : "s"}) to revision ${v.revision}`
+            ? `Edited 3D model "${v.name}" (${operations.length} operation${operations.length === 1 ? "" : "s"}), revision ${v.revision}`
             : `Updated the description of "${v.name}"`,
-          undo: operations.length ? { type: "ifc_model_restore", modelId: v.modelId, revision: v.previousRevision } : undefined,
+          undo: operations.length && v.backupKey ? { type: "ifc_model_restore", modelId: v.modelId, backupKey: v.backupKey } : undefined,
         })),
       ),
   );
@@ -467,14 +375,14 @@ Typical element: root.create_entity {ifc_class, name, predefined_type} → spati
   server.registerTool(
     "ifc_query",
     {
-      title: "Query a detailed IFC model",
+      title: "Query a 3D model",
       description:
         "Lists elements matching an IfcOpenShell selector (e.g. 'IfcWall', 'IfcSlab, IfcBeam', 'IfcWall, Name=W1') with their ids, or, given an id, returns that entity's attributes, property sets, container, type, material and placement.",
       inputSchema: z.object({ model_id: uuid, select: z.string().max(500).optional(), id: z.number().int().positive().optional() }),
       annotations: readOnly,
     },
     async ({ model_id, select, id }) =>
-      out(await run("ifc_query", "Queried a detailed model", () => ifcQuery(ctx, { modelId: model_id, select, id }), (v) => ({ projectId: v.projectId }))),
+      out(await run("ifc_query", "Queried a 3D model", () => ifcQuery(ctx, { modelId: model_id, select, id }), (v) => ({ projectId: v.projectId }))),
   );
 
   server.registerTool(
@@ -567,17 +475,17 @@ Typical element: root.create_entity {ifc_class, name, predefined_type} → spati
   );
 
   server.registerPrompt(
-    "detailed_ifc_model",
+    "edit_3d_model",
     {
-      title: "Build or refine a detailed IFC model",
-      description: "Models in real IFC with IfcOpenShell, for detail beyond the standard format (openings anywhere, assemblies, layered elements, types, property sets), to a target LOD and well organized.",
+      title: "Change a 3D model",
+      description: "Changes an existing 3D model with IfcOpenShell: add or fix elements, openings, assemblies, types or property sets, keeping it well organized.",
       argsSchema: z.object({
-        task: z.string().describe("What to model or change, e.g. 'add the stair openings in the level 2 slab' or 'model the pier caps with their chamfers'"),
-        model: z.string().optional().describe("Existing model id or name, if refining one"),
-        lod: z.string().optional().describe("Level of development: 100, 200, 300 (default) or 350"),
+        model: z.string().describe("The model's id or name"),
+        task: z.string().describe("What to change, e.g. 'add the stair openings in the level 2 slab' or 'group the roof layers under one roof'"),
+        lod: z.string().optional().describe("Target level of development for what's added: 100, 200, 300 or 350 (default: the model's own)"),
       }),
     },
-    (args) => user(detailedModelPrompt(args)),
+    (args) => user(editModelPrompt(args)),
   );
 
   return server;

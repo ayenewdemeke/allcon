@@ -1,15 +1,15 @@
 """
-IfcOpenShell worker for conkit's detailed 3D models.
+IfcOpenShell worker for conkit's 3D models.
 
 conkit's Next.js server calls this function (never browsers or AI apps directly). An AI app
 edits a model through conkit's connector as lists of ifcopenshell.api calls from a whitelist;
-no code sent to this worker is ever executed. Each request carries the model as gzipped IFC
-and gets the changed model back, so the worker keeps no state.
+no code sent to this worker is ever executed. Each request carries signed links: one to read
+the model from file storage and, for changes, one to write the result, so models of any size
+pass straight between storage and the worker, which keeps no state.
 
 Deployed as a Vercel Python function at /api/ifc. Locally: python api/ifc.py (port 5328).
 """
 
-import base64
 import collections
 import gzip
 import hashlib
@@ -19,7 +19,9 @@ import inspect
 import json
 import os
 import re
+import ssl
 import time
+import urllib.request
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
 import ifcopenshell
@@ -39,6 +41,13 @@ import ifcopenshell.util.selector
 import ifcopenshell.util.shape
 import ifcopenshell.util.unit
 import numpy
+
+try:  # trusted certificates for file storage links, the same on every machine
+    import certifi
+
+    SSL_CONTEXT = ssl.create_default_context(cafile=certifi.where())
+except ImportError:
+    SSL_CONTEXT = ssl.create_default_context()
 
 # Modules an AI app may call. Left out: anything that reads or writes files or other
 # documents (project, library, document, drawing) and admin-style modules.
@@ -60,12 +69,23 @@ def expected_token():
 
 
 def load(payload):
-    text = gzip.decompress(base64.b64decode(payload["ifc"])).decode("utf-8")
-    return ifcopenshell.file.from_string(text)
+    """The model to work on, read from file storage through the signed link conkit sends."""
+    with urllib.request.urlopen(payload["ifc_url"], timeout=60, context=SSL_CONTEXT) as res:
+        data = res.read()
+    if data[:2] == b"\x1f\x8b":  # stored gzipped
+        data = gzip.decompress(data)
+    return ifcopenshell.file.from_string(data.decode("utf-8"))
 
 
-def dump(model):
-    return base64.b64encode(gzip.compress(model.to_string().encode("utf-8"))).decode("ascii")
+def dump(model, payload):
+    """Writes the changed model to file storage (gzipped) through the signed link conkit sends."""
+    data = gzip.compress(model.to_string().encode("utf-8"))
+    target = payload.get("put") or {}
+    request = urllib.request.Request(target["url"], data=data, method="PUT", headers=target.get("headers") or {})
+    with urllib.request.urlopen(request, timeout=60, context=SSL_CONTEXT) as res:
+        if res.status >= 300:
+            raise RuntimeError(f"Could not save the model (HTTP {res.status})")
+    return len(data)
 
 
 def describe(entity):
@@ -547,11 +567,11 @@ def handle(payload):
         return {"result": help_for(params)}
     if action == "create":
         model, handles = create(params)
-        return {"ifc": dump(model), "handles": handles, "summary": summary(model)}
+        return {"size": dump(model, payload), "handles": handles, "summary": summary(model)}
     model = load(payload)
     if action == "edit":
         results = run_operations(model, params.get("operations") or [])
-        return {"ifc": dump(model), "results": results, "summary": summary(model)}
+        return {"size": dump(model, payload), "results": results, "summary": summary(model)}
     if action == "query":
         return {"result": query(model, params)}
     if action == "summary":

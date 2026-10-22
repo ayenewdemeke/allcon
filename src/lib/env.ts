@@ -17,6 +17,11 @@ const schema = z.object({
   EMAIL_FROM: optional,
   // Plan review (AI pass); the rest of the app works without it.
   ANTHROPIC_API_KEY: optional,
+  // File storage (Cloudflare R2); without it, development uses a local folder.
+  R2_ACCOUNT_ID: optional,
+  R2_ACCESS_KEY_ID: optional,
+  R2_SECRET_ACCESS_KEY: optional,
+  R2_BUCKET: optional,
 });
 
 let cached: z.infer<typeof schema> | undefined;

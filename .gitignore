@@ -50,3 +50,6 @@ __pycache__/
 # 3D viewer assets, copied from node_modules on install
 /public/wasm/
 /public/fragments/
+
+# Local stand-in for R2 file storage (development)
+/.local-storage/

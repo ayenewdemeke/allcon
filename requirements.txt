@@ -1,2 +1,3 @@
-# Python function api/ifc.py (the IfcOpenShell worker for detailed 3D models).
+# Python function api/ifc.py (the IfcOpenShell worker for 3D models).
 ifcopenshell==0.9.0.post1
+certifi==2025.8.3

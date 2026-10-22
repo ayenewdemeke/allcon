@@ -7,7 +7,7 @@ import { requireProject } from "@/lib/auth/session";
 import { BOQ } from "@/lib/line-items/terms";
 
 // Connector calls that changed something in the project (reads aren't activity).
-const EDIT_TOOLS = ["flag_issue", "add_cloud", "add_note", "rename_sheet", "create_3d_model", "update_3d_model", "create_detailed_model", "convert_to_detailed", "ifc_edit"];
+const EDIT_TOOLS = ["flag_issue", "add_cloud", "add_note", "rename_sheet", "create_3d_model", "ifc_edit", "map_groups"];
 
 const plural = (n: number, one: string, many = `${one}s`) => `${n.toLocaleString()} ${n === 1 ? one : many}`;
 const day = (d: Date) => d.toLocaleDateString("en-US", { month: "short", day: "numeric" });

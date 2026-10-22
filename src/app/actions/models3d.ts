@@ -3,13 +3,14 @@
 import { revalidatePath } from "next/cache";
 import { getCurrentUser, isUuid } from "@/lib/auth/session";
 import { db } from "@/lib/db";
+import { removeModel } from "@/lib/tools/models3d";
 
+/** Deletes a 3D model and its files. */
 export async function deleteIfcModel(modelId: string) {
   const user = await getCurrentUser();
   if (!user || !isUuid(modelId)) throw new Error("Model not found");
-  const model = await db.ifcModel.findFirst({ where: { id: modelId, project: { orgId: user.orgId } } });
+  const model = await removeModel(user.orgId, modelId);
   if (!model) throw new Error("Model not found");
-  await db.ifcModel.delete({ where: { id: model.id } });
   revalidatePath(`/projects/${model.projectId}/models`);
 }
 

@@ -1,6 +1,6 @@
 import type { NextRequest } from "next/server";
-import { ifcResponse, modelIfcText } from "@/lib/ifc/model-file";
-import { findActiveModelShare, sharedByName } from "@/lib/ifc/model-share";
+import { modelFileRedirect } from "@/lib/ifc/model-file";
+import { findActiveModelShare } from "@/lib/ifc/model-share";
 
 /** A shared model's IFC, for the shared viewer (and as a download when the link allows it). */
 export async function GET(request: NextRequest, ctx: RouteContext<"/api/share/model/[token]/ifc">) {
@@ -8,5 +8,5 @@ export async function GET(request: NextRequest, ctx: RouteContext<"/api/share/mo
   if (!share) return new Response("Not found", { status: 404 });
   const download = request.nextUrl.searchParams.has("download");
   if (download && !share.allowDownload) return new Response("Downloads are off for this link", { status: 403 });
-  return ifcResponse(share.model, modelIfcText(share.model, sharedByName(share)), download);
+  return modelFileRedirect(share.model, download);
 }

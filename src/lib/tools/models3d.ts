@@ -1,25 +1,21 @@
 import "server-only";
-import { Prisma } from "@/generated/prisma/client";
+import { randomUUID } from "node:crypto";
 import { db } from "@/lib/db";
-import { compileIfc } from "@/lib/ifc/compile";
-import { applyPatch, modelSpecSchema, type ModelPatch, type ModelSpec } from "@/lib/ifc/spec";
-import { specErrors, summarizeModel } from "@/lib/ifc/summary";
-import { gzipIfc, workerCreate, workerEdit, workerHelp, workerQuery, workerSummary, WorkerError } from "@/lib/ifc/worker";
+import { newModelFileKey, workerCreate, workerEdit, workerHelp, workerQuery, workerSummary, WorkerError, type WorkerSummary } from "@/lib/ifc/worker";
+import { deleteFiles } from "@/lib/storage";
 import { requireProject, ToolError, type ToolContext } from "./context";
 
-// 3D models an AI app builds from drawings. The app reads the sheets and writes the model in
-// conkit's format; conkit checks it, keeps its revisions, and compiles it to IFC on request.
+// 3D models AI apps build from drawings: real IFC, created and edited with IfcOpenShell
+// operations through the IFC engine. The file lives in storage, written once per save; the
+// model keeps one backup, the file before the latest change, so that change can be undone.
 
-const KEEP_REVISIONS = 20;
+/** Edits from one app this close together make one revision: one request in the AI app. */
+const REQUEST_WINDOW_MS = 15 * 60 * 1000;
+
 const links = (projectId: string, modelId: string) => ({
   link: `/projects/${projectId}/models/ifc/${modelId}`,
   ifcDownload: `/api/ifc-models/${modelId}/ifc?download=1`,
 });
-
-function check(spec: ModelSpec) {
-  const errors = specErrors(spec);
-  if (errors.length) throw new ToolError(`The model has problems to fix first: ${errors.join("; ")}`);
-}
 
 async function findModel(ctx: ToolContext, modelId: string) {
   const model = await db.ifcModel.findFirst({ where: { id: modelId, project: { orgId: ctx.orgId } } });
@@ -27,21 +23,7 @@ async function findModel(ctx: ToolContext, modelId: string) {
   return model;
 }
 
-/** A model in conkit's format (not a detailed IFC model). */
-async function requireModel(ctx: ToolContext, modelId: string) {
-  const model = await findModel(ctx, modelId);
-  if (model.kind !== "spec") throw new ToolError("This is a detailed (IFC) model: change it with ifc_edit, and read it with ifc_query.");
-  return { ...model, spec: modelSpecSchema.parse(model.spec) };
-}
-
-/** A detailed model, kept as IFC and edited with IfcOpenShell. */
-async function requireDetailed(ctx: ToolContext, modelId: string) {
-  const model = await findModel(ctx, modelId);
-  if (model.kind !== "ifc" || !model.ifcGz) throw new ToolError("This model is in conkit's format: change it with update_3d_model, or convert it first with convert_to_detailed.");
-  return { ...model, ifcGz: model.ifcGz };
-}
-
-/** Worker failures become tool errors the AI app can read and act on. */
+/** IFC engine failures become tool errors the AI app can read and act on. */
 async function engine<T>(work: () => Promise<T>) {
   try {
     return await work();
@@ -51,142 +33,16 @@ async function engine<T>(work: () => Promise<T>) {
   }
 }
 
-const asJson = (spec: ModelSpec) => spec as unknown as Prisma.InputJsonValue;
+const asJson = (summary: WorkerSummary) => summary as unknown as object;
+const describe = (description: string | undefined) => (description === undefined ? {} : { description: description.slice(0, 2000) || null });
 
-export async function create3dModel(
-  ctx: ToolContext,
-  input: { projectId: string; name: string; description?: string; sourceSheetIds?: string[]; spec: ModelSpec },
-) {
-  const project = await requireProject(ctx, input.projectId);
-  check(input.spec);
-  const sheets = input.sourceSheetIds?.length
-    ? await db.sheet.findMany({ where: { id: { in: input.sourceSheetIds }, drawingSet: { projectId: project.id } }, select: { id: true } })
-    : [];
-  const model = await db.ifcModel.create({
-    data: {
-      projectId: project.id,
-      name: input.name.trim().slice(0, 200),
-      description: input.description?.slice(0, 2000) ?? null,
-      spec: asJson(input.spec),
-      elementCount: input.spec.elements.length,
-      sourceSheetIds: sheets.map((s) => s.id),
-      clientId: ctx.clientId,
-      createdById: ctx.userId,
-      revisions: { create: { revision: 1, spec: asJson(input.spec), note: "Created" } },
-    },
-  });
-  return { modelId: model.id, revision: 1, projectId: project.id, ...links(project.id, model.id), summary: summarizeModel(input.spec) };
-}
-
-export async function update3dModel(ctx: ToolContext, input: { modelId: string; patch: ModelPatch; note?: string; description?: string }) {
-  const model = await requireModel(ctx, input.modelId);
-  const spec = applyPatch(model.spec, input.patch);
-  check(spec);
-  const revision = model.revision + 1;
-  await db.$transaction([
-    db.ifcModel.update({ where: { id: model.id }, data: { spec: asJson(spec), elementCount: spec.elements.length, revision, ...describe(input.description) } }),
-    db.ifcModelRevision.create({ data: { modelId: model.id, revision, spec: asJson(spec), note: input.note?.slice(0, 300) ?? null } }),
-    db.ifcModelRevision.deleteMany({ where: { modelId: model.id, revision: { lte: revision - KEEP_REVISIONS } } }),
-  ]);
-  return {
-    modelId: model.id,
-    name: model.name,
-    revision,
-    previousRevision: model.revision,
-    projectId: model.projectId,
-    changed: { upserted: input.patch.upsert_elements.length, removed: input.patch.remove_element_ids.length },
-    ...links(model.projectId, model.id),
-    summary: summarizeModel(spec),
-  };
-}
-
-export async function get3dModel(ctx: ToolContext, modelId: string, includeElements: boolean) {
-  const found = await findModel(ctx, modelId);
-  if (found.kind === "ifc") {
-    return {
-      modelId: found.id,
-      name: found.name,
-      kind: "detailed (IFC)",
-      description: found.description,
-      revision: found.revision,
-      projectId: found.projectId,
-      ...links(found.projectId, found.id),
-      summary: found.summary,
-      note: "Use ifc_query to list or inspect elements, and ifc_edit to change the model.",
-    };
-  }
-  const model = { ...found, spec: modelSpecSchema.parse(found.spec) };
-  const revisions = await db.ifcModelRevision.findMany({
-    where: { modelId: model.id },
-    orderBy: { revision: "desc" },
-    select: { revision: true, note: true, createdAt: true },
-  });
-  return {
-    modelId: model.id,
-    name: model.name,
-    description: model.description,
-    revision: model.revision,
-    projectId: model.projectId,
-    ...links(model.projectId, model.id),
-    summary: summarizeModel(model.spec),
-    levels: model.spec.levels,
-    materials: model.spec.materials,
-    elements: includeElements ? model.spec.elements : undefined,
-    revisions: revisions.map((r) => ({ revision: r.revision, note: r.note, at: r.createdAt.toISOString().slice(0, 16) })),
-  };
-}
-
-export async function list3dModels(ctx: ToolContext, projectId: string) {
-  const project = await requireProject(ctx, projectId);
-  const models = await db.ifcModel.findMany({ where: { projectId: project.id }, orderBy: { updatedAt: "desc" } });
-  return models.map((m) => ({
-    modelId: m.id,
-    name: m.name,
-    kind: m.kind === "ifc" ? "detailed (IFC)" : "conkit format",
-    elements: m.elementCount,
-    revision: m.revision,
-    updated: m.updatedAt.toISOString().slice(0, 16),
-    ...links(project.id, m.id),
-  }));
-}
-
-/** Puts a model back to an earlier revision (as a new revision, so it can be undone too). */
-export async function restore3dModel(orgId: string, modelId: string, revision: number) {
-  const model = await db.ifcModel.findFirst({ where: { id: modelId, project: { orgId } } });
-  const old = model && (await db.ifcModelRevision.findUnique({ where: { modelId_revision: { modelId, revision } } }));
-  if (!model || !old) throw new Error("That revision is no longer kept");
-  const next = model.revision + 1;
-  // A revision holds either the format (spec) or the IFC itself, matching the model's kind then.
-  const data = old.ifcGz
-    ? { kind: "ifc", ifcGz: old.ifcGz, spec: Prisma.DbNull }
-    : (() => {
-        const spec = modelSpecSchema.parse(old.spec);
-        return { kind: "spec", spec: asJson(spec), ifcGz: null, elementCount: spec.elements.length };
-      })();
-  await db.$transaction([
-    db.ifcModel.update({ where: { id: model.id }, data: { ...data, revision: next } }),
-    db.ifcModelRevision.create({
-      data: { modelId: model.id, revision: next, spec: old.spec ?? Prisma.DbNull, ifcGz: old.ifcGz, note: `Restored revision ${revision}` },
-    }),
-  ]);
-  return next;
-}
-
-// --- detailed models (IFC, edited with IfcOpenShell) ---------------------------------------
-
-const asSummary = (v: unknown) => v as Prisma.InputJsonValue;
-
-/** A new model description, when one is given (kept current as the model changes). */
-function describe(description: string | undefined) {
-  return description === undefined ? {} : { description: description.slice(0, 2000) || null };
-}
-
-export async function createDetailedModel(
+export async function createModel(
   ctx: ToolContext,
   input: {
     projectId: string;
     name: string;
     description?: string;
+    sourceSheetIds?: string[];
     schema: "IFC4" | "IFC4X3";
     units: string;
     facility: string;
@@ -195,66 +51,112 @@ export async function createDetailedModel(
   },
 ) {
   const project = await requireProject(ctx, input.projectId);
+  const sheets = input.sourceSheetIds?.length
+    ? await db.sheet.findMany({ where: { id: { in: input.sourceSheetIds }, drawingSet: { projectId: project.id } }, select: { id: true } })
+    : [];
+  const id = randomUUID();
+  const fileKey = newModelFileKey(id);
   const made = await engine(() =>
-    workerCreate({ schema: input.schema, name: input.name, units: input.units, facility: input.facility, lod: input.lod, levels: input.levels }),
+    workerCreate(fileKey, { schema: input.schema, name: input.name, units: input.units, facility: input.facility, lod: input.lod, levels: input.levels }),
   );
-  const model = await db.ifcModel.create({
+  await db.ifcModel.create({
     data: {
+      id,
       projectId: project.id,
       name: input.name.trim().slice(0, 200),
       description: input.description?.slice(0, 2000) ?? null,
-      kind: "ifc",
-      ifcGz: made.ifcGz,
-      summary: asSummary(made.summary),
+      fileKey,
+      fileSize: made.size,
+      summary: asJson(made.summary),
       elementCount: made.summary.elements,
+      editClientId: ctx.clientId,
+      editedAt: new Date(),
+      sourceSheetIds: sheets.map((s) => s.id),
       clientId: ctx.clientId,
       createdById: ctx.userId,
-      revisions: { create: { revision: 1, ifcGz: made.ifcGz, note: "Created" } },
     },
   });
-  return { modelId: model.id, revision: 1, projectId: project.id, handles: made.handles, ...links(project.id, model.id), summary: made.summary };
+  return { modelId: id, revision: 1, projectId: project.id, handles: made.handles, ...links(project.id, id), summary: made.summary };
 }
 
-/** Turns a model in conkit's format into a detailed one (one way; earlier revisions stay restorable). */
-export async function convertToDetailed(ctx: ToolContext, modelId: string) {
-  const model = await requireModel(ctx, modelId);
-  const { text } = compileIfc(model.spec, { modelId: model.id, name: model.name });
-  const ifcGz = gzipIfc(text);
-  const revision = model.revision + 1;
-  const summary = await engine(() => workerSummary(ifcGz));
-  await db.$transaction([
-    db.ifcModel.update({
-      where: { id: model.id },
-      data: { kind: "ifc", ifcGz, spec: Prisma.DbNull, summary: asSummary(summary), elementCount: summary.elements, revision },
-    }),
-    db.ifcModelRevision.create({ data: { modelId: model.id, revision, ifcGz, note: "Converted to a detailed (IFC) model" } }),
-  ]);
-  return { modelId: model.id, name: model.name, revision, previousRevision: model.revision, projectId: model.projectId, ...links(model.projectId, model.id), summary };
+export async function getModel(ctx: ToolContext, modelId: string) {
+  const model = await findModel(ctx, modelId);
+  return {
+    modelId: model.id,
+    name: model.name,
+    description: model.description,
+    revision: model.revision,
+    projectId: model.projectId,
+    ...links(model.projectId, model.id),
+    summary: model.summary,
+    undoable: model.backupRevision ? `Revision ${model.backupRevision} is kept, so the latest change can be undone from Connections.` : null,
+    note: "Use ifc_query to list or inspect elements, and ifc_edit to change the model.",
+  };
 }
 
-export async function ifcEdit(ctx: ToolContext, input: { modelId: string; operations: unknown[]; note?: string; description?: string }) {
-  const model = await requireDetailed(ctx, input.modelId);
+export async function listModels(ctx: ToolContext, projectId: string) {
+  const project = await requireProject(ctx, projectId);
+  const models = await db.ifcModel.findMany({ where: { projectId: project.id }, orderBy: { updatedAt: "desc" } });
+  return models.map((m) => ({
+    modelId: m.id,
+    name: m.name,
+    elements: m.elementCount,
+    revision: m.revision,
+    updated: m.updatedAt.toISOString().slice(0, 16),
+    ...links(project.id, m.id),
+  }));
+}
+
+/**
+ * Applies IfcOpenShell operations to a model as one change (all or nothing). Edits from the
+ * same app within a short window build the same revision, keeping as backup the file from
+ * before the first of them, so undo takes back the whole request.
+ */
+export async function editModel(ctx: ToolContext, input: { modelId: string; operations: unknown[]; note?: string; description?: string }) {
+  const model = await findModel(ctx, input.modelId);
   if (!input.operations.length) {
     // Only the description changes: no new revision.
     if (input.description === undefined) throw new ToolError("Give operations, a description, or both");
     await db.ifcModel.update({ where: { id: model.id }, data: describe(input.description) });
-    return { modelId: model.id, name: model.name, revision: model.revision, previousRevision: model.revision, projectId: model.projectId, results: [], ...links(model.projectId, model.id), summary: model.summary };
+    return { modelId: model.id, name: model.name, revision: model.revision, backupRevision: model.backupRevision, backupKey: model.backupKey, projectId: model.projectId, results: [], ...links(model.projectId, model.id), summary: model.summary };
   }
-  const edited = await engine(() => workerEdit(model.ifcGz, input.operations));
-  const revision = model.revision + 1;
-  await db.$transaction([
-    db.ifcModel.update({
-      where: { id: model.id },
-      data: { ifcGz: edited.ifcGz, summary: asSummary(edited.summary), elementCount: edited.summary.elements, revision, ...describe(input.description) },
-    }),
-    db.ifcModelRevision.create({ data: { modelId: model.id, revision, ifcGz: edited.ifcGz, note: input.note?.slice(0, 300) ?? null } }),
-    db.ifcModelRevision.deleteMany({ where: { modelId: model.id, revision: { lte: revision - KEEP_REVISIONS } } }),
-  ]);
+
+  const now = new Date();
+  const sameRequest =
+    !!ctx.clientId && model.editClientId === ctx.clientId && !!model.editedAt && now.getTime() - model.editedAt.getTime() < REQUEST_WINDOW_MS;
+  const fileKey = newModelFileKey(model.id);
+  const edited = await engine(() => workerEdit(model.fileKey, fileKey, input.operations));
+
+  const next = sameRequest
+    ? { revision: model.revision, backupKey: model.backupKey, backupRevision: model.backupRevision }
+    : { revision: model.revision + 1, backupKey: model.fileKey, backupRevision: model.revision };
+  // Only if nobody else saved meanwhile (the file is what this edit started from).
+  const { count } = await db.ifcModel.updateMany({
+    where: { id: model.id, fileKey: model.fileKey },
+    data: {
+      fileKey,
+      fileSize: edited.size,
+      summary: asJson(edited.summary),
+      elementCount: edited.summary.elements,
+      ...next,
+      editClientId: ctx.clientId,
+      editedAt: now,
+      ...describe(input.description),
+    },
+  });
+  if (!count) {
+    await deleteFiles([fileKey]);
+    throw new ToolError("The model changed while this edit ran. Read it again (get_3d_model) and resend the change.");
+  }
+  // Files no longer needed: the state between edits of one request, or the backup it replaces.
+  await deleteFiles(sameRequest ? [model.fileKey] : [model.backupKey]).catch((err) => console.error("Could not delete old model files", err));
+
   return {
     modelId: model.id,
     name: model.name,
-    revision,
-    previousRevision: model.revision,
+    revision: next.revision,
+    backupRevision: next.backupRevision,
+    backupKey: next.backupKey,
     projectId: model.projectId,
     results: edited.results,
     ...links(model.projectId, model.id),
@@ -262,9 +164,46 @@ export async function ifcEdit(ctx: ToolContext, input: { modelId: string; operat
   };
 }
 
+/**
+ * Undoes a model's latest change by putting its backup back (as a new revision). The undone
+ * file becomes the backup, so an undo can itself be undone. With `expectedBackup`, only if
+ * the backup is still the one that change made.
+ */
+export async function restoreModel(orgId: string, modelId: string, expectedBackup?: string) {
+  const model = await db.ifcModel.findFirst({ where: { id: modelId, project: { orgId } } });
+  if (!model?.backupKey || (expectedBackup && model.backupKey !== expectedBackup)) {
+    throw new Error("That change can no longer be undone: the model has changed since.");
+  }
+  const summary = await workerSummary(model.backupKey);
+  const revision = model.revision + 1;
+  await db.ifcModel.update({
+    where: { id: model.id },
+    data: {
+      fileKey: model.backupKey,
+      backupKey: model.fileKey,
+      backupRevision: model.revision,
+      revision,
+      summary: asJson(summary),
+      elementCount: summary.elements,
+      editClientId: null,
+      editedAt: null,
+    },
+  });
+  return revision;
+}
+
+/** Deletes a model and its files. */
+export async function removeModel(orgId: string, modelId: string) {
+  const model = await db.ifcModel.findFirst({ where: { id: modelId, project: { orgId } } });
+  if (!model) return null;
+  await db.ifcModel.delete({ where: { id: model.id } });
+  await deleteFiles([model.fileKey, model.backupKey, model.viewKey]).catch((err) => console.error("Could not delete model files", err));
+  return model;
+}
+
 export async function ifcQuery(ctx: ToolContext, input: { modelId: string; select?: string; id?: number }) {
-  const model = await requireDetailed(ctx, input.modelId);
-  return { modelId: model.id, name: model.name, projectId: model.projectId, result: await engine(() => workerQuery(model.ifcGz, { select: input.select, id: input.id })) };
+  const model = await findModel(ctx, input.modelId);
+  return { modelId: model.id, name: model.name, projectId: model.projectId, result: await engine(() => workerQuery(model.fileKey, { select: input.select, id: input.id })) };
 }
 
 export async function ifcHelp(usecase: string) {

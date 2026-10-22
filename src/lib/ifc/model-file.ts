@@ -1,25 +1,12 @@
 import "server-only";
-import { compileIfc } from "@/lib/ifc/compile";
-import { modelSpecSchema } from "@/lib/ifc/spec";
-import { gunzipIfc } from "@/lib/ifc/worker";
+import { signedReadUrl } from "@/lib/storage";
 
-type StoredModel = { id: string; name: string; kind: string; spec: unknown; ifcGz: Uint8Array | null; revision: number };
-
-/** A model's current revision as IFC text: stored for detailed models, compiled for conkit's format. */
-export function modelIfcText(model: StoredModel, author?: string | null) {
-  return model.kind === "ifc" && model.ifcGz
-    ? gunzipIfc(model.ifcGz)
-    : compileIfc(modelSpecSchema.parse(model.spec), { modelId: model.id, name: model.name, author: author || undefined }).text;
-}
-
-/** The IFC as an HTTP response, inline for the viewer or as a download. */
-export function ifcResponse(model: StoredModel, text: string, download: boolean) {
+/**
+ * A model's current IFC: a redirect to a short-lived link straight to file storage, so the
+ * file never passes through the app's server. With `download`, the browser saves it as a file.
+ */
+export async function modelFileRedirect(model: { name: string; revision: number; fileKey: string }, download: boolean) {
   const fileName = `${model.name.replace(/[^\w.-]+/g, "_")}-r${model.revision}.ifc`;
-  return new Response(text, {
-    headers: {
-      "Content-Type": "application/x-step; charset=utf-8",
-      "Content-Disposition": `${download ? "attachment" : "inline"}; filename="${fileName}"`,
-      "Cache-Control": "private, no-store",
-    },
-  });
+  const url = await signedReadUrl(model.fileKey, download ? { downloadAs: fileName } : {});
+  return new Response(null, { status: 302, headers: { Location: url, "Cache-Control": "private, no-store" } });
 }

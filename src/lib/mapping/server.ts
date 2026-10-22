@@ -2,8 +2,6 @@ import "server-only";
 import { randomUUID } from "node:crypto";
 import { Prisma } from "@/generated/prisma/client";
 import { db } from "@/lib/db";
-import { modelElements } from "@/lib/ifc/elements";
-import { modelSpecSchema } from "@/lib/ifc/spec";
 import { workerElements } from "@/lib/ifc/worker";
 import { toLineItemUnit, unitDimension } from "@/lib/line-items/units";
 import { measureMarkup, type Point } from "@/lib/takeoff";
@@ -58,24 +56,20 @@ export function currentModelVersion(projectId: string) {
 }
 
 /**
- * Reads an AI-built model's elements for its current revision, if they're not already read,
- * and re-applies the project's rules to them. Elements keep their GlobalIds across
- * revisions, so mapping follows the model as it changes.
+ * Reads an AI-built model's elements from its current file, if they're not already read,
+ * and re-applies the project's rules to them. Elements keep their GlobalIds from one file to
+ * the next, so mapping follows the model as it changes.
  */
-export async function ensureModelElements(model: { id: string; projectId: string; revision: number; elementsRevision: number | null }) {
-  if (model.elementsRevision === model.revision) return;
-  // Claim the work so two page loads don't read the same revision at once.
+export async function ensureModelElements(model: { id: string; projectId: string; fileKey: string; elementsFor: string | null }) {
+  if (model.elementsFor === model.fileKey) return;
+  // Claim the work so two page loads don't read the same file at once.
   const { count } = await db.ifcModel.updateMany({
-    where: { id: model.id, revision: model.revision, OR: [{ elementsRevision: null }, { elementsRevision: { not: model.revision } }] },
-    data: { elementsRevision: model.revision },
+    where: { id: model.id, fileKey: model.fileKey, OR: [{ elementsFor: null }, { elementsFor: { not: model.fileKey } }] },
+    data: { elementsFor: model.fileKey },
   });
   if (!count) return;
   try {
-    const full = await db.ifcModel.findUniqueOrThrow({ where: { id: model.id }, select: { kind: true, spec: true, ifcGz: true } });
-    const rows =
-      full.kind === "ifc" && full.ifcGz
-        ? (await workerElements(full.ifcGz)).map((r) => ({ ...r, quantitySource: r.quantitySource }))
-        : modelElements(model.id, modelSpecSchema.parse(full.spec)).map((r) => ({ ...r, quantitySource: "geometry" as const }));
+    const rows = await workerElements(model.fileKey);
     await db.$transaction([
       db.element.deleteMany({ where: { ifcModelId: model.id } }),
       db.element.createMany({
@@ -94,7 +88,7 @@ export async function ensureModelElements(model: { id: string; projectId: string
     ]);
     await applyAllRules(model.projectId, { kind: "built", id: model.id });
   } catch (err) {
-    await db.ifcModel.updateMany({ where: { id: model.id, elementsRevision: model.revision }, data: { elementsRevision: null } });
+    await db.ifcModel.updateMany({ where: { id: model.id, elementsFor: model.fileKey }, data: { elementsFor: null } });
     throw err;
   }
 }
@@ -107,7 +101,7 @@ export async function countedModels(projectId: string): Promise<ModelScope> {
     db.ifcModel.findMany({
       where: { projectId, countInQuantities: true },
       orderBy: { createdAt: "asc" },
-      select: { id: true, projectId: true, name: true, revision: true, elementsRevision: true },
+      select: { id: true, projectId: true, name: true, fileKey: true, elementsFor: true },
     }),
   ]);
   const ready: { id: string; name: string }[] = [];

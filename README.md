@@ -11,19 +11,19 @@ rather than whole companies. Live at https://conkit.app.
   it, and export priced quantities.
 - **Models:** Revit / IFC through APS Model Derivative, with element quantities.
 
-Stack: Next.js 16 (App Router) · TypeScript · Prisma 7 + PostgreSQL (Neon) · Better Auth ·
-Tailwind + shadcn/ui (Base UI) · Autodesk Platform Services (OSS, Model Derivative, Viewer).
+Stack: Next.js 16 (App Router) · TypeScript · Prisma 7 + PostgreSQL (Supabase) · Better Auth ·
+Tailwind + shadcn/ui (Base UI) · Cloudflare R2 (files) · Autodesk Platform Services (OSS,
+Model Derivative, Viewer).
 
 ## 3D models from drawings
 
-AI apps connected through MCP build 3D models two ways:
-
-- **conkit's model format** (`src/lib/ifc/spec.ts`): structural and architectural elements as
-  profiles swept along paths, doors and windows in host walls, rooms. Compiled to IFC4X3 by
-  `src/lib/ifc/compile.ts` and viewed in the browser (web-ifc + three.js).
-- **Detailed models**: real IFC edited with IfcOpenShell through whitelisted `ifcopenshell.api`
-  operations. The engine is a Python function, `api/ifc.py`, deployed by Vercel alongside the
-  app (dependencies in `requirements.txt`). Only conkit's server can call it.
+AI apps connected through MCP build 3D models as real IFC, created and edited with
+IfcOpenShell through whitelisted `ifcopenshell.api` operations. The engine is a Python
+function, `api/ifc.py`, deployed by Vercel alongside the app (dependencies in
+`requirements.txt`); only conkit's server can call it. Model files live in Cloudflare R2
+(`src/lib/storage.ts`), and the engine reads and writes them through signed links, so there's
+no size limit. Each model keeps one backup, for undo. Without R2 keys, development stores files
+in `.local-storage/`.
 
 To run the IfcOpenShell engine locally (port 5328, where the dev server looks for it):
 
@@ -36,7 +36,8 @@ npm run dev:ifc
 
 1. `npm install` (also generates the Prisma client)
 2. `cp .env.example .env.local` and fill it in (each variable is documented there):
-   - **Neon**: pooled `DATABASE_URL` and direct `DIRECT_URL`.
+   - **Supabase**: `DATABASE_URL` (transaction pooler) and `DIRECT_URL` (session pooler).
+   - **Cloudflare R2** (optional locally): `R2_*`, for 3D model files.
    - **BETTER_AUTH_SECRET**: `openssl rand -base64 32`.
    - **APS**: a "Traditional Web App" with the Data Management and Model Derivative APIs.
      Register `http://localhost:3000/api/auth/callback/autodesk` as a callback URL.

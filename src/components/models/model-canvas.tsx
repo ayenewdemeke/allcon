@@ -6,7 +6,6 @@ import * as FRAGS from "@thatopen/fragments";
 import * as THREE from "three";
 import { IFCSPACE } from "web-ifc";
 import { ELEMENT_DATA_CONFIG, NO_UNITS, SPATIAL_CATEGORIES, categoryName, readElement, readUnits, type ElementDetails, type ModelUnits } from "@/lib/ifc/element-properties";
-import { MAX_VIEW_CACHE_BYTES } from "@/lib/ifc/view-cache";
 
 // Draws a model with That Open Engine: web-ifc reads the IFC once, the fragments worker draws
 // it off the main thread, and the converted model is saved so later views skip the IFC. The
@@ -33,7 +32,7 @@ type Props = {
   ifcUrl: string;
   /** Its saved conversion for the viewer, when there is one (skips reading the IFC). */
   viewUrl: string | null;
-  /** Where to save the conversion after reading the IFC (PUT), or null to not save it. */
+  /** Where to save the conversion after reading the IFC (see /api/ifc-models/[id]/view), or null to not save it. */
   saveUrl: string | null;
   tool: "select" | "measure";
   onLoaded: (tree: TreeNode[]) => void;
@@ -306,11 +305,7 @@ const ModelCanvas = forwardRef<ModelCanvasHandle, Props>(function ModelCanvas(pr
             instanceCallback: (importer) => importer.classes.elements.add(IFCSPACE), // rooms, drawn see-through
           });
           // Save the conversion so the next view of this revision skips the IFC.
-          if (saveUrl)
-            model
-              .getBuffer(false)
-              .then((buffer) => (buffer.byteLength <= MAX_VIEW_CACHE_BYTES ? fetch(saveUrl, { method: "PUT", body: buffer }) : null))
-              .catch(() => {});
+          if (saveUrl) void saveViewCopy(saveUrl, model);
         }
         if (disposed) return;
         report(92);
@@ -400,4 +395,18 @@ async function spatialTree(model: FRAGS.FragmentsModel): Promise<TreeNode[]> {
   const kindsFirst = (x: TreeNode, y: TreeNode) =>
     Number(x.localId === null) - Number(y.localId === null) || (x.localId === null && y.localId === null ? byName.compare(x.name, y.name) : 0);
   return group(root, "");
+}
+
+/** Saves the viewer's conversion to file storage: an upload link, the upload, then the confirmation. */
+async function saveViewCopy(saveUrl: string, model: FRAGS.FragmentsModel) {
+  try {
+    const buffer = await model.getBuffer(false);
+    const res = await fetch(saveUrl, { method: "POST" });
+    if (!res.ok) return; // the model changed meanwhile, or saving isn't allowed
+    const { key, upload } = (await res.json()) as { key: string; upload: { url: string; headers: Record<string, string> } };
+    const put = await fetch(upload.url, { method: "PUT", headers: upload.headers, body: buffer });
+    if (put.ok) await fetch(`${saveUrl}&key=${encodeURIComponent(key)}`, { method: "PATCH" });
+  } catch {
+    // Not saved: the next view reads the IFC again.
+  }
 }

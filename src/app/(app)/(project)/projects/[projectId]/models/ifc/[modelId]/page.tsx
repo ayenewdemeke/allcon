@@ -5,7 +5,7 @@ import { ModelActions } from "@/components/models/model-actions";
 import { isUuid, requireProject } from "@/lib/auth/session";
 import { db } from "@/lib/db";
 import { modelSummary } from "@/lib/ifc/model-summary";
-import { viewCacheKey } from "@/lib/ifc/view-cache";
+import { hasViewCopy } from "@/lib/ifc/view-cache";
 
 export const metadata: Metadata = { title: "3D model" };
 
@@ -20,13 +20,13 @@ export default async function IfcModelPage({ params }: PageProps<"/projects/[pro
           id: true,
           name: true,
           description: true,
-          kind: true,
-          spec: true,
           summary: true,
           revision: true,
-          elementsRevision: true,
+          fileKey: true,
+          viewKey: true,
+          viewFor: true,
+          elementsFor: true,
           updatedAt: true,
-          viewCache: { select: { key: true } },
         },
       })
     : null;
@@ -37,10 +37,9 @@ export default async function IfcModelPage({ params }: PageProps<"/projects/[pro
     description: model.description,
     revision: model.revision,
     updated: model.updatedAt.toLocaleString("en-US", { dateStyle: "medium", timeStyle: "short" }),
-    detailed: model.kind === "ifc",
   };
   const api = `/api/ifc-models/${model.id}`;
-  const pricing = model.elementsRevision === model.revision ? await modelPricing(model.id) : undefined;
+  const pricing = model.elementsFor === model.fileKey ? await modelPricing(model.id) : undefined;
 
   return (
     <IfcViewer
@@ -49,8 +48,8 @@ export default async function IfcModelPage({ params }: PageProps<"/projects/[pro
       summary={modelSummary(model)}
       source={{
         ifc: `${api}/ifc`,
-        view: model.viewCache?.key === viewCacheKey(model.revision) ? `${api}/view` : null,
-        save: `${api}/view?revision=${model.revision}`,
+        view: hasViewCopy(model) ? `${api}/view` : null,
+        save: `${api}/view?for=${encodeURIComponent(model.fileKey)}`,
       }}
       backHref={`/projects/${project.id}/models`}
       pricing={pricing}
