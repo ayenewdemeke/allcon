@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { Box } from "lucide-react";
 import { CountToggle } from "@/components/models/count-toggle";
+import { DeleteModelButton } from "@/components/models/delete-model-button";
 import { ModelStatus } from "@/components/models/model-status";
 import { ModelUploader } from "@/components/models/model-uploader";
 import { PageBody, PageHeader } from "@/components/shell/page-header";
@@ -69,8 +70,9 @@ export default async function ModelsPage({ params }: PageProps<"/projects/[proje
                 <TableHead>Version</TableHead>
                 <TableHead>Updated</TableHead>
                 <TableHead>Status</TableHead>
-                <TableHead className="pr-4" title="Whether its quantities feed the SOV / BoQ">
-                  Quantities
+                <TableHead title="Whether its quantities feed the SOV / BoQ">Quantities</TableHead>
+                <TableHead className="w-10 pr-2">
+                  <span className="sr-only">Actions</span>
                 </TableHead>
               </TableRow>
             </TableHeader>
@@ -97,12 +99,15 @@ export default async function ModelsPage({ params }: PageProps<"/projects/[proje
                     <TableCell>
                       <ModelStatus key={row.m.status} modelId={row.m.id} initialStatus={row.m.status} initialProgress={row.m.translationProgress} />
                     </TableCell>
-                    <TableCell className="pr-4">
+                    <TableCell>
                       {row.m.id === latestUpload ? (
                         <CountToggle projectId={project.id} target={{ kind: "upload" }} counted={project.countUploads} />
                       ) : (
                         <span className="text-xs text-muted-foreground">{row.m.status === "ready" ? "Earlier version" : "—"}</span>
                       )}
+                    </TableCell>
+                    <TableCell className="pr-2">
+                      <DeleteModelButton kind="upload" id={row.m.id} name={row.m.fileName} />
                     </TableCell>
                   </TableRow>
                 ) : (
@@ -119,8 +124,11 @@ export default async function ModelsPage({ params }: PageProps<"/projects/[proje
                     <TableCell>
                       <Badge variant="success">Ready</Badge>
                     </TableCell>
-                    <TableCell className="pr-4">
+                    <TableCell>
                       <CountToggle projectId={project.id} target={{ kind: "built", id: row.m.id }} counted={row.m.countInQuantities} />
+                    </TableCell>
+                    <TableCell className="pr-2">
+                      <DeleteModelButton kind="built" id={row.m.id} name={row.m.name} />
                     </TableCell>
                   </TableRow>
                 ),

@@ -3,6 +3,8 @@
 import { revalidatePath } from "next/cache";
 import { getCurrentUser, isUuid } from "@/lib/auth/session";
 import { db } from "@/lib/db";
+import { deleteManifest } from "@/lib/aps/derivative";
+import { deleteObject } from "@/lib/aps/oss";
 import { removeModel } from "@/lib/tools/models3d";
 
 /** Deletes a 3D model and its files. */
@@ -12,6 +14,24 @@ export async function deleteIfcModel(modelId: string) {
   const model = await removeModel(user.orgId, modelId);
   if (!model) throw new Error("Model not found");
   revalidatePath(`/projects/${model.projectId}/models`);
+}
+
+/** Deletes an uploaded model (Revit or IFC): its elements and mappings, and its files and translation in Autodesk. */
+export async function deleteUploadedModel(versionId: string) {
+  const user = await getCurrentUser();
+  if (!user || !isUuid(versionId)) throw new Error("Model not found");
+  const model = await db.modelVersion.findFirst({ where: { id: versionId, project: { orgId: user.orgId } } });
+  if (!model) throw new Error("Model not found");
+  await db.modelVersion.delete({ where: { id: model.id } }); // elements and their mappings go with it
+  const cleanup = [
+    model.objectKey && deleteObject(model.objectKey),
+    model.propertiesObjectKey && deleteObject(model.propertiesObjectKey),
+    model.urn && deleteManifest(model.urn),
+  ].filter(Boolean);
+  await Promise.allSettled(cleanup).then((results) =>
+    results.forEach((r) => r.status === "rejected" && console.error("Could not delete an uploaded model's file", r.reason)),
+  );
+  revalidatePath(`/projects/${model.projectId}`, "layout");
 }
 
 /** Whether a model's quantities count toward the SOV / BoQ: an AI-built model, or the project's uploads. */

@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import { AlertCircle, ArrowLeft, Box, ClipboardList, Info, ListTree, Loader2, Maximize, Maximize2, Minimize, Ruler } from "lucide-react";
 import type { ModelCanvasHandle, TreeNode } from "@/components/models/model-canvas";
-import { OrientationCube } from "@/components/models/orientation-cube";
+import { OrientationCube, type OrientationCubeHandle } from "@/components/models/orientation-cube";
 import { FloatingPanel, ModelBrowser, PropertiesPanel, Rows, Section } from "@/components/models/viewer-panels";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -80,6 +80,7 @@ export function IfcViewer({
 }) {
   const frame = useRef<HTMLDivElement>(null);
   const canvas = useRef<ModelCanvasHandle>(null);
+  const cube = useRef<OrientationCubeHandle>(null);
   const [progress, setProgress] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [tree, setTree] = useState<TreeNode[] | null>(null);
@@ -165,6 +166,7 @@ export function IfcViewer({
             if (id !== null) setShowProps(true);
           }}
           onMeasure={setMeasured}
+          onCamera={(m) => cube.current?.setCamera(m)}
         />
 
         {!ready && !error && (
@@ -188,9 +190,10 @@ export function IfcViewer({
           </div>
         )}
 
-        {ready && (
-          <div className="absolute top-3 right-3 z-10 flex flex-col items-center gap-2">
-            <OrientationCube onOrient={(d) => canvas.current?.orient(d)} onRotate={(deg) => canvas.current?.rotate(deg)} />
+        {/* Mounted from the start (hidden until the model is in) so the cube follows the first camera move. */}
+        {(
+          <div className={cn("absolute top-3 right-3 z-10 flex flex-col items-center gap-1", !ready && "invisible")}>
+            <OrientationCube ref={cube} onOrient={(d) => canvas.current?.orient(d)} onHome={() => canvas.current?.home()} />
             <div className="flex flex-col gap-1 rounded-lg border bg-background/90 p-1 shadow-md backdrop-blur-sm">
               <Tool icon={ListTree} title="Model browser" active={left === "browser"} onClick={() => setLeft(left === "browser" ? null : "browser")} />
               <Tool icon={ClipboardList} title="Model details" active={left === "details"} onClick={() => setLeft(left === "details" ? null : "details")} />

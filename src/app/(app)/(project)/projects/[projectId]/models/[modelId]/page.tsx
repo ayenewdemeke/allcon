@@ -1,4 +1,5 @@
 import { notFound } from "next/navigation";
+import { DeleteModelButton } from "@/components/models/delete-model-button";
 import { ElementSummary } from "@/components/models/element-summary";
 import { ModelViewer } from "@/components/models/model-viewer";
 import { db } from "@/lib/db";
@@ -48,11 +49,14 @@ export default async function ModelPage({ params, searchParams }: PageProps<"/pr
         <ModelViewer urn={model.urn} colors={rows.length ? colors : undefined} isolate={isolate} isolateLabel={isolateLabel} />
       </div>
       <aside className="flex w-full flex-col gap-4 border-t bg-card p-4 lg:w-96 lg:overflow-y-auto lg:border-t-0 lg:border-l">
-        <div className="space-y-1">
-          <h1 className="truncate text-lg font-semibold tracking-tight">{model.fileName}</h1>
-          <p className="text-xs text-muted-foreground">
-            Uploaded {model.uploadedAt.toLocaleDateString("en-US", { dateStyle: "medium" })}
-          </p>
+        <div className="flex items-start justify-between gap-2">
+          <div className="min-w-0 space-y-1">
+            <h1 className="truncate text-lg font-semibold tracking-tight">{model.fileName}</h1>
+            <p className="text-xs text-muted-foreground">
+              Uploaded {model.uploadedAt.toLocaleDateString("en-US", { dateStyle: "medium" })}
+            </p>
+          </div>
+          <DeleteModelButton kind="upload" id={model.id} name={model.fileName} afterHref={`/projects/${project.id}/models`} />
         </div>
         <ElementSummary modelVersionId={model.id} />
       </aside>

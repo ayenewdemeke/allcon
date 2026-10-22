@@ -1,119 +1,149 @@
 "use client";
 
-import { useState } from "react";
-import { RotateCcw, RotateCw } from "lucide-react";
-import type { Orientation } from "@/components/models/model-canvas";
-import { cn } from "@/lib/utils";
+import { forwardRef, useImperativeHandle, useRef } from "react";
+import { Home } from "lucide-react";
 
-// A view cube with a compass: click a face or a compass point to look from that side, or
-// turn the view 90°. Adapted from Live Jobsite's viewer.
+// A view cube like Autodesk's: it turns with the camera, and clicking a face, an edge or a
+// corner looks at the model from there (26 directions). The compass ring lies on the ground
+// under it, and Home goes back to the starting 3D view.
+//
+// The cube is built in CSS 3D. Each face is a 3×3 grid: the centre is the face, the strips are
+// edges, the small squares are corners. Directions are in the scene's axes: x east, y up,
+// z south (north is -z).
 
-const CUBE = 38;
-const HALF = CUBE / 2;
-const SIZE = 74;
-const CENTER = SIZE / 2;
-const RADIUS = 33;
+export type ViewDirection = [number, number, number];
+export type OrientationCubeHandle = { setCamera: (viewMatrix: ArrayLike<number>) => void };
 
-// CSS rotation that shows each face head-on
-const FACE_ROTATIONS: Record<Orientation, { x: number; y: number }> = {
-  front: { x: 0, y: 0 },
-  back: { x: 0, y: 180 },
-  right: { x: 0, y: -90 },
-  left: { x: 0, y: 90 },
-  top: { x: -90, y: 0 },
-  bottom: { x: 90, y: 0 },
+const SIZE = 64; // cube edge, px
+const HALF = SIZE / 2;
+const RING = 116; // compass ring diameter, px
+const BOX = 144; // widget size, px
+
+type Vec = [number, number, number];
+type Mat = [Vec, Vec, Vec]; // rows
+
+// CSS rotations as row matrices (CSS axes: x right, y down, z toward the viewer).
+const rotX = (deg: number): Mat => {
+  const c = Math.round(Math.cos((deg * Math.PI) / 180)), s = Math.round(Math.sin((deg * Math.PI) / 180));
+  return [[1, 0, 0], [0, c, -s], [0, s, c]];
 };
+const rotY = (deg: number): Mat => {
+  const c = Math.round(Math.cos((deg * Math.PI) / 180)), s = Math.round(Math.sin((deg * Math.PI) / 180));
+  return [[c, 0, s], [0, 1, 0], [-s, 0, c]];
+};
+const apply = (m: Mat, v: Vec): Vec => [0, 1, 2].map((i) => m[i][0] * v[0] + m[i][1] * v[1] + m[i][2] * v[2]) as Vec;
+const toScene = (v: Vec): Vec => [v[0], -v[1], v[2]]; // CSS y is down, the scene's is up
 
-const FACES: { dir: Orientation; label: string; transform: string }[] = [
-  { dir: "front", label: "FRONT", transform: `translateZ(${HALF}px)` },
-  { dir: "back", label: "BACK", transform: `rotateY(180deg) translateZ(${HALF}px)` },
-  { dir: "right", label: "RIGHT", transform: `rotateY(90deg) translateZ(${HALF}px)` },
-  { dir: "left", label: "LEFT", transform: `rotateY(-90deg) translateZ(${HALF}px)` },
-  { dir: "top", label: "TOP", transform: `rotateX(90deg) translateZ(${HALF}px)` },
-  { dir: "bottom", label: "BOT", transform: `rotateX(-90deg) translateZ(${HALF}px)` },
+const FACES: { label: string; css: string; rotation: Mat }[] = [
+  { label: "FRONT", css: "", rotation: rotY(0) },
+  { label: "BACK", css: "rotateY(180deg)", rotation: rotY(180) },
+  { label: "RIGHT", css: "rotateY(90deg)", rotation: rotY(90) },
+  { label: "LEFT", css: "rotateY(-90deg)", rotation: rotY(-90) },
+  { label: "TOP", css: "rotateX(90deg)", rotation: rotX(90) },
+  { label: "BOTTOM", css: "rotateX(-90deg)", rotation: rotX(-90) },
 ];
 
-const COMPASS: { label: string; title: string; dir: Orientation; style: React.CSSProperties }[] = [
-  { label: "N", title: "North", dir: "back", style: { top: 0, left: "50%", transform: "translateX(-50%)" } },
-  { label: "S", title: "South", dir: "front", style: { bottom: 0, left: "50%", transform: "translateX(-50%)" } },
-  { label: "E", title: "East", dir: "right", style: { right: 1, top: "50%", transform: "translateY(-50%)" } },
-  { label: "W", title: "West", dir: "left", style: { left: 1, top: "50%", transform: "translateY(-50%)" } },
+const CELLS = [-1, 0, 1].flatMap((row) => [-1, 0, 1].map((col) => ({ row, col })));
+
+/** The view direction for a cell of a face: the face's normal plus the edges or corner it's on. */
+function cellDirection(rotation: Mat, row: number, col: number): ViewDirection {
+  const n = toScene(apply(rotation, [0, 0, 1]));
+  const u = toScene(apply(rotation, [1, 0, 0]));
+  const v = toScene(apply(rotation, [0, 1, 0]));
+  return [0, 1, 2].map((i) => n[i] + col * u[i] + row * v[i]) as ViewDirection;
+}
+
+const cellName = (row: number, col: number, face: string) =>
+  row === 0 && col === 0 ? `View ${face.toLowerCase()}` : row !== 0 && col !== 0 ? "View from this corner" : "View from this edge";
+
+const COMPASS: { label: string; dir: ViewDirection; style: React.CSSProperties }[] = [
+  { label: "N", dir: [0, 0, -1], style: { top: 2, left: "50%", transform: "translateX(-50%)" } },
+  { label: "S", dir: [0, 0, 1], style: { bottom: 2, left: "50%", transform: "translateX(-50%)" } },
+  { label: "E", dir: [1, 0, 0], style: { right: 4, top: "50%", transform: "translateY(-50%)" } },
+  { label: "W", dir: [-1, 0, 0], style: { left: 4, top: "50%", transform: "translateY(-50%)" } },
 ];
 
-export function OrientationCube({ onOrient, onRotate }: { onOrient: (dir: Orientation) => void; onRotate: (degrees: number) => void }) {
-  const [rotation, setRotation] = useState({ x: -20, y: -30 });
-  const orient = (dir: Orientation) => {
-    setRotation(FACE_ROTATIONS[dir]);
-    onOrient(dir);
-  };
-  const turn = (clockwise: boolean) => {
-    setRotation((r) => ({ ...r, y: r.y + (clockwise ? -90 : 90) }));
-    onRotate(clockwise ? 90 : -90);
-  };
+export const OrientationCube = forwardRef<OrientationCubeHandle, { onOrient: (dir: ViewDirection) => void; onHome: () => void }>(function OrientationCube(
+  { onOrient, onHome },
+  ref,
+) {
+  const cube = useRef<HTMLDivElement>(null);
+  useImperativeHandle(ref, () => ({
+    // The camera's rotation (from its view matrix), turned into CSS axes, so the cube shows the
+    // model's sides as the camera sees them. Set straight on the element: it runs every frame.
+    setCamera: (e) => {
+      if (!cube.current) return;
+      const m = [e[0], -e[1], e[2], 0, -e[4], e[5], -e[6], 0, e[8], -e[9], e[10], 0, 0, 0, 0, 1];
+      cube.current.style.transform = `translateZ(-${SIZE * 2}px) matrix3d(${m.map((x) => (Math.abs(x) < 1e-10 ? 0 : x)).join(",")})`;
+    },
+  }));
 
   return (
-    <div className="flex flex-col items-center gap-0.5 select-none">
-      <div className="relative" style={{ width: SIZE, height: SIZE }}>
-        <svg className="pointer-events-none absolute inset-0 text-muted-foreground" viewBox={`0 0 ${SIZE} ${SIZE}`} width={SIZE} height={SIZE}>
-          <circle cx={CENTER} cy={CENTER} r={RADIUS} fill="none" stroke="currentColor" strokeOpacity={0.35} strokeWidth={0.5} />
-          {[0, 90, 180, 270].map((angle) => {
-            const rad = ((angle - 90) * Math.PI) / 180;
-            return (
-              <line
-                key={angle}
-                x1={CENTER + (RADIUS - 3) * Math.cos(rad)}
-                y1={CENTER + (RADIUS - 3) * Math.sin(rad)}
-                x2={CENTER + RADIUS * Math.cos(rad)}
-                y2={CENTER + RADIUS * Math.sin(rad)}
-                stroke="currentColor"
-                strokeOpacity={0.45}
-              />
-            );
-          })}
-        </svg>
-        {COMPASS.map((c) => (
-          <button
-            key={c.label}
-            type="button"
-            onClick={() => orient(c.dir)}
-            title={c.title}
-            className={cn(
-              "absolute z-20 text-[9px] leading-none font-bold",
-              c.label === "N" ? "text-red-500 hover:text-red-600" : "text-muted-foreground hover:text-foreground",
-            )}
-            style={c.style}
-          >
-            {c.label}
-          </button>
-        ))}
-        <div className="absolute top-1/2 left-1/2 z-10 -translate-x-1/2 -translate-y-1/2" style={{ perspective: "180px" }}>
+    <div className="relative select-none" style={{ width: BOX, height: BOX }}>
+      <button
+        type="button"
+        onClick={onHome}
+        title="Home view"
+        aria-label="Home view"
+        className="absolute top-0 left-0 z-20 rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
+      >
+        <Home className="size-4" />
+      </button>
+      <div className="absolute inset-0" style={{ perspective: "520px" }}>
+        <div
+          ref={cube}
+          className="absolute top-1/2 left-1/2"
+          style={{ width: 0, height: 0, transformStyle: "preserve-3d", transform: `translateZ(-${SIZE * 2}px) rotateX(-25deg) rotateY(-35deg)` }}
+        >
+          {/* Compass ring, lying on the ground under the cube */}
           <div
-            className="relative transition-transform duration-400 ease-out"
-            style={{ width: CUBE, height: CUBE, transformStyle: "preserve-3d", transform: `rotateX(${rotation.x}deg) rotateY(${rotation.y}deg)` }}
+            className="absolute rounded-full border-[7px] border-slate-400/45 dark:border-slate-500/50"
+            style={{ width: RING, height: RING, left: -RING / 2, top: -RING / 2, transform: `rotateX(90deg) translateZ(-${HALF + 2}px)` }}
           >
-            {FACES.map((f) => (
+            {COMPASS.map((c) => (
               <button
-                key={f.dir}
+                key={c.label}
                 type="button"
-                onClick={() => orient(f.dir)}
-                title={`View from ${f.dir}`}
-                className="absolute flex items-center justify-center border border-border bg-card/90 text-[6.5px] font-semibold tracking-[0.5px] text-muted-foreground transition-colors hover:bg-primary/20 hover:text-primary"
-                style={{ width: CUBE, height: CUBE, transform: f.transform, backfaceVisibility: "hidden" }}
+                onClick={() => onOrient(c.dir)}
+                title={`View from the ${({ N: "north", S: "south", E: "east", W: "west" } as const)[c.label as "N"]}`}
+                className={`absolute text-[11px] leading-none font-bold ${c.label === "N" ? "text-red-500" : "text-slate-500 dark:text-slate-400"} hover:text-primary`}
+                style={c.style}
               >
-                {f.label}
+                {c.label}
               </button>
             ))}
           </div>
+          {FACES.map((f) => (
+            <div
+              key={f.label}
+              className="absolute grid border border-slate-400/70 bg-slate-50/95 dark:border-slate-500 dark:bg-slate-700/95"
+              style={{
+                width: SIZE,
+                height: SIZE,
+                left: -HALF,
+                top: -HALF,
+                gridTemplateColumns: "1fr 2.2fr 1fr",
+                gridTemplateRows: "1fr 2.2fr 1fr",
+                transform: `${f.css} translateZ(${HALF}px)`,
+                backfaceVisibility: "hidden",
+              }}
+            >
+              {CELLS.map(({ row, col }) => (
+                <button
+                  key={`${row}${col}`}
+                  type="button"
+                  title={cellName(row, col, f.label)}
+                  aria-label={cellName(row, col, f.label)}
+                  onClick={() => onOrient(cellDirection(f.rotation, row, col))}
+                  className="flex items-center justify-center overflow-hidden text-[9.5px] font-bold tracking-tight text-slate-500 hover:bg-sky-400/55 dark:text-slate-300"
+                >
+                  {row === 0 && col === 0 ? f.label : null}
+                </button>
+              ))}
+            </div>
+          ))}
         </div>
-      </div>
-      <div className="flex items-center gap-3">
-        <button type="button" onClick={() => turn(false)} className="text-muted-foreground transition-colors hover:text-foreground" title="Turn left 90°">
-          <RotateCcw className="size-3" />
-        </button>
-        <button type="button" onClick={() => turn(true)} className="text-muted-foreground transition-colors hover:text-foreground" title="Turn right 90°">
-          <RotateCw className="size-3" />
-        </button>
       </div>
     </div>
   );
-}
+});

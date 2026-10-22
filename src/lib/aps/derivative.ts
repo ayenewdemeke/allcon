@@ -44,3 +44,9 @@ export async function getManifest(urn: string): Promise<TranslationState | null>
   collect(m);
   return { status: m.status, progress: m.progress, messages };
 }
+
+/** Deletes a model's translation (its viewable and extracted data) from Autodesk. */
+export async function deleteManifest(urn: string) {
+  const res = await fetch(`${MD}/${urn}/manifest`, { method: "DELETE", headers: { Authorization: `Bearer ${await getInternalToken()}` } });
+  if (!res.ok && res.status !== 404) throw new Error(`Could not delete the translation (${res.status})`);
+}

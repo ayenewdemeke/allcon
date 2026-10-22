@@ -12,12 +12,12 @@ import { ELEMENT_DATA_CONFIG, NO_UNITS, SPATIAL_CATEGORIES, categoryName, readEl
 // scene renders only when something changes (camera, highlight, a tile arriving).
 
 export type TreeNode = { key: string; localId: number | null; category: string; name: string; children: TreeNode[] };
-export type Orientation = "front" | "back" | "left" | "right" | "top" | "bottom";
-
 export type ModelCanvasHandle = {
   fit: () => void;
-  orient: (direction: Orientation) => void;
-  rotate: (degrees: number) => void;
+  /** Looks at the model from this direction (x east, y up, z south), e.g. [1, 1, 1] for a corner. */
+  orient: (direction: [number, number, number]) => void;
+  /** Back to the starting 3D view. */
+  home: () => void;
   /** Hides exactly these elements (everything else shown). */
   setHidden: (localIds: number[]) => void;
   /** Selects an element as if clicked, optionally flying to it. */
@@ -41,6 +41,8 @@ type Props = {
   onSelect: (localId: number | null, details: ElementDetails | null) => void;
   /** A measured distance in metres, or null when cleared. */
   onMeasure: (meters: number | null) => void;
+  /** The camera's view matrix whenever it moves (for the view cube). */
+  onCamera?: (viewMatrix: ArrayLike<number>) => void;
 };
 
 type World = OBC.SimpleWorld<OBC.SimpleScene, OBC.SimpleCamera, OBC.SimpleRenderer>;
@@ -61,7 +63,7 @@ const ModelCanvas = forwardRef<ModelCanvasHandle, Props>(function ModelCanvas(pr
   useImperativeHandle(ref, () => ({
     fit: () => handle.current?.fit(),
     orient: (d) => handle.current?.orient(d),
-    rotate: (deg) => handle.current?.rotate(deg),
+    home: () => handle.current?.home(),
     setHidden: (ids) => handle.current?.setHidden(ids),
     select: (id, zoom) => handle.current?.select(id, zoom),
     clearMeasure: () => handle.current?.clearMeasure(),
@@ -102,8 +104,14 @@ const ModelCanvas = forwardRef<ModelCanvasHandle, Props>(function ModelCanvas(pr
       camera.far = far;
       camera.updateProjectionMatrix();
     };
+    const reportCamera = () => {
+      const camera = world.camera.three;
+      camera.updateMatrixWorld();
+      latest.current.onCamera?.(camera.matrixWorldInverse.elements);
+    };
     controls.addEventListener("update", () => {
       clip();
+      reportCamera();
       redraw();
     });
     controls.addEventListener("rest", () => fragments.core.update(true).then(redraw));
@@ -247,20 +255,12 @@ const ModelCanvas = forwardRef<ModelCanvasHandle, Props>(function ModelCanvas(pr
 
     handle.current = {
       fit: () => lookFrom(currentDirection()),
-      orient: (direction) => {
-        const d = {
-          front: new THREE.Vector3(0, 0, 1),
-          back: new THREE.Vector3(0, 0, -1),
-          right: new THREE.Vector3(1, 0, 0),
-          left: new THREE.Vector3(-1, 0, 0),
-          top: new THREE.Vector3(0, 1, 0.001), // a hair off vertical keeps "up" defined
-          bottom: new THREE.Vector3(0, -1, 0.001),
-        }[direction];
-        lookFrom(d);
+      orient: ([x, y, z]) => {
+        // Straight down or up, a hair off vertical keeps "up" defined (north at the top).
+        const vertical = Math.abs(x) < 1e-6 && Math.abs(z) < 1e-6;
+        lookFrom(new THREE.Vector3(x, y, vertical ? 0.001 : z));
       },
-      rotate: (degrees) => {
-        controls.rotate((degrees * Math.PI) / 180, 0, true);
-      },
+      home: () => lookFrom(ISO),
       setHidden: async (ids) => {
         if (!model) return;
         await model.resetVisible();
@@ -317,6 +317,7 @@ const ModelCanvas = forwardRef<ModelCanvasHandle, Props>(function ModelCanvas(pr
         controls.maxDistance = Math.max(bounds.radius * 20, 50); // zooming out never loses the model
         lookFrom(ISO);
         controls.update(0);
+        reportCamera();
 
         latest.current.onLoaded(await spatialTree(model));
         report(100);
