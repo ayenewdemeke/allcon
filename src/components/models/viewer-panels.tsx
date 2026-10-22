@@ -197,10 +197,13 @@ export function ModelBrowser({
   const filtered = useMemo(() => {
     const term = search.trim().toLowerCase();
     if (!term) return tree;
+    // A match keeps everything under it (searching "room" shows the rooms in each Room group);
+    // otherwise a node stays only as the way to matches below it.
     const filter = (nodes: TreeNode[]): TreeNode[] =>
       nodes.flatMap((n) => {
+        if (n.name.toLowerCase().includes(term) || n.category.toLowerCase().includes(term)) return [n];
         const children = filter(n.children);
-        return n.name.toLowerCase().includes(term) || n.category.toLowerCase().includes(term) || children.length ? [{ ...n, children }] : [];
+        return children.length ? [{ ...n, children }] : [];
       });
     return filter(tree);
   }, [tree, search]);
@@ -231,7 +234,8 @@ export function ModelBrowser({
           <p className="py-4 text-center text-xs text-muted-foreground">{tree.length === 0 ? "Model structure will appear here" : "No matching elements"}</p>
         ) : (
           filtered.map((node) => (
-            <TreeItem key={node.key} node={node} depth={0} hidden={hidden} selected={selected} onSelect={onSelect} onToggle={onToggle} forceOpen={!!search.trim()} />
+            // Keyed by the search too, so each search starts with its results opened
+            <TreeItem key={`${node.key}|${search.trim()}`} node={node} depth={0} hidden={hidden} selected={selected} onSelect={onSelect} onToggle={onToggle} forceOpen={!!search.trim()} />
           ))
         )}
       </div>
@@ -258,8 +262,9 @@ function TreeItem({
 }) {
   // Open down to the levels; kinds of element start closed so a big model stays readable.
   const spatial = SPATIAL_CATEGORIES.has(node.category);
-  const [expanded, setExpanded] = useState(spatial);
-  const open = expanded || forceOpen;
+  // A search opens its results to begin with; they can still be collapsed.
+  const [expanded, setExpanded] = useState(spatial || forceOpen);
+  const open = expanded;
   const ids = useMemo(() => idsUnder(node), [node]);
   const isHidden = ids.length > 0 && ids.every((id) => hidden.has(id));
   const Icon = TYPE_ICONS[node.category] ?? Box;
