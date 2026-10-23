@@ -54,7 +54,10 @@ export async function setModelCounted(projectId: string, target: { kind: "upload
 }
 
 /** Places a model on the map by hand, or (null) back to its own georeferencing or the project's pin. */
-export async function saveModelPlacement(modelId: string, placement: { lat: number; lon: number; heading: number; elevation: number } | null) {
+export async function saveModelPlacement(
+  modelId: string,
+  placement: { lat: number; lon: number; heading: number; elevation: number; anchor: [number, number, number] | null; height: number | null } | null,
+) {
   const user = await getCurrentUser();
   if (!user || !isUuid(modelId)) throw new Error("Model not found");
   const { count } = await db.ifcModel.updateMany({

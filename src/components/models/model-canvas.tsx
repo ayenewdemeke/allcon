@@ -29,7 +29,7 @@ export type ModelCanvasHandle = {
   /** Selects an element as if clicked, optionally flying to it. */
   select: (localId: number | null, zoom?: boolean) => void;
   clearMeasure: () => void;
-  /** The model's plan outline around its origin, in metres east and north of it along the model's own axes. */
+  /** The model's plan outline, in metres east and north of its origin along the model's own axes. */
   footprint: () => { east: number; north: number }[] | null;
 };
 
@@ -57,6 +57,8 @@ type Props = {
   onSiteCredits?: (credits: string) => void;
   /** The site couldn't be loaded (the map service refused it). */
   onSiteError?: (message: string) => void;
+  /** Ground elevations above sea level (Google's), for placing a model at its own height. */
+  elevationAt?: (places: { lat: number; lng: number }[]) => Promise<(number | null)[]>;
 };
 
 /** What the site layer needs from the loaded model and its engine. */
@@ -121,11 +123,18 @@ const ModelCanvas = forwardRef<ModelCanvasHandle, Props>(function ModelCanvas(pr
     tiles.registerPlugin(new TilesFadePlugin());
     const flattening = new TileFlatteningPlugin();
     tiles.registerPlugin(flattening);
-    // The tiles straight down through the site always load, in detail, whatever the camera
-    // sees: they're what the ground is read from.
-    const probe = new RayRegion({ errorTarget: 2 });
+    // The ground is read straight down at points across the model's footprint and the land
+    // around it (the streets and yards), so a low reading isn't a building or tree standing on
+    // the site today. The tiles under those points always load, in detail, whatever the camera
+    // sees.
+    const around = Math.max(20, (box.max.x - box.min.x + box.max.z - box.min.z) / 4);
+    const samples = Array.from({ length: 25 }, (_, k) => [
+      box.min.x - around + ((box.max.x - box.min.x + 2 * around) * Math.floor(k / 5)) / 4,
+      box.min.z - around + ((box.max.z - box.min.z + 2 * around) * (k % 5)) / 4,
+    ]);
+    const probes = samples.map(() => new RayRegion({ errorTarget: 4 }));
     const regions = new LoadRegionPlugin();
-    regions.addRegion(probe);
+    probes.forEach((probe) => regions.addRegion(probe));
     tiles.registerPlugin(regions);
     tiles.group.matrixAutoUpdate = false;
     tiles.setCamera(camera);
@@ -133,23 +142,41 @@ const ModelCanvas = forwardRef<ModelCanvasHandle, Props>(function ModelCanvas(pr
     world.scene.three.add(tiles.group);
     e.setSiteView(true);
 
-    // The tiles are placed so the placement's point is at the IFC origin, turned by its heading,
-    // with the ground at the model's level 0 (raised or lowered by its elevation). Level 0 is
-    // the origin's height when the model spans it; a model drawn at real elevations (z = 5280
-    // ft) stands on its lowest point instead. The ground's height is found by looking down onto
-    // the tiles as they load.
-    const base = origin.y >= box.min.y - 0.5 && origin.y <= box.max.y ? origin.y : box.min.y;
+    // The tiles are placed so the placement's point is at its anchor on the model (the IFC
+    // origin, a base point, or the model's middle), turned by its heading, with the ground at
+    // the model's level 0 (raised or lowered by its elevation). Level 0 is the anchor's height
+    // when the model spans it; a model drawn at real elevations (z = 5280 ft) with no base point
+    // stands on its lowest point instead. The ground's height is found by looking down onto the
+    // tiles as they load.
     let current: Placement | null = null;
+    let at = new THREE.Vector3(); // the anchor in the scene
+    let base = 0; // level 0 in the scene
     let ground = 0; // the ground's height above the ellipsoid at the placement, in metres
-    let settleUntil = 0;
+    let geoid: number | null | undefined; // sea level above the ellipsoid; undefined: not asked yet; null: unknown
+    let steady = 0; // ground readings in a row that barely moved
+    let firstReading = 0;
+    let asked = 0;
+    let settleUntil = Infinity; // reading the ground until a while after the first reading
     const enu = new THREE.Matrix4();
     const apply = () => {
       if (!current) return;
+      const [ax, ay, az] = current.anchor ?? [NaN, NaN, 0];
+      at = current.anchor
+        ? new THREE.Vector3(origin.x + ax, origin.y + az, origin.z - ay)
+        : new THREE.Vector3((box.min.x + box.max.x) / 2, origin.y, (box.min.z + box.max.z) / 2);
+      base = at.y >= box.min.y - 0.5 && at.y <= box.max.y ? at.y : box.min.y;
       tiles.ellipsoid.getEastNorthUpFrame(current.lat * DEG, current.lon * DEG, 0, enu).invert();
-      const m = new THREE.Matrix4().makeTranslation(origin.x, base - current.elevation - ground, origin.z);
+      const m = new THREE.Matrix4().makeTranslation(at.x, base - current.elevation - ground, at.z);
       m.multiply(new THREE.Matrix4().makeRotationY(current.heading * DEG)).multiply(ENU_TO_SCENE).multiply(enu);
       tiles.group.matrix.copy(m);
       tiles.group.matrixWorldNeedsUpdate = true;
+      // The probes, in the tiles' own (Earth-centred) frame.
+      const toTiles = m.clone().invert();
+      const down = new THREE.Vector3(0, -1, 0).transformDirection(toTiles);
+      probes.forEach((probe, k) => {
+        probe.ray.origin.set(samples[k][0], base + 20_000, samples[k][1]).applyMatrix4(toTiles);
+        probe.ray.direction.copy(down);
+      });
       clearSoon();
       redraw();
     };
@@ -206,46 +233,85 @@ const ModelCanvas = forwardRef<ModelCanvasHandle, Props>(function ModelCanvas(pr
       flattening.addShape(shape, new THREE.Vector3(0, 1, 0).transformDirection(toTiles), {} as unknown as number);
       redraw();
     };
-    // Flattening re-reads the tiles under the model, so it waits for nudging to pause.
+    // Flattening re-reads the tiles under the model, so it runs at most a couple of times a second.
     const clearSoon = () => {
-      clearTimeout(clearTimer);
-      clearTimer = setTimeout(clearSite, 400);
+      clearTimer ??= setTimeout(() => {
+        clearTimer = undefined;
+        clearSite();
+      }, 400);
     };
     placeSite.current = (p) => {
-      const moved = !current || current.lat !== p.lat || current.lon !== p.lon;
-      current = p;
-      if (moved) {
-        settleUntil = performance.now() + 15_000;
-        tiles.ellipsoid.getCartographicToPosition(p.lat * DEG, p.lon * DEG, 20_000, probe.ray.origin);
-        tiles.ellipsoid.getCartographicToNormal(p.lat * DEG, p.lon * DEG, probe.ray.direction).negate();
+      const moved = !current || current.lat !== p.lat || current.lon !== p.lon || String(current.anchor) !== String(p.anchor);
+      if (!current || current.height !== p.height) {
+        geoid = undefined;
+        steady = 0;
+        asked = 0;
       }
+      current = p;
+      if (moved) settleUntil = Infinity;
       apply();
     };
     if (placement) placeSite.current(placement);
 
-    // The ground: a low reading across the model's footprint and the land around it (the
-    // streets and yards), so buildings or trees standing on the site today don't lift the model
-    // onto their roofs.
+    // The ground: a low reading (one in five from the bottom) of the probes. A model with its
+    // own height (survey coordinates) goes at that height instead. The tiles' heights are above
+    // the ellipsoid, not sea level; the difference (the geoid) is the low reading of tile height
+    // minus Google's ground elevation at the same points (the low one is bare ground, not a roof).
     const raycaster = new THREE.Raycaster();
     const down = new THREE.Vector3(0, -1, 0);
     const settle = () => {
       if (!current || performance.now() > settleUntil) return;
-      const margin = Math.max(20, (box.max.x - box.min.x + box.max.z - box.min.z) / 4);
-      const heights: number[] = [];
-      for (let i = 0; i <= 4; i++) {
-        for (let j = 0; j <= 4; j++) {
-          const x = box.min.x - margin + ((box.max.x - box.min.x + 2 * margin) * i) / 4;
-          const z = box.min.z - margin + ((box.max.z - box.min.z + 2 * margin) * j) / 4;
-          raycaster.set(new THREE.Vector3(x, base + 20_000, z), down);
-          raycaster.far = 40_000;
-          const hit = raycaster.intersectObject(tiles.group, true)[0];
-          if (hit) heights.push(hit.point.y);
-        }
+      const hits: { k: number; y: number }[] = [];
+      samples.forEach(([x, z], k) => {
+        raycaster.set(new THREE.Vector3(x, base + 20_000, z), down);
+        raycaster.far = 40_000;
+        const hit = raycaster.intersectObject(tiles.group, true)[0];
+        if (hit) hits.push({ k, y: hit.point.y });
+      });
+      if (hits.length < 5) return;
+      if (typeof geoid === "number") return;
+      // Finer tiles keep arriving for a while; after that the ground stays put.
+      if (settleUntil === Infinity) {
+        settleUntil = performance.now() + 20_000;
+        firstReading = performance.now();
       }
-      if (heights.length < 5) return;
-      heights.sort((a, b) => a - b);
+      const heights = hits.map((h) => h.y).sort((a, b) => a - b);
       const delta = heights[Math.floor(heights.length / 5)] - (base - current.elevation);
-      if (Math.abs(delta) < 0.02) return;
+      steady = Math.abs(delta) < 0.5 ? steady + 1 : 0;
+      // Once the readings come from detailed tiles (they've stopped moving), a model with its own
+      // height asks for the ground's elevation above sea level at the same points.
+      const detailed = steady >= 2 && performance.now() - firstReading > 4000;
+      if (detailed && current.height !== null && geoid === undefined && asked < 5 && latest.current.elevationAt) {
+        asked++;
+        geoid = null;
+        const placed = current;
+        const offset = base - current.elevation - ground; // the ellipsoid's height in the scene
+        const toTiles = tiles.group.matrix.clone().invert();
+        const places = hits.map(({ k }) => {
+          const cart = tiles.ellipsoid.getPositionToCartographic(new THREE.Vector3(samples[k][0], base, samples[k][1]).applyMatrix4(toTiles), {} as { lat: number; lon: number });
+          return { lat: cart.lat / DEG, lng: cart.lon / DEG };
+        });
+        latest.current
+          .elevationAt(places)
+          .then((elevations) => {
+            const differences = hits.flatMap(({ y }, i) => (elevations[i] === null ? [] : [y - offset - elevations[i]!])).sort((a, b) => a - b);
+            if (current !== placed) return;
+            const found = differences.length >= 5 ? differences[Math.floor(differences.length / 5)] : NaN;
+            // Sea level is within about 110 m of the ellipsoid everywhere; otherwise the tiles
+            // read were still coarse: try again later.
+            if (!(Math.abs(found) < 150)) {
+              geoid = undefined;
+              steady = 0;
+              return;
+            }
+            geoid = found;
+            ground = placed.height! + geoid;
+            settleUntil = 0; // known: no more reading the ground
+            apply();
+          })
+          .catch(() => {});
+      }
+      if (Math.abs(delta) < 0.05) return;
       ground += delta;
       apply();
     };
@@ -256,6 +322,16 @@ const ModelCanvas = forwardRef<ModelCanvasHandle, Props>(function ModelCanvas(pr
         .map((a) => String(a.value))
         .join("; ");
       latest.current.onSiteCredits?.(text);
+    };
+    // Read the ground as tiles arrive (a few times a second at most), not only when loading
+    // pauses: with the probes it can keep going for a while.
+    let lastSettle = 0;
+    const onTileArrived = (event: { scene: THREE.Object3D }) => {
+      onTileLoaded(event);
+      const now = performance.now();
+      if (now - lastSettle < 300) return;
+      lastSettle = now;
+      settle();
     };
     const onLoadEnd = () => {
       settle();
@@ -275,7 +351,7 @@ const ModelCanvas = forwardRef<ModelCanvasHandle, Props>(function ModelCanvas(pr
     tiles.addEventListener("needs-render", redraw);
     tiles.addEventListener("tiles-load-end", onLoadEnd);
     tiles.addEventListener("load-error", onError);
-    tiles.addEventListener("load-model", onTileLoaded);
+    tiles.addEventListener("load-model", onTileArrived);
     redraw();
 
     return () => {
@@ -287,7 +363,7 @@ const ModelCanvas = forwardRef<ModelCanvasHandle, Props>(function ModelCanvas(pr
       tiles.removeEventListener("needs-render", redraw);
       tiles.removeEventListener("tiles-load-end", onLoadEnd);
       tiles.removeEventListener("load-error", onError);
-      tiles.removeEventListener("load-model", onTileLoaded);
+      tiles.removeEventListener("load-model", onTileArrived);
       world.scene.three.remove(tiles.group);
       tiles.dispose();
       draco.dispose();
@@ -579,7 +655,7 @@ const ModelCanvas = forwardRef<ModelCanvasHandle, Props>(function ModelCanvas(pr
             // Step back and up to see the model among its surroundings.
             if (on) {
               const size = box().getSize(new THREE.Vector3());
-              lookFrom(new THREE.Vector3(0.5, 1.6, 0.7), box().expandByScalar(Math.max(30, Math.max(size.x, size.z) * 0.75)));
+              lookFrom(new THREE.Vector3(0.5, 1.6, 0.7), box().expandByScalar(Math.max(20, Math.max(size.x, size.z) * 0.35)));
             }
           },
         };

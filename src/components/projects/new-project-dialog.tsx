@@ -21,7 +21,7 @@ export function NewProjectDialog({ label = "New project", maps }: { label?: stri
         <Plus />
         {label}
       </DialogTrigger>
-      <DialogContent className="sm:max-w-lg">
+      <DialogContent className="sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle>New project</DialogTitle>
           <DialogDescription>Only a name is needed. Currency, units and billing settings follow the location, and can be changed in project settings.</DialogDescription>

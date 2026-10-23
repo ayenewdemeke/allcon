@@ -4,9 +4,12 @@ import { useEffect, useRef, useState } from "react";
 import { AdvancedMarker, Map, useMap, useMapsLibrary } from "@vis.gl/react-google-maps";
 import { MapPin } from "lucide-react";
 import { useMapsConfig } from "@/components/maps/maps-provider";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 
-// Pins a project's site: search for a place or click the map, then drag the pin to the exact
-// spot. The pin goes with the form as `latitude` and `longitude` (empty when there's none).
+// Pins a project's site: search for a place, click the map or type its coordinates, then drag
+// the pin to the exact spot. The pin goes with the form as `latitude` and `longitude` (empty
+// when there's none).
 
 export type LatLon = { lat: number; lon: number };
 
@@ -14,13 +17,38 @@ const US_CENTER = { lat: 39.8, lng: -98.6 };
 
 export function LocationPicker({ initial, onPlace }: { initial: LatLon | null; onPlace?: (address: string) => void }) {
   const { mapId } = useMapsConfig();
-  const [pin, setPin] = useState<LatLon | null>(initial);
+  const [pin, setPinState] = useState<LatLon | null>(initial);
+  // The coordinate boxes, as typed (they can be incomplete while typing).
+  const [typed, setTyped] = useState({ lat: initial ? String(initial.lat) : "", lon: initial ? String(initial.lon) : "" });
   const [flyTo, setFlyTo] = useState<{ at: LatLon; viewport?: google.maps.LatLngBounds | null } | null>(null);
 
+  const setPin = (next: LatLon | null) => {
+    setPinState(next);
+    setTyped(next ? { lat: String(next.lat), lon: String(next.lon) } : { lat: "", lon: "" });
+  };
   const drop = (at: google.maps.LatLng | google.maps.LatLngLiteral | null | undefined) => {
     if (!at) return;
     const { lat, lng } = typeof at.lat === "function" ? (at as google.maps.LatLng).toJSON() : (at as google.maps.LatLngLiteral);
     setPin({ lat: round(lat), lon: round(lng) });
+  };
+  /** Coordinates typed in; the pin follows once both are valid. */
+  const type = (next: { lat: string; lon: string }) => {
+    setTyped(next);
+    const lat = Number(next.lat);
+    const lon = Number(next.lon);
+    if (next.lat.trim() && next.lon.trim() && Number.isFinite(lat) && Number.isFinite(lon) && Math.abs(lat) <= 90 && Math.abs(lon) <= 180) {
+      const at = { lat: round(lat), lon: round(lon) };
+      setPinState(at);
+      setFlyTo({ at });
+    }
+  };
+
+  /** Both coordinates pasted together ("40.022378, -79.886648") into either box. */
+  const pastePair = (e: React.ClipboardEvent<HTMLInputElement>) => {
+    const pair = e.clipboardData.getData("text").match(/^\s*(-?\d+(?:\.\d+)?)\s*[,;\s]\s*(-?\d+(?:\.\d+)?)\s*$/);
+    if (!pair) return;
+    e.preventDefault();
+    type({ lat: pair[1], lon: pair[2] });
   };
 
   return (
@@ -32,7 +60,7 @@ export function LocationPicker({ initial, onPlace }: { initial: LatLon | null; o
           onPlace?.(place.address);
         }}
       />
-      <div className="h-56 overflow-hidden rounded-lg border">
+      <div className="h-72 overflow-hidden rounded-lg border sm:h-80">
         <Map
           mapId={mapId}
           defaultCenter={initial ? { lat: initial.lat, lng: initial.lon } : US_CENTER}
@@ -49,21 +77,25 @@ export function LocationPicker({ initial, onPlace }: { initial: LatLon | null; o
           <FlyTo target={flyTo} />
         </Map>
       </div>
-      <div className="flex items-center gap-2 text-xs text-muted-foreground">
-        <MapPin className="size-3.5 shrink-0" />
-        {pin ? (
-          <>
-            <span className="tabular-nums">
-              {pin.lat.toFixed(6)}, {pin.lon.toFixed(6)}
-            </span>
-            <button type="button" className="ml-auto text-primary hover:underline" onClick={() => setPin(null)}>
-              Remove pin
-            </button>
-          </>
-        ) : (
-          <span>Search for the site or click the map to pin it. Drag the pin to adjust.</span>
+      <div className="flex flex-wrap items-end gap-2">
+        <label className="grid min-w-36 flex-1 gap-1 text-xs text-muted-foreground">
+          Latitude
+          <Input inputMode="decimal" placeholder="e.g. 40.022378" value={typed.lat} onChange={(e) => type({ ...typed, lat: e.target.value })} onPaste={pastePair} />
+        </label>
+        <label className="grid min-w-36 flex-1 gap-1 text-xs text-muted-foreground">
+          Longitude
+          <Input inputMode="decimal" placeholder="e.g. -79.886648" value={typed.lon} onChange={(e) => type({ ...typed, lon: e.target.value })} onPaste={pastePair} />
+        </label>
+        {pin && (
+          <Button type="button" variant="ghost" size="sm" onClick={() => setPin(null)}>
+            Remove pin
+          </Button>
         )}
       </div>
+      <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
+        <MapPin className="size-3.5 shrink-0" />
+        Search, click the map, or enter coordinates (decimal degrees, west negative). Drag the pin to adjust.
+      </p>
       <input type="hidden" name="latitude" value={pin?.lat ?? ""} />
       <input type="hidden" name="longitude" value={pin?.lon ?? ""} />
     </div>

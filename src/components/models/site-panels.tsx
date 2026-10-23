@@ -22,10 +22,18 @@ export function offset(p: { lat: number; lon: number }, east: number, north: num
   return { lat: p.lat + north / METRES_PER_DEGREE, lng: p.lon + east / (METRES_PER_DEGREE * Math.cos((p.lat * Math.PI) / 180)) };
 }
 
-/** The outline on the map: the model's axes turned by its heading (clockwise from north). */
+/** The outline on the map, around the placement's anchor, the model's axes turned by its heading (clockwise from north). */
 function outline(p: Placement, footprint: Footprint) {
   const h = (p.heading * Math.PI) / 180;
-  return footprint.map(({ east, north }) => offset(p, east * Math.cos(h) + north * Math.sin(h), north * Math.cos(h) - east * Math.sin(h)));
+  // The footprint is measured from the model's origin; the anchor is the origin, a base point, or (null) the middle.
+  const [ax, ay] = p.anchor ?? [
+    footprint.reduce((sum, c) => sum + c.east, 0) / footprint.length,
+    footprint.reduce((sum, c) => sum + c.north, 0) / footprint.length,
+  ];
+  return footprint.map(({ east, north }) => {
+    const [x, y] = [east - ax, north - ay];
+    return offset(p, x * Math.cos(h) + y * Math.sin(h), y * Math.cos(h) - x * Math.sin(h));
+  });
 }
 
 export function NoPlacement({ editable, settingsHref }: { editable: boolean; settingsHref?: string }) {
@@ -153,6 +161,9 @@ export function PlacementPanel({
           <div>
             <p className="text-sm font-semibold">On the site</p>
             <p className="text-muted-foreground">{dirty ? "Moved, not saved yet" : `Placed ${PLACEMENT_SOURCE[placement.source]}`}</p>
+            <p className="text-muted-foreground">
+              {placement.height !== null ? `Level 0 at ${placement.height.toFixed(1)} m above sea level, from the model` : "Level 0 on the ground"}
+            </p>
           </div>
           <div className="grid grid-cols-[auto_1fr] items-center gap-x-3 gap-y-1.5">
             <span className="text-muted-foreground">Move 1 m</span>

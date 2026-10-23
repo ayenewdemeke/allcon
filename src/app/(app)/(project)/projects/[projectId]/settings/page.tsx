@@ -11,7 +11,7 @@ export default async function ProjectSettingsPage({ params }: PageProps<"/projec
   return (
     <PageBody>
       <PageHeader title="Settings" description="The project's details, and the settings used for quantities, pricing and payment valuation." />
-      <Card className="max-w-2xl">
+      <Card className="max-w-4xl">
         <CardHeader>
           <CardTitle>Project details</CardTitle>
         </CardHeader>
@@ -30,7 +30,7 @@ export default async function ProjectSettingsPage({ params }: PageProps<"/projec
           />
         </CardContent>
       </Card>
-      <Card className="max-w-2xl">
+      <Card className="max-w-4xl">
         <CardHeader>
           <CardTitle>Units and billing</CardTitle>
           <CardDescription>Units apply to measurements; the rest to the SOV / BoQ, exports and payment applications.</CardDescription>

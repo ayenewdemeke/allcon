@@ -331,12 +331,42 @@ def epsg_code(name):
 
 
 def georef(model):
-    """Where the model's origin sits on Earth and which way its Y axis (project north) points:
-    from its map conversion, else its site's latitude and longitude. None when it doesn't say."""
+    """Where the model sits on Earth: the latitude and longitude of a point on it (its anchor),
+    and which way its Y axis (project north) points there. From its map conversion, else its
+    site's latitude and longitude. None when it doesn't say."""
     try:
         return map_georef(model) or site_georef(model)
     except Exception:  # odd georeferencing never stops the summary
         return None
+
+
+def site_origin(model):
+    """The site's origin in the model's coordinates (project units), if it has one."""
+    for site in model.by_type("IfcSite"):
+        if site.ObjectPlacement:
+            return ifcopenshell.util.placement.get_local_placement(site.ObjectPlacement)[:3, 3]
+    return None
+
+
+def anchor_point(model):
+    """A point on the model (project units) to read its georeferencing at. Usually the origin,
+    but models exported in shared coordinates (Revit) sit far from it, at their survey
+    coordinates: then the site's origin (the base point) when the model is around it, else the
+    middle of its elements."""
+    scale = ifcopenshell.util.unit.calculate_unit_scale(model)
+    elements = model.by_type("IfcElement")
+    step = max(1, len(elements) // 500)
+    points = [ifcopenshell.util.placement.get_local_placement(e.ObjectPlacement)[:3, 3] for e in elements[::step] if e.ObjectPlacement]
+    if not points:
+        return numpy.zeros(3)
+    middle = numpy.median(numpy.array(points), axis=0)
+    if math.hypot(middle[0], middle[1]) * scale < 1000:
+        return numpy.zeros(3)
+    site = site_origin(model)
+    if site is not None and math.hypot(*(site[:2] - middle[:2])) * scale < 2000:
+        return site
+    storeys = [ifcopenshell.util.placement.get_local_placement(s.ObjectPlacement)[2, 3] for s in model.by_type("IfcBuildingStorey") if s.ObjectPlacement]
+    return numpy.array([middle[0], middle[1], min(storeys) if storeys else 0.0])
 
 
 def map_georef(model):
@@ -353,18 +383,25 @@ def map_georef(model):
     def to_map(x, y):  # local coordinates (project units) to map coordinates (map units)
         return params.e + params.scale * (xaa * x - xao * y), params.n + params.scale * (xao * x + xaa * y)
 
-    lon, lat = to_wgs84.transform(*to_map(0, 0))
-    lon_y, lat_y = to_wgs84.transform(*to_map(0, 100 / params.scale))
+    ax, ay, az = anchor_point(model)
+    lon, lat = to_wgs84.transform(*to_map(ax, ay))
+    lon_y, lat_y = to_wgs84.transform(*to_map(ax, ay + 100 / params.scale))
     heading = WGS84.inv(lon, lat, lon_y, lat_y)[0]
     map_unit = crs.axis_info[0].unit_conversion_factor if crs.axis_info else 1.0
     return {
         "lat": round(lat, 8),
         "lon": round(lon, 8),
         "heading": round(heading, 3) % 360,
-        "height": round(params.h * map_unit, 3),
+        "height": round(float(params.h + params.scale * az) * map_unit, 3),
         "crs": f"EPSG:{code}",
         "source": "map",
+        "anchor": anchor_metres(model, (ax, ay, az)),
     }
+
+
+def anchor_metres(model, point):
+    scale = ifcopenshell.util.unit.calculate_unit_scale(model)
+    return [round(float(v) * scale, 4) for v in point]
 
 
 def site_georef(model):
@@ -381,7 +418,17 @@ def site_georef(model):
         # True north is given anticlockwise from the Y axis, so the Y axis is that far clockwise from it.
         heading = ifcopenshell.util.geolocation.get_true_north(model)
         elevation = (site.RefElevation or 0) * ifcopenshell.util.unit.calculate_unit_scale(model)
-        return {"lat": round(lat, 8), "lon": round(lon, 8), "heading": round(heading, 3) % 360, "height": round(elevation, 3), "crs": None, "source": "site"}
+        # The latitude and longitude are the site's origin.
+        origin = site_origin(model)
+        return {
+            "lat": round(lat, 8),
+            "lon": round(lon, 8),
+            "heading": round(heading, 3) % 360,
+            "height": round(elevation, 3),
+            "crs": None,
+            "source": "site",
+            "anchor": anchor_metres(model, origin if origin is not None else (0, 0, 0)),
+        }
     return None
 
 

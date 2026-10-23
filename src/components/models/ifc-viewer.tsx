@@ -1,11 +1,11 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import { toast } from "sonner";
 import { AlertCircle, ArrowLeft, Box, ClipboardList, Earth, Info, ListTree, Loader2, MapPin, Maximize, Maximize2, Minimize, Ruler } from "lucide-react";
 import { saveModelPlacement } from "@/app/actions/models3d";
-import { MapsProvider } from "@/components/maps/maps-provider";
+import { ElevationLookupLoader, MapsProvider, type ElevationLookup } from "@/components/maps/maps-provider";
 import type { ModelCanvasHandle, TreeNode } from "@/components/models/model-canvas";
 import { OrientationCube, type OrientationCubeHandle } from "@/components/models/orientation-cube";
 import { NoPlacement, PlacementPanel, SiteMapPanel, type Footprint } from "@/components/models/site-panels";
@@ -121,6 +121,13 @@ export function IfcViewer({
   const [savingPlacement, setSavingPlacement] = useState(false);
   const georef = useRef<Promise<void> | null>(null);
   const dirty = !!placement && !!saved && (placement.lat !== saved.lat || placement.lon !== saved.lon || placement.heading !== saved.heading || placement.elevation !== saved.elevation);
+  // Google's ground elevations, loaded with the site, for models placed at their own height.
+  const [elevation] = useState(() => {
+    let ready: (lookup: ElevationLookup) => void = () => {};
+    const lookup = new Promise<ElevationLookup>((resolve) => (ready = resolve));
+    return { lookup, ready };
+  });
+  const elevationAt = useCallback<ElevationLookup>((places) => elevation.lookup.then((lookup) => lookup(places)), [elevation]);
   const siteLayer = useMemo(() => (onSite && placement && site ? { apiKey: site.maps.apiKey, placement } : null), [onSite, placement, site]);
 
   /** Opening the site the first time: older models are checked for their own georeferencing. */
@@ -140,7 +147,7 @@ export function IfcViewer({
   const savePlacement = async (next: Placement | null) => {
     setSavingPlacement(true);
     try {
-      await saveModelPlacement(model.id, next && { lat: next.lat, lon: next.lon, heading: next.heading, elevation: next.elevation });
+      await saveModelPlacement(model.id, next && { lat: next.lat, lon: next.lon, heading: next.heading, elevation: next.elevation, anchor: next.anchor, height: next.height });
       if (next) {
         setSaved(next);
         toast.success("Placement saved");
@@ -234,6 +241,7 @@ export function IfcViewer({
           onMeasure={setMeasured}
           onCamera={(m) => cube.current?.setCamera(m)}
           site={siteLayer}
+          elevationAt={elevationAt}
           onSiteCredits={setCredits}
           onSiteError={(message) => {
             console.error("3D site", message);
@@ -324,6 +332,11 @@ export function IfcViewer({
             onShowAll={() => updateHidden(new Set())}
             onClose={() => setLeft(null)}
           />
+        )}
+        {onSite && site && (
+          <MapsProvider config={site.maps}>
+            <ElevationLookupLoader onReady={elevation.ready} />
+          </MapsProvider>
         )}
         {ready && left === "site" && site && (
           <MapsProvider config={site.maps}>
