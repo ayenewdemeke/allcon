@@ -2,12 +2,12 @@
 
 import { useEffect } from "react";
 import { AdvancedMarker, Map, Polygon, useMap } from "@vis.gl/react-google-maps";
-import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, ChevronsDown, ChevronsUp, MapPin, RotateCcw, RotateCw } from "lucide-react";
+import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, ChevronsDown, ChevronsUp, ExternalLink, MapPin, RotateCcw, RotateCw } from "lucide-react";
 import { useMapsConfig } from "@/components/maps/maps-provider";
 import { FloatingPanel } from "@/components/models/viewer-panels";
 import { Button } from "@/components/ui/button";
 import { LinkButton } from "@/components/ui/link-button";
-import { PLACEMENT_SOURCE, type Placement } from "@/lib/maps/placement";
+import { PLACEMENT_SOURCE, googleMapsUrl, type Placement } from "@/lib/maps/placement";
 import { cn } from "@/lib/utils";
 
 // The model's site: a map beside the model with its outline, and the controls for placing it
@@ -52,11 +52,12 @@ export function NoPlacement({ editable, settingsHref }: { editable: boolean; set
   );
 }
 
-/** A map of the site with the model's outline; the pin can be dragged to move the model. */
+/** A map of the site with the model's outline. While the model is being placed, its pin can be dragged to move it. */
 export function SiteMapPanel({
   placement,
   footprint,
   editable,
+  placing,
   settingsHref,
   onMove,
   onClose,
@@ -64,6 +65,8 @@ export function SiteMapPanel({
   placement: Placement | null;
   footprint: Footprint | null;
   editable: boolean;
+  /** The model is being placed on the 3D site: the pin moves it. */
+  placing: boolean;
   settingsHref?: string;
   onMove: (lat: number, lon: number) => void;
   onClose: () => void;
@@ -87,12 +90,12 @@ export function SiteMapPanel({
               mapTypeControl
               clickableIcons={false}
             >
-              {footprint && <Polygon paths={outline(placement, footprint)} strokeColor="#2563eb" strokeWeight={2} fillColor="#2563eb" fillOpacity={0.25} clickable={false} />}
+              {footprint && <Polygon paths={outline(placement, footprint)} strokeColor="#60a5fa" strokeWeight={2} fillOpacity={0} clickable={false} />}
               <FitSite placement={placement} footprint={footprint} />
               <AdvancedMarker
                 position={{ lat: placement.lat, lng: placement.lon }}
-                draggable={editable}
-                title={editable ? "The model's origin: drag to move the model" : "The model's origin"}
+                draggable={editable && placing}
+                title={editable && placing ? "Drag to move the model" : "Where the model is"}
                 onDragEnd={(e) => e.latLng && onMove(e.latLng.lat(), e.latLng.lng())}
               />
             </Map>
@@ -102,6 +105,15 @@ export function SiteMapPanel({
               {placement.lat.toFixed(6)}, {placement.lon.toFixed(6)} · facing {Math.round(placement.heading)}°
             </p>
             <p>Placed {PLACEMENT_SOURCE[placement.source]}.</p>
+            {editable && placing && <p>Drag the pin to move the model.</p>}
+            <a
+              href={googleMapsUrl(placement.lat, placement.lon)}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1 pt-1 text-primary hover:underline"
+            >
+              Open in Google Maps <ExternalLink className="size-3" />
+            </a>
           </div>
         </div>
       )}
@@ -186,7 +198,7 @@ export function PlacementPanel({
               <span className="ml-1 tabular-nums">{placement.elevation >= 0 ? "+" : ""}{placement.elevation.toFixed(2)} m</span>
             </div>
           </div>
-          <p className="text-muted-foreground">Drag the pin in the Site map to move it further.</p>
+          <p className="text-muted-foreground">To move it further, drag its pin in the Site map.</p>
           <div className="flex gap-1.5 pt-1">
             <Button size="sm" className="flex-1" disabled={!dirty || saving} onClick={onSave}>
               {saving ? "Saving…" : "Save placement"}

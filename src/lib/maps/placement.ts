@@ -42,6 +42,9 @@ export const PLACEMENT_SOURCE: Record<PlacementSource, string> = {
   project: "at the project's pin",
 };
 
+/** The place in Google Maps (its own site, in a new tab): the location only. */
+export const googleMapsUrl = (lat: number, lon: number) => `https://www.google.com/maps/search/?api=1&query=${lat.toFixed(6)},${lon.toFixed(6)}`;
+
 export function readGeoref(summary: unknown): Georef | null {
   const g = (summary as { georef?: Georef | null } | null)?.georef;
   return g && Number.isFinite(g.lat) && Number.isFinite(g.lon) ? g : null;

@@ -344,6 +344,7 @@ export function IfcViewer({
               placement={placement}
               footprint={footprint}
               editable={site.editable}
+              placing={onSite}
               settingsHref={site.settingsHref}
               onMove={(lat, lon) => placement && moveTo({ ...placement, lat, lon })}
               onClose={() => setLeft(null)}

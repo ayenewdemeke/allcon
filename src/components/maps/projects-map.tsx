@@ -4,9 +4,10 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { AdvancedMarker, Map, Pin, useMap, useMapsLibrary } from "@vis.gl/react-google-maps";
 import { Map3D, MapMode, Marker3D, type Map3DRef } from "@vis.gl/react-google-maps/3d";
-import { Box, FolderKanban, MapPin, X } from "lucide-react";
+import { Box, ExternalLink, FolderKanban, MapPin, X } from "lucide-react";
 import { useMapsConfig } from "@/components/maps/maps-provider";
 import { LinkButton } from "@/components/ui/link-button";
+import { googleMapsUrl } from "@/lib/maps/placement";
 import { cn } from "@/lib/utils";
 
 // The organization's projects at their sites: a map with a pin per project, or the same in
@@ -58,6 +59,14 @@ export function ProjectsMap({ projects }: { projects: MapProject[] }) {
               <Box /> {selected.models} model{selected.models === 1 ? "" : "s"}
             </LinkButton>
           </div>
+          <a
+            href={googleMapsUrl(selected.lat, selected.lon)}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="mt-2 inline-flex items-center gap-1 text-xs text-primary hover:underline"
+          >
+            Open in Google Maps <ExternalLink className="size-3" />
+          </a>
         </div>
       )}
     </div>
