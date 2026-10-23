@@ -18,8 +18,13 @@ const MCP_SCOPES = ["openid", "profile", "email", "offline_access"];
 
 function createAuth() {
   const e = env();
+  const app = new URL(e.APP_URL);
+  const aliases = (e.APP_ALIASES ?? "").split(",").map((h) => h.trim()).filter(Boolean);
   return betterAuth({
-    baseURL: e.APP_URL,
+    // Sign-in works on the app's domain and its aliases, each with its own callback URLs.
+    baseURL: aliases.length
+      ? { allowedHosts: [app.host, ...aliases], fallback: e.APP_URL, protocol: app.protocol === "http:" ? "http" : "https" }
+      : e.APP_URL,
     secret: e.BETTER_AUTH_SECRET,
     database: prismaAdapter(db, { provider: "postgresql" }),
     advanced: { database: { generateId: "uuid" } },

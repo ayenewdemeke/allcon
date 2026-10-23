@@ -6,6 +6,8 @@ const optional = z.string().trim().min(1).optional().catch(undefined);
 const schema = z.object({
   DATABASE_URL: z.string().min(1),
   APP_URL: z.url(),
+  // Other domains the app also answers on, comma-separated (e.g. "planlogic.vercel.app").
+  APP_ALIASES: optional,
   BETTER_AUTH_SECRET: z.string().min(32, "generate one with: openssl rand -base64 32"),
   APS_CLIENT_ID: z.string().min(1),
   APS_CLIENT_SECRET: z.string().min(1),
