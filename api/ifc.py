@@ -17,6 +17,7 @@ import hmac
 import importlib
 import inspect
 import json
+import math
 import os
 import re
 import ssl
@@ -30,17 +31,20 @@ import ifcopenshell.api.aggregate
 import ifcopenshell.api.attribute
 import ifcopenshell.api.context
 import ifcopenshell.api.geometry
+import ifcopenshell.api.georeference
 import ifcopenshell.api.project
 import ifcopenshell.api.pset
 import ifcopenshell.api.root
 import ifcopenshell.api.unit
 import ifcopenshell.geom
 import ifcopenshell.util.element
+import ifcopenshell.util.geolocation
 import ifcopenshell.util.placement
 import ifcopenshell.util.selector
 import ifcopenshell.util.shape
 import ifcopenshell.util.unit
 import numpy
+from pyproj import CRS, Geod, Transformer
 
 try:  # trusted certificates for file storage links, the same on every machine
     import certifi
@@ -312,7 +316,105 @@ def summary(model):
         "openings": len(model.by_type("IfcOpeningElement")),
         "lod": lod,
         "warnings": (organization_warnings(model, elements) + lod_warnings)[:30],
+        "georef": georef(model),
     }
+
+
+# --- where the model sits on Earth ---------------------------------------------------------
+
+WGS84 = Geod(ellps="WGS84")
+
+
+def epsg_code(name):
+    match = re.fullmatch(r"\s*(?:EPSG\s*:?\s*)?(\d{4,6})\s*", str(name or ""), re.IGNORECASE)
+    return int(match.group(1)) if match else None
+
+
+def georef(model):
+    """Where the model's origin sits on Earth and which way its Y axis (project north) points:
+    from its map conversion, else its site's latitude and longitude. None when it doesn't say."""
+    try:
+        return map_georef(model) or site_georef(model)
+    except Exception:  # odd georeferencing never stops the summary
+        return None
+
+
+def map_georef(model):
+    params = ifcopenshell.util.geolocation.get_helmert_transformation_parameters(model)
+    code = epsg_code((ifcopenshell.util.geolocation.get_crs(model) or {}).get("Name"))
+    if not params or not code:
+        return None
+    crs = CRS.from_epsg(code)
+    to_wgs84 = Transformer.from_crs(crs, 4326, always_xy=True)
+    xaa, xao = (params.xaa, params.xao) if params.xaa or params.xao else (1.0, 0.0)
+    length = math.hypot(xaa, xao)
+    xaa, xao = xaa / length, xao / length
+
+    def to_map(x, y):  # local coordinates (project units) to map coordinates (map units)
+        return params.e + params.scale * (xaa * x - xao * y), params.n + params.scale * (xao * x + xaa * y)
+
+    lon, lat = to_wgs84.transform(*to_map(0, 0))
+    lon_y, lat_y = to_wgs84.transform(*to_map(0, 100 / params.scale))
+    heading = WGS84.inv(lon, lat, lon_y, lat_y)[0]
+    map_unit = crs.axis_info[0].unit_conversion_factor if crs.axis_info else 1.0
+    return {
+        "lat": round(lat, 8),
+        "lon": round(lon, 8),
+        "heading": round(heading, 3) % 360,
+        "height": round(params.h * map_unit, 3),
+        "crs": f"EPSG:{code}",
+        "source": "map",
+    }
+
+
+def site_georef(model):
+    def degrees(parts):
+        parts = list(parts) + [0] * (4 - len(parts))
+        return parts[0] + parts[1] / 60 + parts[2] / 3600 + parts[3] / 3.6e9
+
+    for site in model.by_type("IfcSite"):
+        if not site.RefLatitude or not site.RefLongitude:
+            continue
+        lat, lon = degrees(site.RefLatitude), degrees(site.RefLongitude)
+        if not (-90 <= lat <= 90 and -180 <= lon <= 180) or (lat == 0 and lon == 0):
+            continue
+        # True north is given anticlockwise from the Y axis, so the Y axis is that far clockwise from it.
+        heading = ifcopenshell.util.geolocation.get_true_north(model)
+        elevation = (site.RefElevation or 0) * ifcopenshell.util.unit.calculate_unit_scale(model)
+        return {"lat": round(lat, 8), "lon": round(lon, 8), "heading": round(heading, 3) % 360, "height": round(elevation, 3), "crs": None, "source": "site"}
+    return None
+
+
+def set_location(model, site, lat, lon, heading=0.0):
+    """Pins a new model's origin to a place, its Y axis `heading` degrees clockwise from true
+    north: the site's latitude and longitude and, from IFC4, a map conversion to the place's
+    UTM zone."""
+    dms = lambda dd: list(ifcopenshell.util.geolocation.dd2dms(dd, use_us=True))
+    ifcopenshell.api.attribute.edit_attributes(model, product=site, attributes={"RefLatitude": dms(lat), "RefLongitude": dms(lon)})
+    if heading:
+        ifcopenshell.api.georeference.edit_true_north(model, true_north=heading)
+    if model.schema == "IFC2X3":
+        return
+    code = (32600 if lat >= 0 else 32700) + min(int((lon + 180) // 6) + 1, 60)
+    to_utm = Transformer.from_crs(4326, code, always_xy=True)
+    e, n = to_utm.transform(lon, lat)
+    # Grid north and true north differ away from the zone's central meridian: the Y axis is
+    # turned from grid north by both that and the heading.
+    e_north, n_north = to_utm.transform(lon, lat + 0.001)
+    angle = math.atan2(e_north - e, n_north - n) + math.radians(heading)
+    ifcopenshell.api.georeference.add_georeferencing(model, name=f"EPSG:{code}")
+    ifcopenshell.api.georeference.edit_georeferencing(
+        model,
+        projected_crs={"Name": f"EPSG:{code}", "Description": CRS.from_epsg(code).name},
+        coordinate_operation={
+            "Eastings": round(e, 4),
+            "Northings": round(n, 4),
+            "OrthogonalHeight": 0.0,
+            "XAxisAbscissa": math.cos(angle),
+            "XAxisOrdinate": -math.sin(angle),
+            "Scale": ifcopenshell.util.unit.calculate_unit_scale(model),
+        },
+    )
 
 
 # --- elements for mapping to the SOV / BoQ ---------------------------------------------
@@ -546,6 +648,9 @@ def create(params):
     for product in (site, facility):
         if product:
             api.geometry.edit_object_placement(model, product=product, matrix=numpy.eye(4))
+    location = params.get("location") or {}
+    if isinstance(location.get("lat"), (int, float)) and isinstance(location.get("lon"), (int, float)):
+        set_location(model, site, float(location["lat"]), float(location["lon"]), float(location.get("heading") or 0))
     handles = {
         "project": project.id(),
         "site": site.id(),

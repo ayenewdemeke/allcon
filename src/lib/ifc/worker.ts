@@ -1,6 +1,7 @@
 import "server-only";
 import { createHmac } from "node:crypto";
 import { env } from "@/lib/env";
+import type { Georef } from "@/lib/maps/placement";
 import { newFileKey, signedReadUrl, signedWriteUrl } from "@/lib/storage";
 
 // Calls the IfcOpenShell worker (api/ifc.py), a Python function in the same deployment. Only
@@ -27,6 +28,7 @@ export type WorkerSummary = {
   openings: number;
   lod?: { target: string | null; byLevel: Record<string, number>; unset: number };
   warnings?: string[];
+  georef?: Georef | null;
 };
 
 /** An element as mapping reads it (see api/ifc.py element_rows). */
@@ -78,7 +80,16 @@ async function call(action: string, params: unknown, files: { read?: string; wri
 /** Creates a model file (project, units, contexts, site, facility, storeys) at `fileKey`. */
 export async function workerCreate(
   fileKey: string,
-  params: { schema: "IFC4" | "IFC4X3"; name: string; units: string; facility: string; lod?: string; levels: { name: string; elevation: number }[] },
+  params: {
+    schema: "IFC4" | "IFC4X3";
+    name: string;
+    units: string;
+    facility: string;
+    lod?: string;
+    levels: { name: string; elevation: number }[];
+    /** Georeferences the model: its origin here, its +y this many degrees clockwise from true north. */
+    location?: { lat: number; lon: number; heading: number };
+  },
 ) {
   const body = await call("create", params, { write: fileKey });
   return { handles: body.handles, summary: body.summary!, size: body.size ?? null };

@@ -39,6 +39,9 @@ npm run dev:ifc
    - **Supabase**: `DATABASE_URL` (transaction pooler) and `DIRECT_URL` (session pooler).
    - **Cloudflare R2** (optional locally): `R2_*`, for 3D model files.
    - **BETTER_AUTH_SECRET**: `openssl rand -base64 32`.
+   - **Google Maps** (optional): `GOOGLE_MAPS_API_KEY` with the Maps JavaScript, Places (New),
+     Map Tiles and Elevation APIs, restricted to the app's sites, and a vector `GOOGLE_MAP_ID`.
+     They give projects a pin, the projects map, and 3D models on their photorealistic site.
    - **APS**: a "Traditional Web App" with the Data Management and Model Derivative APIs.
      Register `http://localhost:3000/api/auth/callback/autodesk` as a callback URL.
 3. `npm run db:deploy` to apply migrations

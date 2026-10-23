@@ -3,6 +3,7 @@ import { ProjectBillingForm, ProjectDetailsForm } from "@/components/projects/pr
 import { PageBody, PageHeader } from "@/components/shell/page-header";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { requireProject } from "@/lib/auth/session";
+import { mapsConfig } from "@/lib/maps/config";
 
 export default async function ProjectSettingsPage({ params }: PageProps<"/projects/[projectId]/settings">) {
   const { project } = await requireProject((await params).projectId);
@@ -17,7 +18,13 @@ export default async function ProjectSettingsPage({ params }: PageProps<"/projec
         <CardContent>
           <ProjectDetailsForm
             action={updateProjectDetails.bind(null, project.id)}
-            initial={{ name: project.name, description: project.description ?? "", location: project.location ?? "" }}
+            initial={{
+              name: project.name,
+              description: project.description ?? "",
+              location: project.location ?? "",
+              pin: project.latitude !== null && project.longitude !== null ? { lat: project.latitude, lon: project.longitude } : null,
+            }}
+            maps={mapsConfig()}
             submitLabel="Save changes"
             pendingLabel="Saving…"
           />

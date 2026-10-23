@@ -15,11 +15,17 @@ const optionalText = (max: number) =>
     .transform((v) => v || null)
     .optional();
 
+// A pin comes as two form fields, both filled or both empty.
+const coordinate = (limit: number) =>
+  z.preprocess((v) => (v === "" || v === undefined ? null : Number(v)), z.number().min(-limit).max(limit).nullable());
+
 const detailsInput = z.object({
   name: z.string().trim().min(1, "Name is required").max(200),
   description: optionalText(1000),
   location: optionalText(200),
-});
+  latitude: coordinate(90),
+  longitude: coordinate(180),
+}).refine((d) => (d.latitude === null) === (d.longitude === null), "Pin the site again: its position was incomplete");
 
 const billingInput = z.object({
   currency: z.string().trim().length(3, "Use a 3-letter currency code").toUpperCase(),

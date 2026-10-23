@@ -11,9 +11,10 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
+import type { MapsConfig } from "@/lib/maps/config";
 import { ProjectDetailsForm } from "./project-form";
 
-export function NewProjectDialog({ label = "New project" }: { label?: string }) {
+export function NewProjectDialog({ label = "New project", maps }: { label?: string; maps: MapsConfig | null }) {
   return (
     <Dialog>
       <DialogTrigger render={<Button />}>
@@ -25,7 +26,7 @@ export function NewProjectDialog({ label = "New project" }: { label?: string }) 
           <DialogTitle>New project</DialogTitle>
           <DialogDescription>Only a name is needed. Currency, units and billing settings follow the location, and can be changed in project settings.</DialogDescription>
         </DialogHeader>
-        <ProjectDetailsForm action={createProject} submitLabel="Create project" pendingLabel="Creating…" />
+        <ProjectDetailsForm action={createProject} maps={maps} submitLabel="Create project" pendingLabel="Creating…" />
       </DialogContent>
     </Dialog>
   );

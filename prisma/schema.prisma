@@ -115,6 +115,8 @@ model Project {
   name                String
   description         String?
   location            String? // free text, e.g. "Fargo, ND" or "Nairobi, Kenya"; picks regional defaults
+  latitude            Float? // the site, pinned on a map (degrees, WGS 84)
+  longitude           Float?
   currency            String         @default("USD")
   measurementStandard String         @default("CSI") @map("measurement_standard") // CSI, NRM2, SMM7, custom
   retentionPct        Decimal        @default(10) @map("retention_pct") @db.Decimal(5, 2) // "retainage" in the US
@@ -750,6 +752,9 @@ model IfcModel {
   viewFor           String?          @map("view_for") // the file it was converted from
   elementsFor       String?          @map("elements_for") // the file mapping's elements were read from
   countInQuantities Boolean          @default(true) @map("count_in_quantities") // feeds SOV / BoQ quantities
+  // Where it sits on the map when placed by hand: { lat, lon, heading, elevation }. Otherwise
+  // its own georeferencing (summary.georef) or the project's pin.
+  placement         Json?
   sourceSheetIds    String[]         @map("source_sheet_ids")
   clientId          String?          @map("client_id") // the AI app that built it
   createdById       String?          @map("created_by") @db.Uuid

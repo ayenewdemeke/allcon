@@ -1,10 +1,12 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { Prisma } from "@/generated/prisma/client";
 import { getCurrentUser, isUuid } from "@/lib/auth/session";
 import { db } from "@/lib/db";
 import { deleteManifest } from "@/lib/aps/derivative";
 import { deleteObject } from "@/lib/aps/oss";
+import { placementInput } from "@/lib/maps/placement";
 import { removeModel } from "@/lib/tools/models3d";
 
 /** Deletes a 3D model and its files. */
@@ -49,4 +51,15 @@ export async function setModelCounted(projectId: string, target: { kind: "upload
     if (!count) throw new Error("Model not found");
   }
   revalidatePath(`/projects/${projectId}`, "layout");
+}
+
+/** Places a model on the map by hand, or (null) back to its own georeferencing or the project's pin. */
+export async function saveModelPlacement(modelId: string, placement: { lat: number; lon: number; heading: number; elevation: number } | null) {
+  const user = await getCurrentUser();
+  if (!user || !isUuid(modelId)) throw new Error("Model not found");
+  const { count } = await db.ifcModel.updateMany({
+    where: { id: modelId, project: { orgId: user.orgId } },
+    data: { placement: placement === null ? Prisma.DbNull : placementInput.parse(placement) },
+  });
+  if (!count) throw new Error("Model not found");
 }

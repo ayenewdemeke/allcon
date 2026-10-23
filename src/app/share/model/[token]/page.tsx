@@ -6,6 +6,8 @@ import { LinkButton } from "@/components/ui/link-button";
 import { findActiveModelShare, recordModelShareView, sharedByName } from "@/lib/ifc/model-share";
 import { modelSummary } from "@/lib/ifc/model-summary";
 import { hasViewCopy } from "@/lib/ifc/view-cache";
+import { mapsConfig } from "@/lib/maps/config";
+import { modelPlacement } from "@/lib/maps/placement";
 
 export const metadata: Metadata = { title: "Shared 3D model" };
 
@@ -17,6 +19,7 @@ export default async function SharedModelPage({ params }: PageProps<"/share/mode
   await recordModelShareView(share.id);
   const { model } = share;
   const api = `/api/share/model/${token}`;
+  const maps = mapsConfig();
   const until = share.expiresAt && ` · available until ${share.expiresAt.toLocaleDateString("en-US", { dateStyle: "medium" })}`;
 
   return (
@@ -42,6 +45,7 @@ export default async function SharedModelPage({ params }: PageProps<"/share/mode
             </LinkButton>
           )
         }
+        site={maps ? { maps, placement: modelPlacement(model, model.project), editable: false, georefPending: false } : undefined}
         shared
       />
     </div>

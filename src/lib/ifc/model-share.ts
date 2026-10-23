@@ -14,7 +14,7 @@ export async function findActiveModelShare(token: string) {
   if (!TOKEN.test(token)) return null;
   const share = await db.modelShareLink.findUnique({
     where: { token },
-    include: { model: { include: { project: { select: { name: true } } } }, createdBy: { select: { name: true, email: true } } },
+    include: { model: { include: { project: { select: { name: true, latitude: true, longitude: true } } } }, createdBy: { select: { name: true, email: true } } },
   });
   if (!share || share.revokedAt || (share.expiresAt && share.expiresAt <= new Date())) return null;
   return share;

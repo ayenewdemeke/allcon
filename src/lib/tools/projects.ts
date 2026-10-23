@@ -43,6 +43,8 @@ export async function getProject(ctx: ToolContext, projectId: string) {
     name: project.name,
     description: project.description,
     location: project.location, // the jurisdiction whose codes apply
+    // Pinned on a map: new 3D models are georeferenced here.
+    site: project.latitude !== null && project.longitude !== null ? { latitude: project.latitude, longitude: project.longitude } : null,
     currency: project.currency,
     units: project.unitSystem,
     measurementStandard: project.measurementStandard,

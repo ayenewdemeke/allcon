@@ -16,6 +16,7 @@ import {
   LayoutDashboard,
   ListChecks,
   LogOut,
+  Map as MapIcon,
   Plug,
   Settings,
   type LucideIcon,
@@ -56,6 +57,8 @@ export type SidebarProject = { id: string; name: string };
 
 const mainNav: NavItem[] = [
   { name: "Projects", href: "/projects", icon: FolderKanban },
+  // Every project at its site, in 2D or photorealistic 3D.
+  { name: "Map", href: "/map", icon: MapIcon },
   // Shared by all projects: manuals and standards that plan reviews check against.
   { name: "Library", href: "/library", icon: BookOpen },
   // AI apps (Claude, ChatGPT...) connected through MCP.

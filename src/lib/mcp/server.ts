@@ -298,7 +298,7 @@ export function buildMcpServer(ctx: ToolContext) {
     {
       title: "Create a 3D model",
       description:
-        "Starts a 3D model (real IFC, built with IfcOpenShell) with its project, units, contexts, site, building or bridge, and storeys (one per floor people stand on). Returns the ids (handles) of these, including the Body context for geometry. Then build it with ifc_edit.",
+        "Starts a 3D model (real IFC, built with IfcOpenShell) with its project, units, contexts, site, building or bridge, and storeys (one per floor people stand on). Returns the ids (handles) of these, including the Body context for geometry. Then build it with ifc_edit. When the project's site is pinned (get_project's site), the model is georeferenced there: its origin at the pin, turned by north.",
       inputSchema: z.object({
         project_id: uuid,
         name: z.string().min(1).max(200),
@@ -308,6 +308,12 @@ export function buildMcpServer(ctx: ToolContext) {
         units: z.enum(["m", "mm", "ft", "in"]),
         facility: z.enum(["building", "bridge", "site"]).default("building"),
         lod: z.enum(LOD_LEVELS).optional().describe("Target level of development"),
+        north: z
+          .number()
+          .min(-360)
+          .max(360)
+          .optional()
+          .describe("Where true north is on the plans, in degrees clockwise from the model's +y axis (from the north arrow; 0 when +y is north)"),
         levels: z
           .array(z.object({ name: z.string().min(1).max(80), elevation: z.number() }))
           .max(200)

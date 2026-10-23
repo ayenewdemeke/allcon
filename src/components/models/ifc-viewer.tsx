@@ -1,15 +1,21 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
-import { AlertCircle, ArrowLeft, Box, ClipboardList, Info, ListTree, Loader2, Maximize, Maximize2, Minimize, Ruler } from "lucide-react";
+import { toast } from "sonner";
+import { AlertCircle, ArrowLeft, Box, ClipboardList, Earth, Info, ListTree, Loader2, MapPin, Maximize, Maximize2, Minimize, Ruler } from "lucide-react";
+import { saveModelPlacement } from "@/app/actions/models3d";
+import { MapsProvider } from "@/components/maps/maps-provider";
 import type { ModelCanvasHandle, TreeNode } from "@/components/models/model-canvas";
 import { OrientationCube, type OrientationCubeHandle } from "@/components/models/orientation-cube";
+import { NoPlacement, PlacementPanel, SiteMapPanel, type Footprint } from "@/components/models/site-panels";
 import { FloatingPanel, ModelBrowser, PropertiesPanel, Rows, Section } from "@/components/models/viewer-panels";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { LinkButton } from "@/components/ui/link-button";
 import type { ElementDetails, Row } from "@/lib/ifc/element-properties";
+import type { MapsConfig } from "@/lib/maps/config";
+import type { Placement } from "@/lib/maps/placement";
 import { cn } from "@/lib/utils";
 
 // A model built from drawings, in 3D: a header with the model's actions, the model filling
@@ -31,7 +37,18 @@ export type ModelSummary = {
   warnings: string[];
 };
 
-type LeftPanel = "browser" | "details" | null;
+type LeftPanel = "browser" | "details" | "site" | null;
+
+/** The model's site, when maps are set up. */
+export type ModelSite = {
+  maps: MapsConfig;
+  placement: Placement | null;
+  /** The owner can move the model and save where it goes. */
+  editable: boolean;
+  /** The model's summary predates reading georeferencing; read it when the site is first opened. */
+  georefPending: boolean;
+  settingsHref?: string;
+};
 
 const num = (n: number, digits = 1) => n.toLocaleString("en-US", { maximumFractionDigits: digits });
 const label = (type: string) => type.replace(/^Ifc/, "").replace(/_/g, " ").replace(/^\w/, (c) => c.toUpperCase());
@@ -64,6 +81,7 @@ export function IfcViewer({
   actions,
   subtitle,
   pricing,
+  site,
   shared = false,
 }: {
   model: { id: string; name: string; description: string | null; revision: number; updated: string; uploaded?: boolean };
@@ -75,6 +93,7 @@ export function IfcViewer({
   subtitle?: React.ReactNode;
   /** For the owner: which SOV / BoQ items elements are priced in. */
   pricing?: ModelPricing;
+  site?: ModelSite;
   /** Viewed through a share link: read-only, no notes about editing. */
   shared?: boolean;
 }) {
@@ -92,6 +111,53 @@ export function IfcViewer({
   const [measured, setMeasured] = useState<number | null>(null);
   const [fullscreen, setFullscreen] = useState(false);
   const ready = tree !== null;
+
+  // The site: where the model sits (as saved, and as being moved), and whether it's shown in 3D.
+  const [saved, setSaved] = useState<Placement | null>(site?.placement ?? null);
+  const [placement, setPlacement] = useState<Placement | null>(site?.placement ?? null);
+  const [onSite, setOnSite] = useState(false);
+  const [credits, setCredits] = useState("");
+  const [footprint, setFootprint] = useState<Footprint | null>(null);
+  const [savingPlacement, setSavingPlacement] = useState(false);
+  const georef = useRef<Promise<void> | null>(null);
+  const dirty = !!placement && !!saved && (placement.lat !== saved.lat || placement.lon !== saved.lon || placement.heading !== saved.heading || placement.elevation !== saved.elevation);
+  const siteLayer = useMemo(() => (onSite && placement && site ? { apiKey: site.maps.apiKey, placement } : null), [onSite, placement, site]);
+
+  /** Opening the site the first time: older models are checked for their own georeferencing. */
+  const openSite = () => {
+    setFootprint(canvas.current?.footprint() ?? null);
+    if (!site?.georefPending || !site.editable || georef.current) return;
+    georef.current = fetch(`/api/ifc-models/${model.id}/georef`, { method: "POST" })
+      .then((res) => (res.ok ? (res.json() as Promise<{ placement: Placement | null }>) : null))
+      .then((body) => {
+        if (!body) return;
+        setSaved(body.placement);
+        setPlacement(body.placement);
+      })
+      .catch(() => {});
+  };
+  const moveTo = (next: Placement) => setPlacement({ ...next, source: "manual" });
+  const savePlacement = async (next: Placement | null) => {
+    setSavingPlacement(true);
+    try {
+      await saveModelPlacement(model.id, next && { lat: next.lat, lon: next.lon, heading: next.heading, elevation: next.elevation });
+      if (next) {
+        setSaved(next);
+        toast.success("Placement saved");
+      } else {
+        // Back to the model's own location or the project's pin, as the server works it out.
+        const res = await fetch(`/api/ifc-models/${model.id}/georef`, { method: "POST" });
+        const body = res.ok ? ((await res.json()) as { placement: Placement | null }) : null;
+        setSaved(body?.placement ?? null);
+        setPlacement(body?.placement ?? null);
+        toast.success("Placement reset");
+      }
+    } catch {
+      toast.error("Could not save the placement");
+    } finally {
+      setSavingPlacement(false);
+    }
+  };
 
   useEffect(() => {
     const onChange = () => setFullscreen(document.fullscreenElement === frame.current);
@@ -167,6 +233,13 @@ export function IfcViewer({
           }}
           onMeasure={setMeasured}
           onCamera={(m) => cube.current?.setCamera(m)}
+          site={siteLayer}
+          onSiteCredits={setCredits}
+          onSiteError={(message) => {
+            console.error("3D site", message);
+            toast.error("Couldn't load the 3D site from Google Maps", { description: "The map service refused it. Try again later." });
+            setOnSite(false);
+          }}
         />
 
         {!ready && !error && (
@@ -198,6 +271,29 @@ export function IfcViewer({
               <Tool icon={ListTree} title="Model browser" active={left === "browser"} onClick={() => setLeft(left === "browser" ? null : "browser")} />
               <Tool icon={ClipboardList} title="Model details" active={left === "details"} onClick={() => setLeft(left === "details" ? null : "details")} />
               <Tool icon={Info} title="Properties" active={showProps} onClick={() => setShowProps(!showProps)} />
+              {site && (
+                <>
+                  <div className="my-0.5 h-px bg-border" />
+                  <Tool
+                    icon={MapPin}
+                    title="Site map"
+                    active={left === "site"}
+                    onClick={() => {
+                      if (left !== "site") openSite();
+                      setLeft(left === "site" ? null : "site");
+                    }}
+                  />
+                  <Tool
+                    icon={Earth}
+                    title={onSite ? "Hide the site" : "Show the model on its site (3D)"}
+                    active={onSite}
+                    onClick={() => {
+                      if (!onSite) openSite();
+                      setOnSite(!onSite);
+                    }}
+                  />
+                </>
+              )}
               <div className="my-0.5 h-px bg-border" />
               <Tool icon={Maximize2} title="Fit to view" onClick={() => canvas.current?.fit()} />
               <Tool icon={Ruler} title="Measure distance" active={tool === "measure"} onClick={toggleMeasure} />
@@ -229,6 +325,37 @@ export function IfcViewer({
             onClose={() => setLeft(null)}
           />
         )}
+        {ready && left === "site" && site && (
+          <MapsProvider config={site.maps}>
+            <SiteMapPanel
+              placement={placement}
+              footprint={footprint}
+              editable={site.editable}
+              settingsHref={site.settingsHref}
+              onMove={(lat, lon) => placement && moveTo({ ...placement, lat, lon })}
+              onClose={() => setLeft(null)}
+            />
+          </MapsProvider>
+        )}
+        {ready && onSite && site && (placement ? (
+          <PlacementPanel
+            placement={placement}
+            editable={site.editable}
+            dirty={dirty}
+            saving={savingPlacement}
+            credits={credits}
+            onChange={moveTo}
+            onSave={() => void savePlacement(placement)}
+            onRevert={() => setPlacement(saved)}
+            onReset={() => void savePlacement(null)}
+          />
+        ) : (
+          left !== "site" && (
+            <div className="absolute bottom-4 left-3 z-10 w-64 rounded-lg border bg-background/95 shadow-lg backdrop-blur-sm">
+              <NoPlacement editable={site.editable} settingsHref={site.settingsHref} />
+            </div>
+          )
+        ))}
         {ready && left === "details" && <ModelDetails model={model} summary={summary} pricing={pricing} shared={shared} onClose={() => setLeft(null)} />}
         {ready && showProps && (
           <PropertiesPanel

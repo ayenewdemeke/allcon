@@ -24,6 +24,10 @@ const schema = z.object({
   R2_ACCESS_KEY_ID: optional,
   R2_SECRET_ACCESS_KEY: optional,
   R2_BUCKET: optional,
+  // Maps (Maps JavaScript, Places and Map Tiles APIs): project pins, the projects map, and models
+  // placed on photorealistic 3D tiles. The key is sent to browsers, so restrict it to the app's sites.
+  GOOGLE_MAPS_API_KEY: optional,
+  GOOGLE_MAP_ID: optional,
 });
 
 let cached: z.infer<typeof schema> | undefined;

@@ -5,6 +5,7 @@ import { PageBody, PageHeader } from "@/components/shell/page-header";
 import { Card, CardContent } from "@/components/ui/card";
 import { db } from "@/lib/db";
 import { requireUser } from "@/lib/auth/session";
+import { mapsConfig } from "@/lib/maps/config";
 
 export default async function ProjectsPage() {
   const user = await requireUser();
@@ -14,12 +15,14 @@ export default async function ProjectsPage() {
     include: { _count: { select: { modelVersions: true, ifcModels: true, drawingSets: true } } },
   });
 
+  const maps = mapsConfig();
+
   return (
     <PageBody>
       <PageHeader
         title="Projects"
         description="Each project holds its drawings, models, reviews and estimate."
-        actions={projects.length > 0 && <NewProjectDialog />}
+        actions={projects.length > 0 && <NewProjectDialog maps={maps} />}
       />
 
       {projects.length === 0 ? (
@@ -34,7 +37,7 @@ export default async function ProjectsPage() {
                 Create a project for your drawings, models and reviews. Only a name is needed.
               </p>
             </div>
-            <NewProjectDialog label="Create your first project" />
+            <NewProjectDialog label="Create your first project" maps={maps} />
           </CardContent>
         </Card>
       ) : (

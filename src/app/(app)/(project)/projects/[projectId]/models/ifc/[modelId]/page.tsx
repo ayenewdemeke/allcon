@@ -6,6 +6,8 @@ import { isUuid, requireProject } from "@/lib/auth/session";
 import { db } from "@/lib/db";
 import { modelSummary } from "@/lib/ifc/model-summary";
 import { hasViewCopy } from "@/lib/ifc/view-cache";
+import { mapsConfig } from "@/lib/maps/config";
+import { georefChecked, modelPlacement } from "@/lib/maps/placement";
 
 export const metadata: Metadata = { title: "3D model" };
 
@@ -28,6 +30,7 @@ export default async function IfcModelPage({ params }: PageProps<"/projects/[pro
           elementsFor: true,
           updatedAt: true,
           clientId: true,
+          placement: true,
         },
       })
     : null;
@@ -42,6 +45,7 @@ export default async function IfcModelPage({ params }: PageProps<"/projects/[pro
   };
   const api = `/api/ifc-models/${model.id}`;
   const pricing = model.elementsFor === model.fileKey ? await modelPricing(model.id) : undefined;
+  const maps = mapsConfig();
 
   return (
     <IfcViewer
@@ -55,6 +59,17 @@ export default async function IfcModelPage({ params }: PageProps<"/projects/[pro
       }}
       backHref={`/projects/${project.id}/models`}
       pricing={pricing}
+      site={
+        maps
+          ? {
+              maps,
+              placement: modelPlacement(model, project),
+              editable: true,
+              georefPending: !georefChecked(model.summary),
+              settingsHref: `/projects/${project.id}/settings`,
+            }
+          : undefined
+      }
       actions={<ModelActions projectId={project.id} model={{ id: model.id, name: model.name }} />}
     />
   );

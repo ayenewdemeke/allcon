@@ -48,7 +48,7 @@ export function buildModelPrompt(args: { drawings: string; discipline?: string; 
 
 2. ${LOD_CHECK(lod)}
 
-3. Set up: units as on the drawings (ft for US imperial sets, mm or m for metric); coordinates with x along the main axis or east, y across or north, z up, and the origin at a clear reference (grid A/1, begin bridge, station 0+00), using real elevations where given; storeys from the floor elevations; materials from the general notes, wall types and schedules. Then start the model with create_3d_model (lod "${lod}", the storeys, a description) and keep the handles it returns.
+3. Set up: units as on the drawings (ft for US imperial sets, mm or m for metric); coordinates with x along the main axis or east, y across or north, z up, and the origin at a clear reference (grid A/1, begin bridge, station 0+00), using real elevations where given; storeys from the floor elevations; materials from the general notes, wall types and schedules. Then start the model with create_3d_model (lod "${lod}", the storeys, a description, and north from the plan's north arrow) and keep the handles it returns. When the project's site is pinned, the model is placed on the map with its origin at the pin, so put the origin at the middle or main corner of the facility.
 
 4. ${ORGANIZATION}
 

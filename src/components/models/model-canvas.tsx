@@ -1,15 +1,21 @@
 "use client";
 
-import { forwardRef, useEffect, useImperativeHandle, useRef } from "react";
+import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from "react";
 import * as OBC from "@thatopen/components";
 import * as FRAGS from "@thatopen/fragments";
+import { TilesRenderer } from "3d-tiles-renderer/three";
+import { GoogleCloudAuthPlugin } from "3d-tiles-renderer/core/plugins";
+import { GLTFExtensionsPlugin, LoadRegionPlugin, RayRegion, TileCompressionPlugin, TileFlatteningPlugin, TilesFadePlugin } from "3d-tiles-renderer/three/plugins";
 import * as THREE from "three";
+import { DRACOLoader } from "three/addons/loaders/DRACOLoader.js";
 import { IFCSPACE } from "web-ifc";
 import { ELEMENT_DATA_CONFIG, NO_UNITS, SPATIAL_CATEGORIES, categoryName, readElement, readUnits, type ElementDetails, type ModelUnits } from "@/lib/ifc/element-properties";
+import type { Placement } from "@/lib/maps/placement";
 
 // Draws a model with That Open Engine: web-ifc reads the IFC once, the fragments worker draws
 // it off the main thread, and the converted model is saved so later views skip the IFC. The
-// scene renders only when something changes (camera, highlight, a tile arriving).
+// scene renders only when something changes (camera, highlight, a tile arriving). The site can
+// be shown under the model from Google's photorealistic 3D tiles.
 
 export type TreeNode = { key: string; localId: number | null; category: string; name: string; children: TreeNode[] };
 export type ModelCanvasHandle = {
@@ -23,6 +29,8 @@ export type ModelCanvasHandle = {
   /** Selects an element as if clicked, optionally flying to it. */
   select: (localId: number | null, zoom?: boolean) => void;
   clearMeasure: () => void;
+  /** The model's plan outline around its origin, in metres east and north of it along the model's own axes. */
+  footprint: () => { east: number; north: number }[] | null;
 };
 
 type Props = {
@@ -43,6 +51,24 @@ type Props = {
   onMeasure: (meters: number | null) => void;
   /** The camera's view matrix whenever it moves (for the view cube). */
   onCamera?: (viewMatrix: ArrayLike<number>) => void;
+  /** The site from Google's photorealistic 3D tiles, with the model placed on it; null to hide it. */
+  site?: { apiKey: string; placement: Placement } | null;
+  /** The map data credits to show while the site is on. */
+  onSiteCredits?: (credits: string) => void;
+  /** The site couldn't be loaded (the map service refused it). */
+  onSiteError?: (message: string) => void;
+};
+
+/** What the site layer needs from the loaded model and its engine. */
+type Engine = {
+  world: World;
+  redraw: () => void;
+  /** Where the IFC's origin ended up in the scene (the engine moves models near the origin). */
+  origin: THREE.Vector3;
+  /** The model's extent in the scene. */
+  box: THREE.Box3;
+  /** Widens the camera's range for the site, or back to just the model. */
+  setSiteView: (on: boolean) => void;
 };
 
 type World = OBC.SimpleWorld<OBC.SimpleScene, OBC.SimpleCamera, OBC.SimpleRenderer>;
@@ -51,6 +77,9 @@ type Item = Record<string, unknown>;
 const SELECT = { color: new THREE.Color("#2563eb"), opacity: 1, transparent: false, renderedFaces: FRAGS.RenderedFaces.TWO };
 const DRAG = 5; // pixels a pointer can move and still count as a click
 const ISO = new THREE.Vector3(0.6, 0.45, 0.8).normalize();
+const DEG = Math.PI / 180;
+// East-north-up axes to the scene's: x east, y up, z south.
+const ENU_TO_SCENE = new THREE.Matrix4().set(1, 0, 0, 0, 0, 0, 1, 0, 0, -1, 0, 0, 0, 0, 0, 1);
 
 const ModelCanvas = forwardRef<ModelCanvasHandle, Props>(function ModelCanvas(props, ref) {
   const stage = useRef<HTMLDivElement>(null);
@@ -67,9 +96,211 @@ const ModelCanvas = forwardRef<ModelCanvasHandle, Props>(function ModelCanvas(pr
     setHidden: (ids) => handle.current?.setHidden(ids),
     select: (id, zoom) => handle.current?.select(id, zoom),
     clearMeasure: () => handle.current?.clearMeasure(),
+    footprint: () => handle.current?.footprint() ?? null,
   }));
 
   const { modelId, revision, ifcUrl, viewUrl, saveUrl } = props;
+  const engine = useRef<Engine | null>(null);
+  const [loaded, setLoaded] = useState(false);
+  const apiKey = props.site?.apiKey ?? null;
+  const placement = props.site?.placement ?? null;
+  const placeSite = useRef<((p: Placement) => void) | null>(null);
+
+  // The site, declared before the model's engine so it's taken down before the engine is.
+  useEffect(() => {
+    const e = engine.current;
+    if (!loaded || !e || !apiKey) return;
+    const { world, redraw, origin, box } = e;
+    const camera = world.camera.three;
+    const renderer = world.renderer!;
+    const tiles = new TilesRenderer();
+    const draco = new DRACOLoader().setDecoderPath("/draco/");
+    tiles.registerPlugin(new GoogleCloudAuthPlugin({ apiToken: apiKey, autoRefreshToken: true }));
+    tiles.registerPlugin(new GLTFExtensionsPlugin({ dracoLoader: draco }));
+    tiles.registerPlugin(new TileCompressionPlugin());
+    tiles.registerPlugin(new TilesFadePlugin());
+    const flattening = new TileFlatteningPlugin();
+    tiles.registerPlugin(flattening);
+    // The tiles straight down through the site always load, in detail, whatever the camera
+    // sees: they're what the ground is read from.
+    const probe = new RayRegion({ errorTarget: 2 });
+    const regions = new LoadRegionPlugin();
+    regions.addRegion(probe);
+    tiles.registerPlugin(regions);
+    tiles.group.matrixAutoUpdate = false;
+    tiles.setCamera(camera);
+    tiles.setResolutionFromRenderer(camera, renderer.three);
+    world.scene.three.add(tiles.group);
+    e.setSiteView(true);
+
+    // The tiles are placed so the placement's point is at the IFC origin, turned by its heading,
+    // with the ground at the model's level 0 (raised or lowered by its elevation). Level 0 is
+    // the origin's height when the model spans it; a model drawn at real elevations (z = 5280
+    // ft) stands on its lowest point instead. The ground's height is found by looking down onto
+    // the tiles as they load.
+    const base = origin.y >= box.min.y - 0.5 && origin.y <= box.max.y ? origin.y : box.min.y;
+    let current: Placement | null = null;
+    let ground = 0; // the ground's height above the ellipsoid at the placement, in metres
+    let settleUntil = 0;
+    const enu = new THREE.Matrix4();
+    const apply = () => {
+      if (!current) return;
+      tiles.ellipsoid.getEastNorthUpFrame(current.lat * DEG, current.lon * DEG, 0, enu).invert();
+      const m = new THREE.Matrix4().makeTranslation(origin.x, base - current.elevation - ground, origin.z);
+      m.multiply(new THREE.Matrix4().makeRotationY(current.heading * DEG)).multiply(ENU_TO_SCENE).multiply(enu);
+      tiles.group.matrix.copy(m);
+      tiles.group.matrixWorldNeedsUpdate = true;
+      clearSoon();
+      redraw();
+    };
+
+    // The site is cleared under the model, as it would be for construction, so the buildings
+    // and trees there today don't hide it: the ground within its footprint (and a couple of
+    // metres around) is flattened to level 0, and whatever still stands there above it (a roof
+    // spanning past the footprint) is cut away.
+    const cut = Array.from({ length: 5 }, () => new THREE.Plane(new THREE.Vector3(0, 1, 0), -1e9));
+    renderer.three.localClippingEnabled = true;
+    const onTileLoaded = ({ scene }: { scene: THREE.Object3D }) =>
+      scene.traverse((o) => {
+        const mesh = o as THREE.Mesh;
+        if (!mesh.material) return;
+        for (const material of Array.isArray(mesh.material) ? mesh.material : [mesh.material]) {
+          material.clippingPlanes = cut;
+          material.clipIntersection = true; // only what's inside all the planes: the footprint, above the ground
+        }
+      });
+    let shape: THREE.Mesh | null = null;
+    let clearTimer: ReturnType<typeof setTimeout> | undefined;
+    const clearSite = () => {
+      if (shape) {
+        flattening.deleteShape(shape);
+        shape.geometry.dispose();
+        shape = null;
+      }
+      if (!current) return;
+      tiles.group.updateMatrixWorld();
+      const toTiles = tiles.group.matrixWorld.clone().invert();
+      const y = base - current.elevation - 0.05; // just under level 0, clear of the model's floor
+      const margin = 2;
+      // Planes facing out of the footprint's box, which starts just above the ground.
+      cut[0].set(new THREE.Vector3(1, 0, 0), -(box.max.x + margin));
+      cut[1].set(new THREE.Vector3(-1, 0, 0), box.min.x - margin);
+      cut[2].set(new THREE.Vector3(0, 0, 1), -(box.max.z + margin));
+      cut[3].set(new THREE.Vector3(0, 0, -1), box.min.z - margin);
+      cut[4].set(new THREE.Vector3(0, -1, 0), y + 0.2);
+      const corners = [
+        [box.min.x - margin, box.min.z - margin],
+        [box.max.x + margin, box.min.z - margin],
+        [box.max.x + margin, box.max.z + margin],
+        [box.min.x - margin, box.max.z + margin],
+      ].map(([x, z]) => new THREE.Vector3(x, y, z).applyMatrix4(toTiles));
+      // Positions relative to the shape's middle: Earth-centred coordinates are too large for
+      // the geometry's single precision.
+      const middle = corners.reduce((sum, c) => sum.add(c), new THREE.Vector3()).divideScalar(corners.length);
+      const geometry = new THREE.BufferGeometry().setFromPoints(corners.map((c) => c.clone().sub(middle)));
+      geometry.setIndex([0, 1, 2, 0, 2, 3]);
+      shape = new THREE.Mesh(geometry);
+      shape.position.copy(middle);
+      shape.updateMatrixWorld();
+      // Everything within the shape is flattened onto it (the typings still show an older signature).
+      flattening.addShape(shape, new THREE.Vector3(0, 1, 0).transformDirection(toTiles), {} as unknown as number);
+      redraw();
+    };
+    // Flattening re-reads the tiles under the model, so it waits for nudging to pause.
+    const clearSoon = () => {
+      clearTimeout(clearTimer);
+      clearTimer = setTimeout(clearSite, 400);
+    };
+    placeSite.current = (p) => {
+      const moved = !current || current.lat !== p.lat || current.lon !== p.lon;
+      current = p;
+      if (moved) {
+        settleUntil = performance.now() + 15_000;
+        tiles.ellipsoid.getCartographicToPosition(p.lat * DEG, p.lon * DEG, 20_000, probe.ray.origin);
+        tiles.ellipsoid.getCartographicToNormal(p.lat * DEG, p.lon * DEG, probe.ray.direction).negate();
+      }
+      apply();
+    };
+    if (placement) placeSite.current(placement);
+
+    // The ground: a low reading across the model's footprint and the land around it (the
+    // streets and yards), so buildings or trees standing on the site today don't lift the model
+    // onto their roofs.
+    const raycaster = new THREE.Raycaster();
+    const down = new THREE.Vector3(0, -1, 0);
+    const settle = () => {
+      if (!current || performance.now() > settleUntil) return;
+      const margin = Math.max(20, (box.max.x - box.min.x + box.max.z - box.min.z) / 4);
+      const heights: number[] = [];
+      for (let i = 0; i <= 4; i++) {
+        for (let j = 0; j <= 4; j++) {
+          const x = box.min.x - margin + ((box.max.x - box.min.x + 2 * margin) * i) / 4;
+          const z = box.min.z - margin + ((box.max.z - box.min.z + 2 * margin) * j) / 4;
+          raycaster.set(new THREE.Vector3(x, base + 20_000, z), down);
+          raycaster.far = 40_000;
+          const hit = raycaster.intersectObject(tiles.group, true)[0];
+          if (hit) heights.push(hit.point.y);
+        }
+      }
+      if (heights.length < 5) return;
+      heights.sort((a, b) => a - b);
+      const delta = heights[Math.floor(heights.length / 5)] - (base - current.elevation);
+      if (Math.abs(delta) < 0.02) return;
+      ground += delta;
+      apply();
+    };
+    const credits = () => {
+      const text = tiles
+        .getAttributions()
+        .filter((a) => a.type === "string")
+        .map((a) => String(a.value))
+        .join("; ");
+      latest.current.onSiteCredits?.(text);
+    };
+    const onLoadEnd = () => {
+      settle();
+      credits();
+      redraw();
+    };
+    const onError = (event: { tile: unknown; error: unknown }) => {
+      if (event.tile) return; // one missing tile leaves a gap; a missing root leaves no site
+      latest.current.onSiteError?.(event.error instanceof Error ? event.error.message : String(event.error));
+    };
+    const beforeRender = () => {
+      tiles.setResolutionFromRenderer(camera, renderer.three);
+      tiles.update();
+    };
+    renderer.onBeforeUpdate.add(beforeRender);
+    tiles.addEventListener("needs-update", redraw);
+    tiles.addEventListener("needs-render", redraw);
+    tiles.addEventListener("tiles-load-end", onLoadEnd);
+    tiles.addEventListener("load-error", onError);
+    tiles.addEventListener("load-model", onTileLoaded);
+    redraw();
+
+    return () => {
+      placeSite.current = null;
+      clearTimeout(clearTimer);
+      shape?.geometry.dispose();
+      renderer.onBeforeUpdate.remove(beforeRender);
+      tiles.removeEventListener("needs-update", redraw);
+      tiles.removeEventListener("needs-render", redraw);
+      tiles.removeEventListener("tiles-load-end", onLoadEnd);
+      tiles.removeEventListener("load-error", onError);
+      tiles.removeEventListener("load-model", onTileLoaded);
+      world.scene.three.remove(tiles.group);
+      tiles.dispose();
+      draco.dispose();
+      e.setSiteView(false);
+      redraw();
+    };
+    // Placement changes move the tiles (below) rather than reloading them.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loaded, apiKey]);
+
+  useEffect(() => {
+    if (placement) placeSite.current?.(placement);
+  }, [placement]);
 
   useEffect(() => {
     const el = stage.current;
@@ -94,11 +325,13 @@ const ModelCanvas = forwardRef<ModelCanvasHandle, Props>(function ModelCanvas(pr
     // from a distance. Outside the model's bounding sphere nothing is nearer than its surface,
     // so the near plane sits just short of it; inside, at 1% of the distance looked at.
     const bounds = new THREE.Sphere(new THREE.Vector3(), 10);
+    let siteView = false;
     const clip = () => {
       const camera = world.camera.three as THREE.PerspectiveCamera;
       const toCenter = camera.position.distanceTo(bounds.center);
-      const near = Math.max((toCenter - bounds.radius) * 0.9, controls.distance / 100, 0.01);
-      const far = toCenter + bounds.radius * 2 + 1;
+      // With the site shown the ground can be anywhere in front, nearer than the model.
+      const near = siteView ? Math.max(controls.distance / 200, 0.05) : Math.max((toCenter - bounds.radius) * 0.9, controls.distance / 100, 0.01);
+      const far = siteView ? Math.max(toCenter * 50, 50_000) : toCenter + bounds.radius * 2 + 1;
       if (camera.near === near && camera.far === far) return;
       camera.near = near;
       camera.far = far;
@@ -270,6 +503,18 @@ const ModelCanvas = forwardRef<ModelCanvasHandle, Props>(function ModelCanvas(pr
       },
       select: (id, zoom) => void select(id, zoom),
       clearMeasure,
+      footprint: () => {
+        const b = box();
+        const origin = engine.current?.origin;
+        if (b.isEmpty() || !origin) return null;
+        // Scene x is the model's east, scene -z its north.
+        return [
+          [b.min.x, b.min.z],
+          [b.max.x, b.min.z],
+          [b.max.x, b.max.z],
+          [b.min.x, b.max.z],
+        ].map(([x, z]) => ({ east: x - origin.x, north: origin.z - z }));
+      },
     };
 
     const report = (p: number) => !disposed && latest.current.onProgress(Math.round(p));
@@ -314,10 +559,31 @@ const ModelCanvas = forwardRef<ModelCanvasHandle, Props>(function ModelCanvas(pr
         if (spaces.size) await model.setOpacity([...spaces], 0.15);
 
         if (!box().isEmpty()) box().getBoundingSphere(bounds);
-        controls.maxDistance = Math.max(bounds.radius * 20, 50); // zooming out never loses the model
+        const modelRange = Math.max(bounds.radius * 20, 50); // zooming out never loses the model
+        controls.maxDistance = modelRange;
         lookFrom(ISO);
         controls.update(0);
         reportCamera();
+
+        // The IFC's origin, where the engine moved it to keep coordinates small.
+        const [ox = 0, oy = 0, oz = 0] = await model.getCoordinates().catch(() => [] as number[]);
+        engine.current = {
+          world,
+          redraw,
+          origin: new THREE.Vector3(ox, oy, oz),
+          box: box(),
+          setSiteView: (on) => {
+            siteView = on;
+            controls.maxDistance = on ? 20_000 : modelRange;
+            clip();
+            // Step back and up to see the model among its surroundings.
+            if (on) {
+              const size = box().getSize(new THREE.Vector3());
+              lookFrom(new THREE.Vector3(0.5, 1.6, 0.7), box().expandByScalar(Math.max(30, Math.max(size.x, size.z) * 0.75)));
+            }
+          },
+        };
+        setLoaded(true);
 
         latest.current.onLoaded(await spatialTree(model));
         report(100);
@@ -331,6 +597,8 @@ const ModelCanvas = forwardRef<ModelCanvasHandle, Props>(function ModelCanvas(pr
     return () => {
       disposed = true;
       handle.current = null;
+      engine.current = null;
+      setLoaded(false);
       observer.disconnect();
       el.removeEventListener("pointerdown", onDown);
       el.removeEventListener("pointerup", onUp);

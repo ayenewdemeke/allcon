@@ -47,6 +47,7 @@ export async function createModel(
     units: string;
     facility: string;
     lod?: string;
+    north?: number;
     levels: { name: string; elevation: number }[];
   },
 ) {
@@ -57,7 +58,16 @@ export async function createModel(
   const id = randomUUID();
   const fileKey = newModelFileKey(id);
   const made = await engine(() =>
-    workerCreate(fileKey, { schema: input.schema, name: input.name, units: input.units, facility: input.facility, lod: input.lod, levels: input.levels }),
+    workerCreate(fileKey, {
+      schema: input.schema,
+      name: input.name,
+      units: input.units,
+      facility: input.facility,
+      lod: input.lod,
+      levels: input.levels,
+      // Georeferenced at the project's pin, the model's +y turned from true north as the plans show.
+      location: project.latitude !== null && project.longitude !== null ? { lat: project.latitude, lon: project.longitude, heading: -(input.north ?? 0) } : undefined,
+    }),
   );
   await db.ifcModel.create({
     data: {

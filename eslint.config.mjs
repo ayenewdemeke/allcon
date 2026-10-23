@@ -13,7 +13,7 @@ const eslintConfig = defineConfig([
     "build/**",
     "next-env.d.ts",
     // 3D viewer assets copied from node_modules (scripts/copy-ifc-assets.mjs)
-    "public/fragments/**",
+    "public/fragments/**", "public/draco/**",
   ]),
 ]);
 
