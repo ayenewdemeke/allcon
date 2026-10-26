@@ -1,4 +1,4 @@
-import type { ArcEntity, EllipseEntity, Entity, Vec } from "./types";
+import type { ArcEntity, EllipseEntity, Entity, HAlign, VAlign, Vec } from "./types";
 
 // Plane geometry for drafting: entities as segments and arcs, their extents, distances,
 // intersections, and the grips that edit them.
@@ -25,6 +25,59 @@ export const unit = (a: Vec): Vec => {
 
 /** How far construction lines and rays reach when drawn and measured (they're infinite). */
 export const FAR = 1e7;
+
+// --- what objects look like ---------------------------------------------------------------
+
+/** A run of text to draw: `height` is the capitals' height. */
+export type TextRun = { at: Vec; text: string; height: number; rotation: number; font: string; widthFactor: number; halign: HAlign; valign: VAlign };
+/** An object's drawing: lines, filled polygons, and text. */
+export type Graphics = { lines: Vec[][]; fills: Vec[][]; texts: TextRun[] };
+
+const ANNOTATION_TYPES = new Set(["text", "mtext", "dimension", "leader", "hatch"]);
+export const isAnnotation = (e: Entity) => ANNOTATION_TYPES.has(e.type);
+
+// Annotations' drawing depends on styles: graphics.ts provides it (see there).
+let annotate: (e: Entity) => Graphics = () => ({ lines: [], fills: [], texts: [] });
+let boxOf: (run: TextRun) => Vec[] = () => [];
+export function setAnnotationGraphics(fn: typeof annotate, box: typeof boxOf) {
+  annotate = fn;
+  boxOf = box;
+}
+
+export function graphicsOf(e: Entity): Graphics {
+  return isAnnotation(e) ? annotate(e) : { lines: tessellate(e), fills: [], texts: [] };
+}
+
+/** The boxes around an object's text (text, mtext, a dimension's or a leader's). */
+export function textBoxes(e: Entity): Vec[][] {
+  return isAnnotation(e) ? annotate(e).texts.map(boxOf).filter((b) => b.length >= 3) : [];
+}
+
+/** An annotation's outline: its lines, the boxes of its text, and the edges of its fills. */
+function annotationOutline(e: Entity): Vec[][] {
+  const g = annotate(e);
+  const out = g.lines.slice();
+  for (const run of g.texts) {
+    const box = boxOf(run);
+    if (box.length) out.push([...box, box[0]]);
+  }
+  if (e.type === "hatch") {
+    for (const loop of e.loops) if (loop.length) out.push([...loop, loop[0]]);
+  } else {
+    for (const f of g.fills) out.push([...f, f[0]]);
+  }
+  return out;
+}
+
+function insidePolygon(p: Vec, poly: Vec[]) {
+  let inside = false;
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const a = poly[i];
+    const b = poly[j];
+    if (a.y > p.y !== b.y > p.y && p.x < ((b.x - a.x) * (p.y - a.y)) / (b.y - a.y) + a.x) inside = !inside;
+  }
+  return inside;
+}
 
 export function normalizeAngle(a: number) {
   const r = a % TAU;
@@ -72,6 +125,8 @@ export function primitives(e: Entity): Primitive[] {
       return [{ kind: "seg", a: add(e.base, mul(e.dir, -FAR)), b: add(e.base, mul(e.dir, FAR)) }];
     case "ray":
       return [{ kind: "seg", a: e.base, b: add(e.base, mul(e.dir, FAR)) }];
+    default:
+      return []; // annotations aren't snapped to, cut or extended
   }
 }
 
@@ -148,6 +203,8 @@ export function tessellate(e: Entity): Vec[][] {
     case "xline":
     case "ray":
       return primitives(e).map((p) => [(p as Segment).a, (p as Segment).b]);
+    default:
+      return annotationOutline(e);
   }
 }
 
@@ -187,10 +244,7 @@ export function bounds(e: Entity): Box {
         if (angleInSweep(a, e.start, e.end)) extendBox(box, polar(e.center, a, e.radius));
       }
       break;
-    case "ellipse":
-    case "spline":
-    case "xline":
-    case "ray":
+    default:
       for (const line of tessellate(e)) line.forEach((p) => extendBox(box, p));
       break;
   }
@@ -217,6 +271,15 @@ export function closestOnPrimitive(p: Vec, prim: Primitive): Vec {
 }
 
 export function distanceTo(e: Entity, p: Vec) {
+  if (isAnnotation(e)) {
+    // Inside a text box or a hatched area counts as on it.
+    const g = annotate(e);
+    if (g.texts.some((run) => insidePolygon(p, boxOf(run)))) return 0;
+    if (e.type === "hatch" && e.loops.filter((loop) => insidePolygon(p, loop)).length % 2 === 1) return 0;
+    let best = Infinity;
+    for (const line of annotationOutline(e)) for (let i = 0; i + 1 < line.length; i++) best = Math.min(best, dist(p, closestOnSegment(p, line[i], line[i + 1])));
+    return best;
+  }
   let best = Infinity;
   for (const prim of primitives(e)) best = Math.min(best, dist(p, closestOnPrimitive(p, prim)));
   return best;
@@ -339,6 +402,15 @@ export function translate<T extends Entity>(e: T, d: Vec): T {
     case "xline":
     case "ray":
       return { ...e, base: add(e.base, d) };
+    case "text":
+    case "mtext":
+      return { ...e, at: add(e.at, d) };
+    case "dimension":
+      return { ...e, p1: add(e.p1, d), p2: add(e.p2, d), loc: add(e.loc, d), center: add(e.center, d) };
+    case "leader":
+      return { ...e, points: e.points.map((p) => add(p, d)) };
+    case "hatch":
+      return { ...e, loops: e.loops.map((loop) => loop.map((p) => add(p, d))) };
   }
 }
 
@@ -405,6 +477,22 @@ export function transform<T extends Entity>(e: T, x: Xform): T {
     case "xline":
     case "ray":
       return { ...e, base: applyXf(x, e.base), dir: unit(applyLinear(x, e.dir)) };
+    case "text":
+    case "mtext": {
+      // Mirrored text still reads forwards (AutoCAD's MIRRTEXT 0): it keeps its mirrored "up".
+      let rotation = mapAngle(e.rotation);
+      if (flip) {
+        const up = applyLinear(x, { x: -Math.sin(e.rotation), y: Math.cos(e.rotation) });
+        rotation = Math.atan2(-up.x, up.y);
+      }
+      return { ...e, at: applyXf(x, e.at), height: e.height * k, rotation, ...(e.type === "mtext" ? { width: e.width * k } : {}) };
+    }
+    case "dimension":
+      return { ...e, p1: applyXf(x, e.p1), p2: applyXf(x, e.p2), loc: applyXf(x, e.loc), center: applyXf(x, e.center), angle: mapAngle(e.angle) };
+    case "leader":
+      return { ...e, points: e.points.map((p) => applyXf(x, p)), height: e.height * k };
+    case "hatch":
+      return { ...e, loops: e.loops.map((loop) => loop.map((p) => applyXf(x, p))), scale: e.scale * k, angle: mapAngle(e.angle) };
   }
 }
 
@@ -454,6 +542,26 @@ export function grips(e: Entity): Grip[] {
       return [{ point: e.base, kind: "move", index: 0 }];
     case "ray":
       return [{ point: e.base, kind: "stretch", index: 0 }];
+    case "text":
+    case "mtext":
+      return [{ point: e.at, kind: "move", index: 0 }];
+    case "dimension":
+      return e.kind === "radius" || e.kind === "diameter"
+        ? [
+            { point: e.p1, kind: "stretch", index: 0 },
+            { point: e.loc, kind: "stretch", index: 2 },
+          ]
+        : [
+            { point: e.p1, kind: "stretch", index: 0 },
+            { point: e.p2, kind: "stretch", index: 1 },
+            { point: e.loc, kind: "stretch", index: 2 },
+          ];
+    case "leader":
+      return e.points.map((p, i) => ({ point: p, kind: "stretch" as const, index: i }));
+    case "hatch": {
+      const box = bounds(e);
+      return [{ point: { x: (box.minX + box.maxX) / 2, y: (box.minY + box.maxY) / 2 }, kind: "move", index: 0 }];
+    }
   }
 }
 
@@ -499,5 +607,14 @@ export function moveGrip<T extends Entity>(e: T, grip: Grip, to: Vec): T {
       return translate(e, d);
     case "ray":
       return { ...e, base: to };
+    case "dimension":
+      return grip.index === 0 ? { ...e, p1: to } : grip.index === 1 ? { ...e, p2: to } : { ...e, loc: to };
+    case "leader": {
+      const points = e.points.slice();
+      points[grip.index] = to;
+      return { ...e, points };
+    }
+    default:
+      return translate(e, d);
   }
 }

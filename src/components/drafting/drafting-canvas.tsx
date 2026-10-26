@@ -4,7 +4,8 @@ import { useEffect, useRef } from "react";
 import * as THREE from "three";
 import { entityColor } from "@/lib/drafting/aci";
 import type { Editor } from "@/lib/drafting/editor";
-import { bounds, grips, tessellate } from "@/lib/drafting/geometry";
+import { bounds, graphicsOf, grips, tessellate, type TextRun } from "@/lib/drafting/geometry";
+import { capRatio } from "@/lib/drafting/graphics";
 import type { SnapKind } from "@/lib/drafting/snaps";
 import type { Entity, Vec } from "@/lib/drafting/types";
 
@@ -35,6 +36,7 @@ export function DraftingCanvas({ editor, dark, onReady }: { editor: Editor; dark
   const host = useRef<HTMLDivElement>(null);
   const gridCanvas = useRef<HTMLCanvasElement>(null);
   const overlayCanvas = useRef<HTMLCanvasElement>(null);
+  const textCanvas = useRef<HTMLCanvasElement>(null);
   const darkRef = useRef(dark);
   const redraw = useRef<(rebuild?: boolean) => void>(() => {});
   const ready = useRef(onReady);
@@ -51,16 +53,24 @@ export function DraftingCanvas({ editor, dark, onReady }: { editor: Editor; dark
     const el = host.current!;
     const grid = gridCanvas.current!;
     const overlay = overlayCanvas.current!;
+    const text = textCanvas.current!;
     const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
     renderer.setClearColor(0x000000, 0);
     renderer.domElement.className = "absolute inset-0 size-full";
-    el.insertBefore(renderer.domElement, overlay);
+    el.insertBefore(renderer.domElement, text);
     const scene = new THREE.Scene();
     const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, -1000, 1000);
     const geometry = new THREE.BufferGeometry();
     const lines = new THREE.LineSegments(geometry, new THREE.LineBasicMaterial({ vertexColors: true }));
     lines.frustumCulled = false;
-    scene.add(lines);
+    // Filled areas (solid hatches, arrowheads) under the lines.
+    const fillGeometry = new THREE.BufferGeometry();
+    const fills = new THREE.Mesh(fillGeometry, new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.DoubleSide }));
+    fills.frustumCulled = false;
+    scene.add(fills, lines);
+    // Text is drawn on its own canvas, redrawn when the view or the drawing changes.
+    let runs: { id: string; run: TextRun; color: string; box: { minX: number; minY: number; maxX: number; maxY: number } }[] = [];
+    let textKey = "";
     // Positions are stored relative to an origin near the drawing, so survey-sized
     // coordinates keep their precision in the GPU's single precision.
     let origin: Vec = { x: 0, y: 0 };
@@ -86,19 +96,41 @@ export function DraftingCanvas({ editor, dark, onReady }: { editor: Editor; dark
       }
       const pos: number[] = [];
       const col: number[] = [];
+      const fpos: number[] = [];
+      const fcol: number[] = [];
+      runs = [];
       for (const e of doc.entities.values()) {
         if (!doc.isVisible(e)) continue;
-        const c = colorOf(entityColor(e, doc.layerOf(e), isDark));
-        for (const line of tessellate(e)) {
+        const css = entityColor(e, doc.layerOf(e), isDark);
+        const c = colorOf(css);
+        const g = graphicsOf(e);
+        for (const line of g.lines) {
           for (let i = 0; i + 1 < line.length; i++) {
             pos.push(line[i].x - origin.x, line[i].y - origin.y, 0, line[i + 1].x - origin.x, line[i + 1].y - origin.y, 0);
             col.push(c.r, c.g, c.b, c.r, c.g, c.b);
           }
         }
+        // Fills are convex (triangles, arrowheads, dots): a fan covers them.
+        for (const f of g.fills) {
+          for (let i = 1; i + 1 < f.length; i++) {
+            for (const p of [f[0], f[i], f[i + 1]]) {
+              fpos.push(p.x - origin.x, p.y - origin.y, -0.5);
+              fcol.push(c.r, c.g, c.b);
+            }
+          }
+        }
+        if (g.texts.length) {
+          const b = bounds(e);
+          for (const run of g.texts) runs.push({ id: e.id, run, color: css, box: b });
+        }
       }
       geometry.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
       geometry.setAttribute("color", new THREE.Float32BufferAttribute(col, 3));
       geometry.computeBoundingSphere();
+      fillGeometry.setAttribute("position", new THREE.Float32BufferAttribute(fpos, 3));
+      fillGeometry.setAttribute("color", new THREE.Float32BufferAttribute(fcol, 3));
+      fillGeometry.computeBoundingSphere();
+      textKey = "";
     };
 
     let frame = 0;
@@ -114,6 +146,11 @@ export function DraftingCanvas({ editor, dark, onReady }: { editor: Editor; dark
       camera.position.set(cx - origin.x, cy - origin.y, 10);
       camera.updateProjectionMatrix();
       renderer.render(scene, camera);
+      const key = `${cx},${cy},${scale},${w},${h},${builtVersion},${builtDark},${editor.textEdit?.editing}`;
+      if (key !== textKey) {
+        textKey = key;
+        drawTexts(text, editor, runs);
+      }
       drawGrid(grid, editor, darkRef.current);
       drawOverlay(overlay, editor, darkRef.current);
     };
@@ -129,7 +166,8 @@ export function DraftingCanvas({ editor, dark, onReady }: { editor: Editor; dark
       const dpr = Math.min(window.devicePixelRatio || 1, 2);
       renderer.setPixelRatio(dpr);
       renderer.setSize(w, h, false);
-      for (const c of [grid, overlay]) {
+      textKey = "";
+      for (const c of [grid, overlay, text]) {
         c.width = Math.round(w * dpr);
         c.height = Math.round(h * dpr);
       }
@@ -141,6 +179,8 @@ export function DraftingCanvas({ editor, dark, onReady }: { editor: Editor; dark
     resize();
     ready.current?.();
 
+    // For browser tests in development: the editor, to aim at drawing coordinates.
+    if (process.env.NODE_ENV === "development") (window as unknown as { __draftEditor?: Editor }).__draftEditor = editor;
     const offPointer = editor.onPointer(() => schedule());
     const offState = editor.subscribe(() => schedule());
 
@@ -180,11 +220,13 @@ export function DraftingCanvas({ editor, dark, onReady }: { editor: Editor; dark
       editor.wheel(at(e), e.deltaY * (e.deltaMode === 1 ? 16 : 1));
     };
     const onLeave = () => editor.pointerLeave();
+    const onDouble = (e: MouseEvent) => e.button === 0 && editor.doubleClick(at(e));
     const noMenu = (e: Event) => e.preventDefault();
     el.addEventListener("pointermove", onMove);
     el.addEventListener("pointerdown", onDown);
     el.addEventListener("pointerup", onUp);
     el.addEventListener("pointerleave", onLeave);
+    el.addEventListener("dblclick", onDouble);
     el.addEventListener("wheel", onWheel, { passive: false });
     el.addEventListener("contextmenu", noMenu);
     el.addEventListener("auxclick", noMenu);
@@ -198,10 +240,12 @@ export function DraftingCanvas({ editor, dark, onReady }: { editor: Editor; dark
       el.removeEventListener("pointerdown", onDown);
       el.removeEventListener("pointerup", onUp);
       el.removeEventListener("pointerleave", onLeave);
+      el.removeEventListener("dblclick", onDouble);
       el.removeEventListener("wheel", onWheel);
       el.removeEventListener("contextmenu", noMenu);
       el.removeEventListener("auxclick", noMenu);
       geometry.dispose();
+      fillGeometry.dispose();
       renderer.dispose();
       renderer.domElement.remove();
       redraw.current = () => {};
@@ -212,6 +256,7 @@ export function DraftingCanvas({ editor, dark, onReady }: { editor: Editor; dark
   return (
     <div ref={host} className="absolute inset-0 cursor-none touch-none overflow-hidden select-none" style={{ background: theme.bg }}>
       <canvas ref={gridCanvas} className="absolute inset-0 size-full" />
+      <canvas ref={textCanvas} className="absolute inset-0 size-full" />
       <canvas ref={overlayCanvas} className="absolute inset-0 size-full" />
     </div>
   );
@@ -274,6 +319,65 @@ function drawGrid(canvas: HTMLCanvasElement, editor: Editor, dark: boolean) {
     ctx.lineTo(Math.round(o.x) + 0.5, h);
     ctx.stroke();
   }
+}
+
+/** Draws a run of text in screen space: AutoCAD's height is the capitals', so the font is sized up from it. */
+function fillRun(ctx: CanvasRenderingContext2D, editor: Editor, run: TextRun) {
+  const px = (run.height * editor.view.scale) / capRatio(run.font);
+  if (px < 1.5) return; // too small to read: AutoCAD shows nothing much either
+  const s = editor.toScreen(run.at);
+  ctx.save();
+  ctx.translate(s.x, s.y);
+  ctx.rotate(-run.rotation);
+  ctx.scale(run.widthFactor, 1);
+  ctx.font = `${px}px "${run.font}", sans-serif`;
+  ctx.textAlign = run.halign;
+  ctx.textBaseline = "alphabetic";
+  // Where the baseline sits relative to the insertion point, in screen pixels (down is +).
+  const capPx = run.height * editor.view.scale;
+  const shift = run.valign === "baseline" ? 0 : run.valign === "bottom" ? -capPx * 0.3 : run.valign === "middle" ? capPx / 2 : capPx;
+  ctx.fillText(run.text, 0, shift);
+  ctx.restore();
+}
+
+function drawTexts(canvas: HTMLCanvasElement, editor: Editor, runs: { id: string; run: TextRun; color: string; box: { minX: number; minY: number; maxX: number; maxY: number } }[]) {
+  const ctx = context(canvas, editor);
+  const tl = editor.toWorld({ x: 0, y: 0 });
+  const br = editor.toWorld({ x: editor.size.w, y: editor.size.h });
+  const editing = editor.textEdit?.editing;
+  for (const { id, run, color, box } of runs) {
+    if (id === editing) continue;
+    if (box.maxX < tl.x || box.minX > br.x || box.maxY < br.y || box.minY > tl.y) continue;
+    ctx.fillStyle = color;
+    fillRun(ctx, editor, run);
+  }
+}
+
+/** Draws an object as it looks (lines, fills, text), for the rubber band. */
+function drawEntity(ctx: CanvasRenderingContext2D, editor: Editor, e: Entity, color: string) {
+  const g = graphicsOf(e);
+  ctx.strokeStyle = color;
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  for (const line of g.lines) {
+    line.forEach((p, i) => {
+      const s = editor.toScreen(p);
+      if (i) ctx.lineTo(s.x, s.y);
+      else ctx.moveTo(s.x, s.y);
+    });
+  }
+  ctx.stroke();
+  for (const f of g.fills) {
+    ctx.beginPath();
+    f.forEach((p, i) => {
+      const s = editor.toScreen(p);
+      if (i) ctx.lineTo(s.x, s.y);
+      else ctx.moveTo(s.x, s.y);
+    });
+    ctx.closePath();
+    ctx.fill();
+  }
+  for (const run of g.texts) fillRun(ctx, editor, run);
 }
 
 function strokeEntity(ctx: CanvasRenderingContext2D, editor: Editor, e: Entity) {
@@ -408,10 +512,7 @@ function drawOverlay(canvas: HTMLCanvasElement, editor: Editor, dark: boolean) {
   const preview = editor.preview();
   if (preview.length) {
     ctx.lineWidth = 1;
-    for (const e of preview) {
-      ctx.strokeStyle = entityColor(e, doc.layerOf(e), dark);
-      strokeEntity(ctx, editor, e);
-    }
+    for (const e of preview) drawEntity(ctx, editor, e, entityColor(e, doc.layerOf(e), dark));
   }
 
   // Polar tracking: a dotted line along the tracked angle.

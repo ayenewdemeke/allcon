@@ -5,7 +5,13 @@ import { isUuid, requireUser } from "@/lib/auth/session";
 import { db } from "@/lib/db";
 import { drawingUnits } from "@/lib/drafting/server";
 
-export const metadata: Metadata = { title: "Drafting" };
+/** The browser tab shows the drawing's name, as AutoCAD's title bar does. */
+export async function generateMetadata({ params }: PageProps<"/drafting/[drawingId]">): Promise<Metadata> {
+  const { drawingId } = await params;
+  const user = await requireUser();
+  const drawing = isUuid(drawingId) ? await db.drawing.findFirst({ where: { id: drawingId, orgId: user.orgId }, select: { name: true } }) : null;
+  return { title: drawing?.name ?? "Drafting" };
+}
 
 /** A drawing open in the drafting editor, full screen (no app header or sidebar). */
 export default async function DrawingPage({ params }: PageProps<"/drafting/[drawingId]">) {

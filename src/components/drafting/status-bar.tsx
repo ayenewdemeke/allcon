@@ -39,6 +39,41 @@ function Toggle({ on, label, keyName, icon: Icon, onClick }: { on: boolean; labe
 
 const POLAR_ANGLES = [90, 45, 30, 22.5, 18, 15, 10, 5];
 
+/** AutoCAD's annotation scale list: the size new text, dimension styles and hatches are made for. */
+const ANNO_SCALES = {
+  architectural: [
+    ['1/16" = 1\'-0"', 192],
+    ['3/32" = 1\'-0"', 128],
+    ['1/8" = 1\'-0"', 96],
+    ['3/16" = 1\'-0"', 64],
+    ['1/4" = 1\'-0"', 48],
+    ['3/8" = 1\'-0"', 32],
+    ['1/2" = 1\'-0"', 24],
+    ['3/4" = 1\'-0"', 16],
+    ['1" = 1\'-0"', 12],
+    ['1 1/2" = 1\'-0"', 8],
+    ['3" = 1\'-0"', 4],
+    ["1:1", 1],
+  ],
+  mm: [
+    ["1:1", 1],
+    ["1:2", 2],
+    ["1:5", 5],
+    ["1:10", 10],
+    ["1:20", 20],
+    ["1:25", 25],
+    ["1:50", 50],
+    ["1:100", 100],
+    ["1:200", 200],
+    ["1:500", 500],
+    ["1:1000", 1000],
+  ],
+} as const;
+
+function scaleName(units: "architectural" | "mm", factor: number) {
+  return ANNO_SCALES[units].find(([, f]) => f === factor)?.[0] ?? `1:${factor}`;
+}
+
 export function StatusBar({ editor, state, dark, onTheme }: { editor: Editor; state: Snapshot; dark: boolean; onTheme: (dark: boolean) => void }) {
   const s: Settings = state.settings;
   const toggleKind = (kind: SnapKind) =>
@@ -106,6 +141,39 @@ export function StatusBar({ editor, state, dark, onTheme }: { editor: Editor; st
           )}
         </Popover>
         <Toggle on={s.dynamic} label="Dynamic input" keyName="F12" icon={TextCursorInput} onClick={() => editor.toggle("dynamic")} />
+        <span className="mx-1 h-4 w-px bg-border" />
+        <Popover
+          align="right"
+          side="top"
+          trigger={(_, toggle) => (
+            <button type="button" onClick={toggle} className="flex h-6 items-center gap-1 rounded px-1.5 text-muted-foreground hover:bg-accent" title="Annotation scale: the size new text and hatches are made for">
+              {scaleName(editor.doc.units, editor.doc.annoScale)}
+              <ChevronUp className="size-3" />
+            </button>
+          )}
+        >
+          {(close) => (
+            <div className="w-40">
+              <p className="px-2 py-1 text-[10px] text-muted-foreground uppercase">Annotation scale</p>
+              {ANNO_SCALES[editor.doc.units].map(([label, factor]) => (
+                <button
+                  key={label}
+                  type="button"
+                  className={cn("block w-full rounded px-2 py-1 text-left hover:bg-muted", editor.doc.annoScale === factor && "bg-muted font-medium")}
+                  onClick={() => {
+                    close();
+                    editor.doc.setSetting("annoScale", factor);
+                    editor.remember("textHeight", undefined);
+                    editor.remember("hatchScale", undefined);
+                    editor.print(`Annotation scale: ${label}. New text and hatches are sized for it; dimension sizes are set in the dimension style.`, "info");
+                  }}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          )}
+        </Popover>
         <span className="mx-1 h-4 w-px bg-border" />
         <span className="text-muted-foreground">{editor.doc.units === "mm" ? "Millimeters" : "Architectural"}</span>
         <button type="button" onClick={() => onTheme(!dark)} className="ml-1 rounded p-1 text-muted-foreground hover:bg-accent" title={dark ? "Light theme" : "Dark theme"}>

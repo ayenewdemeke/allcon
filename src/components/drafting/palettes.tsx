@@ -5,8 +5,9 @@ import { Check, Lightbulb, LightbulbOff, Lock, LockOpen, Plus, Snowflake, Sun, T
 import { colorName } from "@/lib/drafting/aci";
 import type { Editor, Snapshot } from "@/lib/drafting/editor";
 import { angleOf, arcEnd, arcStart, dist, isFullEllipse, len as magnitude, sweepOf, TAU, tessellate } from "@/lib/drafting/geometry";
-import { formatAngle, formatLength, parseAngle, parseLength } from "@/lib/drafting/units";
-import { ENTITY_NAMES, newLayer, type Entity, type EntityType, type Layer, type Units } from "@/lib/drafting/types";
+import { formatAngle, formatLength, parseAngle, parseLength, trimNumber } from "@/lib/drafting/units";
+import { dimMeasurement, dimText, HATCH_PATTERNS, TEXT_FONTS } from "@/lib/drafting/graphics";
+import { ENTITY_NAMES, newLayer, type DimStyle, type Entity, type EntityType, type HAlign, type Layer, type TextStyle, type Units, type VAlign } from "@/lib/drafting/types";
 import { cn } from "@/lib/utils";
 import { ColorPicker, LineweightPicker, lineweightName, Popover, Swatch } from "./controls";
 
@@ -64,6 +65,18 @@ function Field({ value, parse, onCommit }: { value: string; parse: (text: string
       }}
       className="h-5 w-full rounded-sm bg-transparent px-1 font-mono text-[11px] outline-none hover:bg-muted focus:bg-background focus:ring-1 focus:ring-primary"
     />
+  );
+}
+
+/** Text typed in and applied on Enter (Ctrl+Enter when multiline) or leaving the field. */
+function TextField({ value, onCommit, multiline = false, placeholder }: { value: string; onCommit: (text: string) => void; multiline?: boolean; placeholder?: string }) {
+  const [text, setText] = useState(value);
+  const commit = () => text !== value && onCommit(text);
+  const className = "w-full rounded-sm bg-transparent px-1 text-[11px] outline-none hover:bg-muted focus:bg-background focus:ring-1 focus:ring-primary";
+  return multiline ? (
+    <textarea value={text} rows={3} onChange={(e) => setText(e.target.value)} onBlur={commit} onKeyDown={(e) => e.key === "Enter" && (e.ctrlKey || e.metaKey) && commit()} className={`${className} resize-y py-0.5`} />
+  ) : (
+    <input value={text} placeholder={placeholder} onChange={(e) => setText(e.target.value)} onBlur={commit} onKeyDown={(e) => e.key === "Enter" && commit()} className={`${className} h-5`} />
   );
 }
 
@@ -173,6 +186,95 @@ function Geometry({ editor, e }: { editor: Editor; e: Entity }) {
           <Row label="Direction"><Static>{formatAngle(Math.atan2(e.dir.y, e.dir.x))}</Static></Row>
         </Group>
       );
+    case "text":
+    case "mtext": {
+      const styles = [...editor.doc.textStyles.keys()];
+      return (
+        <Group title="Text">
+          <Row label="Contents">
+            {editable ? (
+              <TextField key={e.text} value={e.text} multiline={e.type === "mtext"} onCommit={(text) => text.trim() && set({ ...e, text })} />
+            ) : (
+              <Static>{e.text}</Static>
+            )}
+          </Row>
+          <Row label="Style">
+            <select value={e.style} disabled={!editable} onChange={(ev) => set({ ...e, style: ev.target.value })} className="h-5 w-full bg-transparent text-[11px] outline-none">
+              {styles.map((n) => (
+                <option key={n}>{n}</option>
+              ))}
+            </select>
+          </Row>
+          {e.type === "text" && (
+            <Row label="Justify">
+              <select
+                value={`${e.halign}/${e.valign}`}
+                disabled={!editable}
+                onChange={(ev) => {
+                  const [halign, valign] = ev.target.value.split("/") as [HAlign, VAlign];
+                  set({ ...e, halign, valign });
+                }}
+                className="h-5 w-full bg-transparent text-[11px] outline-none"
+              >
+                {[["left", "baseline", "Left"], ["center", "baseline", "Center"], ["right", "baseline", "Right"], ["center", "middle", "Middle"], ["left", "top", "Top left"], ["center", "top", "Top center"], ["right", "top", "Top right"], ["left", "middle", "Middle left"], ["right", "middle", "Middle right"], ["left", "bottom", "Bottom left"], ["center", "bottom", "Bottom center"], ["right", "bottom", "Bottom right"]].map(([h, v, label]) => (
+                  <option key={label} value={`${h}/${v}`}>
+                    {label}
+                  </option>
+                ))}
+              </select>
+            </Row>
+          )}
+          <Row label="Height">{num(e.height, (h) => ({ ...e, height: Math.max(h, 1e-9) }))}</Row>
+          {e.type === "mtext" && <Row label="Width">{num(e.width, (w) => ({ ...e, width: Math.max(w, 0) }))}</Row>}
+          <Row label="Rotation">{num(e.rotation, (a) => ({ ...e, rotation: a }), (t) => parseAngle(t), formatAngle)}</Row>
+          <Row label="Position X">{num(e.at.x, (x) => ({ ...e, at: { ...e.at, x } }))}</Row>
+          <Row label="Position Y">{num(e.at.y, (y) => ({ ...e, at: { ...e.at, y } }))}</Row>
+        </Group>
+      );
+    }
+    case "dimension":
+      return (
+        <Group title="Dimension">
+          <Row label="Type"><Static>{e.kind[0].toUpperCase() + e.kind.slice(1)}</Static></Row>
+          <Row label="Measurement"><Static>{e.kind === "angular" ? formatAngle(dimMeasurement(e)) : len(dimMeasurement(e))}</Static></Row>
+          <Row label="Text override">
+            {editable ? <TextField key={e.text} value={e.text} placeholder="<> = measurement" onCommit={(text) => set({ ...e, text })} /> : <Static>{e.text}</Static>}
+          </Row>
+          <Row label="Shows"><Static>{dimText(e)}</Static></Row>
+          <Row label="Dim style">
+            <select value={e.style} disabled={!editable} onChange={(ev) => set({ ...e, style: ev.target.value })} className="h-5 w-full bg-transparent text-[11px] outline-none">
+              {[...editor.doc.dimStyles.keys()].map((n) => (
+                <option key={n}>{n}</option>
+              ))}
+            </select>
+          </Row>
+        </Group>
+      );
+    case "leader":
+      return (
+        <Group title="Multileader">
+          <Row label="Contents">{editable ? <TextField key={e.text} value={e.text} multiline onCommit={(text) => set({ ...e, text })} /> : <Static>{e.text}</Static>}</Row>
+          <Row label="Text height">{num(e.height, (h) => ({ ...e, height: Math.max(h, 1e-9) }))}</Row>
+        </Group>
+      );
+    case "hatch": {
+      let total = 0;
+      e.loops.forEach((loop, i) => (total += (i === 0 ? 1 : -1) * polygonArea(loop)));
+      return (
+        <Group title="Pattern">
+          <Row label="Pattern">
+            <select value={e.pattern} disabled={!editable} onChange={(ev) => set({ ...e, pattern: ev.target.value })} className="h-5 w-full bg-transparent text-[11px] outline-none">
+              {Object.keys(HATCH_PATTERNS).map((n) => (
+                <option key={n}>{n}</option>
+              ))}
+            </select>
+          </Row>
+          <Row label="Scale">{num(e.scale, (k) => ({ ...e, scale: Math.max(k, 1e-6) }), (t) => (Number.isFinite(Number(t)) && t.trim() ? Number(t) : null), (v) => trimNumber(v, 4))}</Row>
+          <Row label="Angle">{num(e.angle, (a) => ({ ...e, angle: a }), (t) => parseAngle(t), formatAngle)}</Row>
+          <Row label="Area"><Static>{area(Math.max(total, 0), units)}</Static></Row>
+        </Group>
+      );
+    }
     case "polyline": {
       let length = 0;
       for (let i = 0; i + 1 < e.points.length; i++) length += dist(e.points[i], e.points[i + 1]);
@@ -467,6 +569,132 @@ export function LayerManager({ editor, state, dark, onClose }: { editor: Editor;
           ))}
         </tbody>
       </table>
+    </PaletteFrame>
+  );
+}
+
+
+/** Paper sizes as AutoCAD shows them in a dimension style: fractions of an inch, or millimetres. */
+function paperSize(v: number, units: Units) {
+  if (units === "mm") return trimNumber(v, 3);
+  return formatLength(v, units).replace(/^0'-/, "").replace(/^0 /, "");
+}
+
+/** The Text Style and Dimension Style managers (STYLE, DIMSTYLE), in one palette. */
+export function StylesPalette({ editor, state, onClose }: { editor: Editor; state: Snapshot; onClose: () => void }) {
+  void state;
+  const doc = editor.doc;
+  const units = doc.units;
+  const [textName, setTextName] = useState(doc.currentTextStyle);
+  const [dimName, setDimName] = useState(doc.currentDimStyle);
+  const text = doc.textStyles.get(textName) ?? doc.textStyles.get(doc.currentTextStyle)!;
+  const dim = doc.dimStyles.get(dimName) ?? doc.dimStyles.get(doc.currentDimStyle)!;
+  const saveText = (patch: Partial<TextStyle>) => {
+    doc.begin("STYLE");
+    doc.setTextStyle({ ...text, ...patch });
+    doc.commit();
+  };
+  const saveDim = (patch: Partial<DimStyle>) => {
+    doc.begin("DIMSTYLE");
+    doc.setDimStyle({ ...dim, ...patch });
+    doc.commit();
+  };
+  const create = (kind: "text" | "dim") => {
+    const base = kind === "text" ? "Style" : "Dim";
+    let n = 1;
+    const table = kind === "text" ? doc.textStyles : doc.dimStyles;
+    while (table.has(`${base}${n}`)) n++;
+    const name = window.prompt(`New ${kind === "text" ? "text" : "dimension"} style name (a copy of the selected one)`, `${base}${n}`)?.trim();
+    if (!name || table.has(name)) return;
+    doc.begin(kind === "text" ? "STYLE" : "DIMSTYLE");
+    if (kind === "text") {
+      doc.setTextStyle({ ...text, name });
+      setTextName(name);
+    } else {
+      doc.setDimStyle({ ...dim, name });
+      setDimName(name);
+    }
+    doc.commit();
+  };
+  const select = "h-6 w-full rounded border bg-background px-1 text-[11px]";
+  const size = (label: string, key: keyof DimStyle, isLength = true) => (
+    <Row label={label}>
+      <Field
+        key={`${dim.name}-${key}-${dim[key]}`}
+        value={isLength ? paperSize(Number(dim[key]), units) : trimNumber(Number(dim[key]), 4)}
+        parse={(t) => {
+          const n = isLength ? parseLength(t, units) : Number(t);
+          return n !== null && Number.isFinite(n) && n > 0 ? n : null;
+        }}
+        onCommit={(n) => saveDim({ [key]: n } as Partial<DimStyle>)}
+      />
+    </Row>
+  );
+
+  return (
+    <PaletteFrame title="Styles" onClose={onClose}>
+      <Group title="Text styles">
+        <div className="flex gap-1 p-1.5">
+          <select className={select} value={text.name} onChange={(e) => setTextName(e.target.value)}>
+            {[...doc.textStyles.keys()].map((n) => (
+              <option key={n}>{n}</option>
+            ))}
+          </select>
+          <button type="button" onClick={() => create("text")} className="rounded px-1.5 text-xs hover:bg-accent" title="New text style">
+            <Plus className="size-3.5" />
+          </button>
+          <button type="button" onClick={() => doc.setSetting("currentTextStyle", text.name)} disabled={text.name === doc.currentTextStyle} className="rounded px-1.5 text-xs hover:bg-accent disabled:opacity-40" title="Set current">
+            <Check className="size-3.5" />
+          </button>
+        </div>
+        <Row label="Font">
+          <select className="h-5 w-full bg-transparent text-[11px] outline-none" value={text.font} onChange={(e) => saveText({ font: e.target.value })}>
+            {TEXT_FONTS.map((f) => (
+              <option key={f}>{f}</option>
+            ))}
+          </select>
+        </Row>
+        <Row label="Width factor">
+          <Field key={`${text.name}-${text.widthFactor}`} value={trimNumber(text.widthFactor, 3)} parse={(t) => (Number(t) > 0 ? Number(t) : null)} onCommit={(n) => saveText({ widthFactor: n })} />
+        </Row>
+      </Group>
+      <Group title="Dimension styles">
+        <div className="flex gap-1 p-1.5">
+          <select className={select} value={dim.name} onChange={(e) => setDimName(e.target.value)}>
+            {[...doc.dimStyles.keys()].map((n) => (
+              <option key={n}>{n}</option>
+            ))}
+          </select>
+          <button type="button" onClick={() => create("dim")} className="rounded px-1.5 text-xs hover:bg-accent" title="New dimension style">
+            <Plus className="size-3.5" />
+          </button>
+          <button type="button" onClick={() => doc.setSetting("currentDimStyle", dim.name)} disabled={dim.name === doc.currentDimStyle} className="rounded px-1.5 text-xs hover:bg-accent disabled:opacity-40" title="Set current">
+            <Check className="size-3.5" />
+          </button>
+        </div>
+        {size("Text height", "textHeight")}
+        {size("Arrow size", "arrowSize")}
+        <Row label="Arrowheads">
+          <select className="h-5 w-full bg-transparent text-[11px] outline-none" value={dim.arrow} onChange={(e) => saveDim({ arrow: e.target.value as DimStyle["arrow"] })}>
+            <option value="closed">Closed filled</option>
+            <option value="tick">Architectural tick</option>
+            <option value="dot">Dot</option>
+            <option value="open">Open</option>
+          </select>
+        </Row>
+        {size("Offset from origin", "extOffset")}
+        {size("Extend beyond", "extBeyond")}
+        {size("Text gap", "textGap")}
+        {size("Baseline spacing", "baselineSpacing")}
+        {size("Overall scale", "scale", false)}
+        <Row label="Text style">
+          <select className="h-5 w-full bg-transparent text-[11px] outline-none" value={dim.textStyle} onChange={(e) => saveDim({ textStyle: e.target.value })}>
+            {[...doc.textStyles.keys()].map((n) => (
+              <option key={n}>{n}</option>
+            ))}
+          </select>
+        </Row>
+      </Group>
     </PaletteFrame>
   );
 }

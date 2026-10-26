@@ -28,13 +28,20 @@ import {
   SquareDashedMousePointer,
   Sun,
   Unlink,
+  X,
 } from "lucide-react";
+import { HATCH_PATTERNS } from "@/lib/drafting/graphics";
+import { hatchSettings } from "@/lib/drafting/commands-annotate";
 import type { Editor, Snapshot } from "@/lib/drafting/editor";
 import { cn } from "@/lib/utils";
 import {
   ArcIcon,
   ChamferIcon,
   CircleIcon,
+  DimLinearIcon,
+  HatchIcon,
+  LeaderIcon,
+  PatternSwatch,
   ColorPicker,
   DropButton,
   EllipseIcon,
@@ -61,17 +68,18 @@ type Props = {
   state: Snapshot;
   dark: boolean;
   onTheme: (dark: boolean) => void;
-  palettes: { properties: boolean; layers: boolean };
-  onPalette: (p: "properties" | "layers") => void;
+  palettes: { properties: boolean; layers: boolean; styles: boolean };
+  onPalette: (p: "properties" | "layers" | "styles") => void;
+  /** Back, Undo and Redo: AutoCAD's Quick Access Toolbar, before the tabs. */
+  quickAccess: React.ReactNode;
+  /** The save state, at the end of the tab row. */
+  status: React.ReactNode;
 };
 
 /** Runs a command, optionally answering its first prompt with an option (Circle 2P, Arc Center…). */
 function run(editor: Editor, name: string, option?: string) {
   editor.runCommand(name);
-  if (option) {
-    editor.buffer = option;
-    editor.submit();
-  }
+  if (option) editor.answer(option);
 }
 
 function Panel({ title, children }: { title: string; children: React.ReactNode }) {
@@ -186,8 +194,10 @@ function SplitBig({ icon, label, title, onClick, options }: { icon: React.Compon
   );
 }
 
-export function Ribbon({ editor, state, dark, onTheme, palettes, onPalette }: Props) {
-  const [tab, setTab] = useState<"home" | "view">("home");
+export function Ribbon({ editor, state, dark, onTheme, palettes, onPalette, quickAccess, status }: Props) {
+  const [tab, setTab] = useState<"home" | "annotate" | "view">("home");
+  // AutoCAD's contextual tab: Hatch Creation while HATCH runs.
+  const hatching = state.command === "HATCH";
   const doc = editor.doc;
   const selected = editor.selected();
   // The property boxes show the selection's values (or *VARIES*), else what new objects get.
@@ -203,20 +213,27 @@ export function Ribbon({ editor, state, dark, onTheme, palettes, onPalette }: Pr
 
   return (
     <div className="border-b bg-muted/40">
-      <div className="flex gap-0.5 px-2 pt-1 text-xs">
-        {(["home", "view"] as const).map((t) => (
+      <div className="flex items-end gap-0.5 px-2 pt-1 text-xs">
+        <div className="mr-2 flex items-center gap-0.5 self-center pb-0.5">{quickAccess}</div>
+        {(["home", "annotate", "view"] as const).map((t) => (
           <button
             key={t}
             type="button"
             onClick={() => setTab(t)}
-            className={cn("rounded-t px-3 py-1", tab === t ? "bg-background font-medium text-foreground shadow-[0_-1px_0_0] shadow-border" : "text-muted-foreground hover:text-foreground")}
+            className={cn("rounded-t px-3 py-1", tab === t && !hatching ? "bg-background font-medium text-foreground shadow-[0_-1px_0_0] shadow-border" : "text-muted-foreground hover:text-foreground")}
           >
-            {t === "home" ? "Home" : "View"}
+            {t === "home" ? "Home" : t === "annotate" ? "Annotate" : "View"}
           </button>
         ))}
+        {hatching && <span className="rounded-t bg-background px-3 py-1 font-medium text-primary shadow-[0_-1px_0_0] shadow-border">Hatch Creation</span>}
+        <div className="ml-auto self-center pb-0.5">{status}</div>
       </div>
       <div className="flex h-[5.25rem] overflow-x-auto bg-background">
-        {tab === "home" ? (
+        {hatching ? (
+          <HatchCreation editor={editor} />
+        ) : tab === "annotate" ? (
+          <AnnotateTab editor={editor} state={state} onPalette={onPalette} palettes={palettes} />
+        ) : tab === "home" ? (
           <>
             <Panel title="Draw">
               <Big icon={LineIcon} label="Line" title="Line (L)" onClick={() => run(editor, "LINE")} />
@@ -250,6 +267,7 @@ export function Ribbon({ editor, state, dark, onTheme, palettes, onPalette }: Pr
                 <Icon icon={Spline} title="Spline (SPL)" onClick={() => run(editor, "SPLINE")} />
                 <Icon icon={XlineIcon} title="Construction line (XL)" onClick={() => run(editor, "XLINE")} />
                 <Icon icon={RayIcon} title="Ray" onClick={() => run(editor, "RAY")} />
+                <Icon icon={HatchIcon} title="Hatch (H)" onClick={() => run(editor, "HATCH")} />
               </div>
             </Panel>
             <Panel title="Modify">
@@ -300,6 +318,20 @@ export function Ribbon({ editor, state, dark, onTheme, palettes, onPalette }: Pr
                 <Icon icon={ArrowRightToLine} title="Extend (EX)" onClick={() => run(editor, "EXTEND")} />
                 <Icon icon={ChamferIcon} title="Chamfer (CHA)" onClick={() => run(editor, "CHAMFER")} />
               </div>
+            </Panel>
+            <Panel title="Annotation">
+              <SplitBig
+                icon={TextIcon}
+                label="Text"
+                title="Multiline text (MT)"
+                onClick={() => run(editor, "MTEXT")}
+                options={[
+                  { label: "Multiline Text", run: () => run(editor, "MTEXT") },
+                  { label: "Single Line", run: () => run(editor, "TEXT") },
+                ]}
+              />
+              <SplitBig icon={DimLinearIcon} label="Dimension" title="Dimension (DIM)" onClick={() => run(editor, "DIM")} options={DIM_OPTIONS(editor)} />
+              <Big icon={LeaderIcon} label="Leader" title="Multileader (MLD)" onClick={() => run(editor, "MLEADER")} />
             </Panel>
             <Panel title="Layers">
               <Big icon={Layers} label="Layer Properties" title="Layer Properties (LA)" onClick={() => onPalette("layers")} active={palettes.layers} />
@@ -418,5 +450,110 @@ export function Ribbon({ editor, state, dark, onTheme, palettes, onPalette }: Pr
         )}
       </div>
     </div>
+  );
+}
+
+function TextIcon({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" className={className} fill="none" stroke="currentColor" strokeWidth={1.6} strokeLinecap="round">
+      <path d="M5 6V4h14v2M12 4v16M9 20h6" />
+    </svg>
+  );
+}
+
+const DIM_OPTIONS = (editor: Editor) => [
+  { label: "Dimension (smart)", run: () => run(editor, "DIM") },
+  { label: "Linear", run: () => run(editor, "DIMLINEAR") },
+  { label: "Aligned", run: () => run(editor, "DIMALIGNED") },
+  { label: "Angular", run: () => run(editor, "DIMANGULAR") },
+  { label: "Radius", run: () => run(editor, "DIMRADIUS") },
+  { label: "Diameter", run: () => run(editor, "DIMDIAMETER") },
+  { label: "Continue", run: () => run(editor, "DIMCONTINUE") },
+  { label: "Baseline", run: () => run(editor, "DIMBASELINE") },
+];
+
+function AnnotateTab({ editor, state, onPalette, palettes }: { editor: Editor; state: Snapshot; onPalette: (p: "styles") => void; palettes: { styles: boolean } }) {
+  void state;
+  const doc = editor.doc;
+  const select = "h-6 w-36 rounded border bg-background px-1 text-xs";
+  return (
+    <>
+      <Panel title="Text">
+        <Big icon={TextIcon} label="Multiline Text" title="Multiline text (MT)" onClick={() => run(editor, "MTEXT")} />
+        <div className="flex flex-col gap-1 pt-1">
+          <Small icon={TextIcon} label="Single Line" title="Single-line text (DT)" onClick={() => run(editor, "TEXT")} />
+          <select className={select} value={doc.currentTextStyle} onChange={(e) => doc.setSetting("currentTextStyle", e.target.value)} title="Text style">
+            {[...doc.textStyles.keys()].map((n) => (
+              <option key={n}>{n}</option>
+            ))}
+          </select>
+        </div>
+      </Panel>
+      <Panel title="Dimensions">
+        <SplitBig icon={DimLinearIcon} label="Dimension" title="Dimension (DIM)" onClick={() => run(editor, "DIM")} options={DIM_OPTIONS(editor)} />
+        <div className="flex flex-col gap-0.5">
+          <Small icon={DimLinearIcon} label="Linear" title="Linear (DLI)" onClick={() => run(editor, "DIMLINEAR")} />
+          <Small icon={DimLinearIcon} label="Continue" title="Continue (DCO)" onClick={() => run(editor, "DIMCONTINUE")} />
+          <Small icon={DimLinearIcon} label="Baseline" title="Baseline (DBA)" onClick={() => run(editor, "DIMBASELINE")} />
+        </div>
+        <div className="flex flex-col gap-1 pt-1">
+          <select className={select} value={doc.currentDimStyle} onChange={(e) => doc.setSetting("currentDimStyle", e.target.value)} title="Dimension style">
+            {[...doc.dimStyles.keys()].map((n) => (
+              <option key={n}>{n}</option>
+            ))}
+          </select>
+        </div>
+      </Panel>
+      <Panel title="Leaders">
+        <Big icon={LeaderIcon} label="Multileader" title="Multileader (MLD)" onClick={() => run(editor, "MLEADER")} />
+      </Panel>
+      <Panel title="Styles">
+        <Big icon={SlidersHorizontal} label="Styles Manager" title="Text and dimension styles (ST, D)" onClick={() => onPalette("styles")} active={palettes.styles} />
+      </Panel>
+    </>
+  );
+}
+
+function HatchCreation({ editor }: { editor: Editor }) {
+  const s = hatchSettings(editor);
+  const set = (key: "hatchPattern" | "hatchScale" | "hatchAngle", value: string | number) => {
+    editor.remember(key, value);
+    const command = editor.command as unknown as { restyle?: () => void } | null;
+    command?.restyle?.();
+  };
+  const input = "h-6 w-20 rounded border bg-background px-1 text-xs";
+  return (
+    <>
+      <Panel title="Boundaries">
+        <Big icon={HatchIcon} label="Pick Points" title="Pick internal points" onClick={() => undefined} active />
+        <Small icon={SquareDashedMousePointer} label="Select" title="Select boundary objects" onClick={() => editor.answer("S")} />
+      </Panel>
+      <Panel title="Pattern">
+        <div className="grid grid-cols-5 gap-1 pt-0.5">
+          {Object.entries(HATCH_PATTERNS).map(([name, p]) => (
+            <button
+              key={name}
+              type="button"
+              title={`${name}: ${p.description}`}
+              onClick={() => set("hatchPattern", name)}
+              className={cn("rounded border p-0.5 hover:border-primary", s.pattern === name && "border-primary ring-1 ring-primary")}
+            >
+              <PatternSwatch name={name} className="size-6" />
+            </button>
+          ))}
+        </div>
+      </Panel>
+      <Panel title="Properties">
+        <div className="grid grid-cols-[auto_auto] items-center gap-x-2 gap-y-1 pt-1 text-[11px]">
+          <span className="text-muted-foreground">Scale</span>
+          <input className={input} type="number" min={0} step="any" defaultValue={s.scale} key={`s${s.scale}`} onBlur={(e) => Number(e.target.value) > 0 && set("hatchScale", Number(e.target.value))} onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()} />
+          <span className="text-muted-foreground">Angle</span>
+          <input className={input} type="number" step="any" defaultValue={s.angle} key={`a${s.angle}`} onBlur={(e) => set("hatchAngle", Number(e.target.value) || 0)} onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()} />
+        </div>
+      </Panel>
+      <Panel title="Close">
+        <Big icon={X} label="Close Hatch Creation" title="Done (Enter)" onClick={() => editor.submit()} />
+      </Panel>
+    </>
   );
 }

@@ -37,7 +37,55 @@ export type XlineEntity = EntityBase & { type: "xline"; base: Vec; dir: Vec };
 /** A ray, from `base` infinitely along unit `dir`. */
 export type RayEntity = EntityBase & { type: "ray"; base: Vec; dir: Vec };
 
-export type Entity = LineEntity | PolylineEntity | CircleEntity | ArcEntity | EllipseEntity | SplineEntity | XlineEntity | RayEntity;
+/** Horizontal and vertical justification of text, as AutoCAD's (Left, Center, Middle, TR, BC...). */
+export type HAlign = "left" | "center" | "right";
+export type VAlign = "baseline" | "bottom" | "middle" | "top";
+
+/** Single-line text: `height` is the height of capital letters, `rotation` in radians. */
+export type TextEntity = EntityBase & { type: "text"; at: Vec; text: string; height: number; rotation: number; style: string; halign: HAlign; valign: VAlign };
+/** Multiline text, wrapped to `width` (0: no wrapping), attached at its top left. */
+export type MTextEntity = EntityBase & { type: "mtext"; at: Vec; text: string; height: number; width: number; rotation: number; style: string };
+
+export type DimKind = "linear" | "aligned" | "angular" | "radius" | "diameter";
+/**
+ * A dimension, drawn from its definition points and its style. Linear and aligned: `p1`, `p2`
+ * are the extension line origins and `loc` a point on the dimension line (linear ones measure
+ * along `angle`). Angular: `p1`, `p2` on the two sides from the vertex `center`, `loc` on the
+ * arc. Radius and diameter: `center`, `p1` on the circle, `loc` where the text goes.
+ */
+export type DimensionEntity = EntityBase & {
+  type: "dimension";
+  kind: DimKind;
+  p1: Vec;
+  p2: Vec;
+  loc: Vec;
+  center: Vec;
+  angle: number;
+  /** Replaces the measurement; "<>" stands for it. Empty: the measurement. */
+  text: string;
+  style: string;
+};
+
+/** A multileader: an arrowhead, a leader line to a landing, and text. */
+export type LeaderEntity = EntityBase & { type: "leader"; points: Vec[]; text: string; height: number; style: string; dimStyle: string };
+
+/** A hatch: boundary loops (filled even-odd, so loops inside loops are islands) and a pattern. */
+export type HatchEntity = EntityBase & { type: "hatch"; loops: Vec[][]; pattern: string; scale: number; angle: number };
+
+export type Entity =
+  | LineEntity
+  | PolylineEntity
+  | CircleEntity
+  | ArcEntity
+  | EllipseEntity
+  | SplineEntity
+  | XlineEntity
+  | RayEntity
+  | TextEntity
+  | MTextEntity
+  | DimensionEntity
+  | LeaderEntity
+  | HatchEntity;
 export type EntityType = Entity["type"];
 
 export type Layer = {
@@ -50,6 +98,22 @@ export type Layer = {
   locked: boolean;
 };
 
+export type TextStyle = { name: string; font: string; widthFactor: number };
+
+/** A dimension style (AutoCAD's DIMSTYLE): sizes are on paper, multiplied by `scale` (DIMSCALE). */
+export type DimStyle = {
+  name: string;
+  textHeight: number; // DIMTXT
+  arrowSize: number; // DIMASZ
+  arrow: "closed" | "tick" | "dot" | "open";
+  extOffset: number; // DIMEXO: gap from the object
+  extBeyond: number; // DIMEXE: past the dimension line
+  textGap: number; // DIMGAP
+  baselineSpacing: number; // DIMDLI
+  scale: number; // DIMSCALE
+  textStyle: string;
+};
+
 /** Drawing units: imperial drawings are in inches and read as feet and inches; metric ones in millimetres. */
 export type Units = "architectural" | "mm";
 
@@ -60,6 +124,12 @@ export type DrawingData = {
   layers: Layer[];
   currentLayer: string;
   entities: Entity[];
+  textStyles?: TextStyle[];
+  dimStyles?: DimStyle[];
+  currentTextStyle?: string;
+  currentDimStyle?: string;
+  /** The annotation scale (as a factor: 48 for 1/4" = 1'-0"), for the size of new text, dimensions and hatches. */
+  annoScale?: number;
   /** Where the drawing was last looked at. */
   view?: { cx: number; cy: number; scale: number };
 };
@@ -73,7 +143,23 @@ export const ENTITY_NAMES: Record<EntityType, string> = {
   spline: "Spline",
   xline: "Xline",
   ray: "Ray",
+  text: "Text",
+  mtext: "MText",
+  dimension: "Dimension",
+  leader: "MultiLeader",
+  hatch: "Hatch",
 };
+
+/** AutoCAD's starting styles: Standard (imperial, architectural ticks) or ISO-25 (metric). */
+export function defaultStyles(units: Units): { textStyles: TextStyle[]; dimStyles: DimStyle[]; annoScale: number } {
+  const textStyles = [{ name: "Standard", font: "Arial", widthFactor: 1 }];
+  const annoScale = units === "mm" ? 50 : 48;
+  const dimStyles: DimStyle[] =
+    units === "mm"
+      ? [{ name: "ISO-25", textHeight: 2.5, arrowSize: 2.5, arrow: "closed", extOffset: 0.625, extBeyond: 1.25, textGap: 0.625, baselineSpacing: 3.75, scale: annoScale, textStyle: "Standard" }]
+      : [{ name: "Standard", textHeight: 3 / 32, arrowSize: 3 / 32, arrow: "tick", extOffset: 1 / 16, extBeyond: 1 / 8, textGap: 1 / 32, baselineSpacing: 3 / 8, scale: annoScale, textStyle: "Standard" }];
+  return { textStyles, dimStyles, annoScale };
+}
 
 export const newLayer = (name: string, color: number | string = 7): Layer => ({
   name,

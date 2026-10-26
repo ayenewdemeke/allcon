@@ -43,10 +43,7 @@ export function CommandLine({ editor, state }: { editor: Editor; state: Snapshot
                 key={s.name}
                 type="button"
                 className={cn("flex w-full items-baseline gap-2 px-2 py-1 text-left hover:bg-muted", i === 0 && "bg-muted/60")}
-                onClick={() => {
-                  editor.buffer = "";
-                  editor.runCommand(s.name);
-                }}
+                onClick={() => editor.runCommand(s.name)}
               >
                 <span className="font-mono font-semibold">{s.name}</span>
                 {s.aliases[0] && <span className="font-mono text-muted-foreground">({s.aliases.join(", ")})</span>}
@@ -86,11 +83,7 @@ export function CommandLine({ editor, state }: { editor: Editor; state: Snapshot
                             <button
                               type="button"
                               className="rounded bg-primary/10 px-0.5 text-primary hover:bg-primary/20"
-                              onClick={() => {
-                                if (!keyword) return;
-                                editor.buffer = keyword.key;
-                                editor.submit();
-                              }}
+                              onClick={() => keyword && editor.answer(keyword.key)}
                             >
                               {label}
                             </button>

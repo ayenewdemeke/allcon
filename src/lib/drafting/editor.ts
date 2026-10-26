@@ -1,4 +1,5 @@
 import { COMMANDS, findCommand, suggestCommands, type Command, type CommandInfo, type Prompt } from "./commands";
+import { TextEditCommand } from "./commands-annotate";
 import { DraftDocument, newId } from "./document";
 import { angleOf, crossesBox, dist, distanceTo, dot, grips, insideBox, moveGrip, polar, same, sub, type Box, type Grip } from "./geometry";
 import { DEFAULT_SNAPS, findSnap, type Snap, type SnapKind } from "./snaps";
@@ -22,7 +23,22 @@ export type Settings = {
 
 export const DEFAULT_SETTINGS: Settings = { grid: true, snap: false, ortho: false, polar: true, polarAngle: 90, osnap: true, snapKinds: DEFAULT_SNAPS, dynamic: true };
 
-export type Palette = "properties" | "layers";
+export type Palette = "properties" | "layers" | "styles";
+
+/** Text being typed in place over the drawing (TEXT, MTEXT, MLEADER, TEXTEDIT). */
+export type TextEditRequest = {
+  at: Vec;
+  height: number;
+  rotation: number;
+  /** Wrapping width (0: none). */
+  width: number;
+  value: string;
+  style: string;
+  multiline?: boolean;
+  /** The object whose text is being edited: its text is hidden under the editor, as in AutoCAD. */
+  editing?: string;
+  done: (text: string | null) => void;
+};
 export type HistoryLine = { text: string; kind: "command" | "input" | "info" | "error" };
 export type Window = { from: Vec; to: Vec; crossing: boolean };
 export type HotGrip = { grip: Grip; ids: string[] };
@@ -46,6 +62,7 @@ export type Snapshot = {
   canRedo: boolean;
   currentLayer: string;
   current: { color: ColorValue; lineweight: number };
+  textEdit: TextEditRequest | null;
 };
 
 export class Editor {
@@ -57,6 +74,19 @@ export class Editor {
   /** Properties new objects get (ByLayer unless set). */
   current: { color: ColorValue; lineweight: number } = { color: null, lineweight: LW_BYLAYER };
   ui: { openPalette: (p: Palette) => void } = { openPalette: () => {} };
+
+  /** Remembers (or forgets, with undefined) a value commands use, such as the hatch pattern. */
+  remember(key: string, value: number | string | boolean | undefined) {
+    if (value === undefined) delete this.memory[key];
+    else this.memory[key] = value;
+    this.emit();
+  }
+
+  /** Answers the current prompt as if typed (ribbon options such as Circle 2P). */
+  answer(text: string) {
+    this.buffer = text;
+    this.submit();
+  }
 
   /** Connects the editor to its screen's palettes. */
   setUi(ui: Editor["ui"]) {
@@ -71,6 +101,7 @@ export class Editor {
   windows: Box[] = [];
   /** The last point given, for "@" (AutoCAD's last point). */
   lastPoint: Vec | null = null;
+  textEdit: TextEditRequest | null = null;
   buffer = "";
   history: HistoryLine[] = [];
   private inputs: string[] = [];
@@ -141,6 +172,7 @@ export class Editor {
       canRedo: this.doc.canRedo,
       currentLayer: this.doc.currentLayer,
       current: this.current,
+      textEdit: this.textEdit,
     };
   }
 
@@ -487,16 +519,51 @@ export class Editor {
       this.print(`Unknown command "${name.toUpperCase()}". Press F1 for help.`, "error");
       return;
     }
+    this.startCommand(info.create(this), !["U", "UNDO", "REDO"].includes(info.name));
+  }
+
+  /** Starts a command (made by runCommand, or directly, as double-click does for TEXTEDIT). */
+  startCommand(command: Command, repeatable = true) {
     if (this.command) this.cancel(false);
     this.hotGrip = null;
     this.windowStart = null;
     this.window = null;
-    this.print(`Command: ${info.name}`, "command");
-    const command = info.create(this);
+    this.buffer = "";
+    this.print(`Command: ${command.name}`, "command");
     this.command = command;
-    if (!["U", "UNDO", "REDO"].includes(info.name)) this.lastCommand = info.name;
+    if (repeatable) this.lastCommand = command.name;
     command.start();
     this.afterInput();
+  }
+
+  // --- text typed in place ------------------------------------------------------------
+
+  openTextEditor(req: TextEditRequest) {
+    this.textEdit = req;
+    this.emit();
+  }
+
+  /** Done typing: the text (or null, abandoned) goes back to the command that asked. */
+  closeTextEditor(text: string | null) {
+    const req = this.textEdit;
+    this.textEdit = null;
+    req?.done(text);
+    this.afterInput();
+  }
+
+  /** Double-click: edit text in place, or open Properties for anything else (as AutoCAD). */
+  doubleClick(screen: Vec) {
+    if (this.command || this.hotGrip || this.textEdit) return;
+    const e = this.pick(this.toWorld(screen));
+    if (!e) return;
+    if (e.type === "text" || e.type === "mtext" || e.type === "dimension" || e.type === "leader") {
+      this.selection.clear();
+      this.startCommand(new TextEditCommand(this, e), false);
+      return;
+    }
+    this.selection = new Set([e.id]);
+    this.ui.openPalette("properties");
+    this.emit();
   }
 
   /** The running command is done: its changes become one undo step. */
@@ -513,6 +580,7 @@ export class Editor {
   }
 
   cancel(echo = true) {
+    if (this.textEdit) return this.closeTextEditor(null);
     if (this.hotGrip) {
       this.hotGrip = null;
     } else if (this.command) {
@@ -605,7 +673,10 @@ export class Editor {
         this.submit();
         return true;
       case " ":
-        this.submit();
+        if (this.currentPrompt()?.spaces) {
+          this.buffer += " ";
+          this.emit();
+        } else this.submit();
         return true;
       case "Backspace":
         this.buffer = this.buffer.slice(0, -1);

@@ -1,16 +1,21 @@
 import RBush from "rbush";
-import { bounds, emptyBox, type Box } from "./geometry";
-import type { DrawingData, Entity, Layer, Units } from "./types";
+import { bounds, emptyBox, isAnnotation, type Box } from "./geometry";
+import { applyStyles } from "./graphics";
+import { defaultStyles, type DimStyle, type DrawingData, type Entity, type Layer, type TextStyle, type Units } from "./types";
 
 // The open drawing: its entities and layers, a spatial index for picking and snapping, and
 // undo. Every change happens inside a transaction (one command is one undo step, as in
 // AutoCAD), and listeners hear about each one.
 
 type Item = Box & { id: string };
+export type Setting = "currentTextStyle" | "currentDimStyle" | "annoScale";
 type Change =
   | { kind: "entity"; before: Entity | null; after: Entity | null }
   | { kind: "layer"; before: Layer | null; after: Layer | null }
-  | { kind: "current"; before: string; after: string };
+  | { kind: "current"; before: string; after: string }
+  | { kind: "textStyle"; before: TextStyle | null; after: TextStyle | null }
+  | { kind: "dimStyle"; before: DimStyle | null; after: DimStyle | null }
+  | { kind: "setting"; key: Setting; before: string | number; after: string | number };
 type Transaction = { label: string; changes: Change[] };
 
 export const newId = () => crypto.randomUUID().replace(/-/g, "").slice(0, 16);
@@ -20,6 +25,12 @@ export class DraftDocument {
   layers = new Map<string, Layer>();
   entities = new Map<string, Entity>();
   currentLayer: string;
+  textStyles = new Map<string, TextStyle>();
+  dimStyles = new Map<string, DimStyle>();
+  currentTextStyle: string;
+  currentDimStyle: string;
+  /** The annotation scale factor (48 for 1/4" = 1'-0", 50 for 1:50): new text, dimensions and hatches are sized for it. */
+  annoScale: number;
   /** Bumped on every change; the renderer redraws when it moves. */
   version = 0;
 
@@ -35,7 +46,19 @@ export class DraftDocument {
     for (const layer of data.layers) this.layers.set(layer.name, layer);
     if (!this.layers.has("0")) this.layers.set("0", { name: "0", color: 7, lineweight: -3, linetype: "Continuous", on: true, frozen: false, locked: false });
     this.currentLayer = this.layers.has(data.currentLayer) ? data.currentLayer : "0";
+    const defaults = defaultStyles(data.units);
+    for (const t of data.textStyles?.length ? data.textStyles : defaults.textStyles) this.textStyles.set(t.name, t);
+    for (const d of data.dimStyles?.length ? data.dimStyles : defaults.dimStyles) this.dimStyles.set(d.name, d);
+    this.currentTextStyle = data.currentTextStyle && this.textStyles.has(data.currentTextStyle) ? data.currentTextStyle : this.textStyles.keys().next().value!;
+    this.currentDimStyle = data.currentDimStyle && this.dimStyles.has(data.currentDimStyle) ? data.currentDimStyle : this.dimStyles.keys().next().value!;
+    this.annoScale = data.annoScale ?? defaults.annoScale;
+    this.syncStyles();
     for (const e of data.entities) this.place(e);
+  }
+
+  /** Annotations are drawn with these styles. */
+  private syncStyles() {
+    applyStyles({ units: this.units, text: this.textStyles, dim: this.dimStyles });
   }
 
   toData(view?: DrawingData["view"]): DrawingData {
@@ -46,6 +69,11 @@ export class DraftDocument {
       layers: [...this.layers.values()],
       currentLayer: this.currentLayer,
       entities: [...this.entities.values()],
+      textStyles: [...this.textStyles.values()],
+      dimStyles: [...this.dimStyles.values()],
+      currentTextStyle: this.currentTextStyle,
+      currentDimStyle: this.currentDimStyle,
+      annoScale: this.annoScale,
       ...(view ? { view } : {}),
     };
   }
@@ -165,6 +193,17 @@ export class DraftDocument {
       const gone = (backwards ? change.after : change.before) ?? layer;
       this.layers.delete(gone!.name);
       if (layer) this.layers.set(layer.name, layer);
+    } else if (change.kind === "textStyle" || change.kind === "dimStyle") {
+      const table = change.kind === "textStyle" ? this.textStyles : this.dimStyles;
+      const style = target as TextStyle | DimStyle | null;
+      const gone = (backwards ? change.after : change.before) ?? style;
+      table.delete(gone!.name);
+      if (style) (table as Map<string, typeof style>).set(style.name, style);
+      this.syncStyles();
+      // Annotations drawn with the style change size: re-index them.
+      for (const e of this.entities.values()) if (isAnnotation(e)) this.place(e);
+    } else if (change.kind === "setting") {
+      (this as unknown as Record<Setting, string | number>)[change.key] = target as string | number;
     } else {
       this.currentLayer = target as string;
     }
@@ -244,6 +283,18 @@ export class DraftDocument {
     for (const e of this.entities.values()) if (e.layer === name) return false;
     this.record({ kind: "layer", before: layer, after: null });
     return true;
+  }
+
+  setTextStyle(style: TextStyle) {
+    this.record({ kind: "textStyle", before: this.textStyles.get(style.name) ?? null, after: style });
+  }
+
+  setDimStyle(style: DimStyle) {
+    this.record({ kind: "dimStyle", before: this.dimStyles.get(style.name) ?? null, after: style });
+  }
+
+  setSetting(key: Setting, value: string | number) {
+    if (this[key] !== value) this.record({ kind: "setting", key, before: this[key], after: value });
   }
 
   setCurrentLayer(name: string) {

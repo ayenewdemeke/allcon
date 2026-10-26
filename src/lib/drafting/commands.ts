@@ -21,6 +21,21 @@ import {
   StretchCommand,
   TrimCommand,
 } from "./commands-modify";
+import {
+  DimAlignedCommand,
+  DimAngularCommand,
+  DimBaselineCommand,
+  DimCommandSmart,
+  DimContinueCommand,
+  DimDiameterCommand,
+  DimLinearCommand,
+  DimRadialCommand,
+  HatchCommand,
+  MLeaderCommand,
+  MTextCommand,
+  TextCommand,
+  TextEditCommand,
+} from "./commands-annotate";
 import type { Editor } from "./editor";
 import type { Vec } from "./types";
 
@@ -113,6 +128,22 @@ export const COMMANDS: CommandInfo[] = [
   command("JOIN", ["J"], "Joins objects end to end into a single object", (ed) => new JoinCommand(ed)),
   command("EXPLODE", ["X"], "Breaks a polyline into its segments", (ed) => new ExplodeCommand(ed)),
   command("MATCHPROP", ["MA"], "Applies the properties of a selected object to other objects", (ed) => new MatchpropCommand(ed)),
+  // Annotate
+  command("TEXT", ["DT", "DTEXT"], "Creates single-line text", (ed) => new TextCommand(ed)),
+  command("MTEXT", ["T", "MT"], "Creates a multiline text object", (ed) => new MTextCommand(ed)),
+  command("TEXTEDIT", ["ED", "DDEDIT"], "Edits text, a dimension's text, or a leader's text", (ed) => new TextEditCommand(ed)),
+  command("DIM", [], "Creates dimensions for the objects you pick", (ed) => new DimCommandSmart(ed)),
+  command("DIMLINEAR", ["DLI"], "Creates a horizontal or vertical linear dimension", (ed) => new DimLinearCommand(ed)),
+  command("DIMALIGNED", ["DAL"], "Creates an aligned linear dimension", (ed) => new DimAlignedCommand(ed)),
+  command("DIMANGULAR", ["DAN"], "Creates an angular dimension", (ed) => new DimAngularCommand(ed)),
+  command("DIMRADIUS", ["DRA"], "Creates a radius dimension for a circle or an arc", (ed) => new DimRadialCommand(ed)),
+  command("DIMDIAMETER", ["DDI"], "Creates a diameter dimension for a circle or an arc", (ed) => new DimDiameterCommand(ed)),
+  command("DIMCONTINUE", ["DCO"], "Creates a dimension that starts from an extension line of a previous dimension", (ed) => new DimContinueCommand(ed)),
+  command("DIMBASELINE", ["DBA"], "Creates a dimension from the baseline of the previous dimension", (ed) => new DimBaselineCommand(ed)),
+  command("MLEADER", ["MLD", "LEADER", "LE"], "Creates a multileader", (ed) => new MLeaderCommand(ed)),
+  command("HATCH", ["H", "BH"], "Fills an enclosed area or selected objects with a hatch pattern or fill", (ed) => new HatchCommand(ed)),
+  command("STYLE", ["ST"], "Creates, modifies, or specifies text styles", (ed) => new ImmediateCommand(ed, "STYLE", (e) => e.ui.openPalette("styles"))),
+  command("DIMSTYLE", ["D", "DST"], "Creates and modifies dimension styles", (ed) => new ImmediateCommand(ed, "DIMSTYLE", (e) => e.ui.openPalette("styles"))),
   // View and tools
   command("ZOOM", ["Z"], "Increases or decreases the magnification of the view", (ed) => new ZoomCommand(ed)),
   command("PAN", ["P"], "Moves the view", (ed) => new PanCommand(ed)),

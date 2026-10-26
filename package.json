@@ -38,6 +38,7 @@
     "class-variance-authority": "^0.7.1",
     "cn": "^0.3.2",
     "dotenv": "^18.0.2",
+    "earcut": "^3.2.4",
     "exceljs": "^4.4.0",
     "lucide-react": "^1.47.0",
     "next": "16.3.5",
@@ -59,6 +60,7 @@
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
+    "@types/earcut": "^3.0.0",
     "@types/forge-viewer": "^7.99.3",
     "@types/node": "^24.13.6",
     "@types/papaparse": "^5.5.2",

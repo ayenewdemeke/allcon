@@ -16,6 +16,8 @@ export type Prompt = {
   picking?: boolean;
   /** The default Enter takes, shown as <...>. */
   enterLabel?: string;
+  /** Text is typed here, so Space types a space instead of acting as Enter. */
+  spaces?: boolean;
 };
 
 export abstract class Command {

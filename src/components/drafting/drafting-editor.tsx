@@ -8,9 +8,11 @@ import { emptyDrawing, type DrawingData, type Units } from "@/lib/drafting/types
 import { cn } from "@/lib/utils";
 import { CommandLine } from "./command-line";
 import { DraftingCanvas } from "./drafting-canvas";
-import { LayerManager, PropertiesPalette } from "./palettes";
+import { LayerManager, PropertiesPalette, StylesPalette } from "./palettes";
 import { Ribbon } from "./ribbon";
 import { StatusBar } from "./status-bar";
+import { TextEditor } from "./text-editor";
+import { displayColor } from "@/lib/drafting/aci";
 
 // Drafting: a 2D CAD editor that works the way AutoCAD does. This component loads the drawing,
 // lays out the ribbon, drawing area, command line, palettes and status bar, routes the keyboard
@@ -81,12 +83,30 @@ export function DraftingEditor({ drawing, units, backHref }: { drawing: { id: st
   return <Workspace editor={opened.editor} drawing={drawing} backHref={backHref} hadView={opened.hadView} />;
 }
 
+/** The save state, small at the end of the ribbon's tab row (Ctrl+S saves now). */
+function SaveStatus({ save, onRetry }: { save: SaveState; onRetry: () => void }) {
+  if (save === "conflict")
+    return <span className="text-xs text-destructive">Saved elsewhere meanwhile: reopen the drawing</span>;
+  if (save === "error")
+    return (
+      <button type="button" onClick={onRetry} className="flex items-center gap-1 text-xs text-destructive hover:underline" title="Retry saving">
+        <AlertCircle className="size-3.5" /> Not saved
+      </button>
+    );
+  const title = save === "saving" ? "Saving…" : save === "saved" ? "All changes saved" : "Unsaved changes";
+  return (
+    <span className="flex items-center text-muted-foreground" title={`${title} (Ctrl+S saves now)`} aria-label={title}>
+      {save === "saving" ? <Loader2 className="size-3.5 animate-spin" /> : save === "saved" ? <Check className="size-3.5" /> : <Cloud className="size-3.5" />}
+    </span>
+  );
+}
+
 function Workspace({ editor, drawing, backHref, hadView }: { editor: Editor; drawing: { id: string; name: string; revision: number }; backHref: string; hadView: boolean }) {
   const state = useSyncExternalStore(editor.subscribe, editor.getSnapshot, editor.getSnapshot);
   // The theme is a per-person preference: light unless they chose dark. (The workspace only
   // renders in the browser, after the drawing loads, so storage is there to read.)
   const [dark, setDark] = useState(() => stored(THEME_KEY, { dark: false }).dark);
-  const [palettes, setPalettes] = useState({ properties: false, layers: false });
+  const [palettes, setPalettes] = useState({ properties: false, layers: false, styles: false });
   const [save, setSave] = useState<SaveState>("saved");
   const chooseTheme = (d: boolean) => {
     setDark(d);
@@ -95,7 +115,7 @@ function Workspace({ editor, drawing, backHref, hadView }: { editor: Editor; dra
     } catch {}
   };
 
-  const togglePalette = useCallback((p: "properties" | "layers") => setPalettes((s) => ({ ...s, [p]: !s[p] })), []);
+  const togglePalette = useCallback((p: "properties" | "layers" | "styles") => setPalettes((s) => ({ ...s, [p]: !s[p] })), []);
   useEffect(() => {
     editor.setUi({ openPalette: (p) => setPalettes((s) => ({ ...s, [p]: true })) });
   }, [editor]);
@@ -189,55 +209,51 @@ function Workspace({ editor, drawing, backHref, hadView }: { editor: Editor; dra
     else editor.home();
   }, [editor, hadView]);
 
-  const showPalettes = palettes.properties || palettes.layers;
+  const showPalettes = palettes.properties || palettes.layers || palettes.styles;
 
   return (
     <div data-drafting-root className={cn("relative flex h-svh min-h-[32rem] flex-col bg-background text-foreground", dark && "dark")}>
-      <div className="flex h-9 items-center gap-2 border-b px-2">
-        <LinkButton href={backHref} variant="ghost" size="icon-sm" aria-label="Back to drawings">
-          <ArrowLeft />
-        </LinkButton>
-        <span className="truncate text-sm font-semibold">{drawing.name}</span>
-        <span className="flex items-center gap-1 text-xs text-muted-foreground" title="Drawings save as you work (Ctrl+S saves now)">
-          {save === "saving" ? (
-            <>
-              <Loader2 className="size-3.5 animate-spin" /> Saving…
-            </>
-          ) : save === "saved" ? (
-            <>
-              <Check className="size-3.5" /> Saved
-            </>
-          ) : save === "unsaved" ? (
-            <>
-              <Cloud className="size-3.5" /> Unsaved changes
-            </>
-          ) : save === "conflict" ? (
-            <span className="text-destructive">Saved elsewhere meanwhile: reopen the drawing to continue</span>
-          ) : (
-            <button type="button" onClick={() => void saveNow()} className="text-destructive underline">
-              Couldn&apos;t save. Retry
+      <Ribbon
+        editor={editor}
+        state={state}
+        dark={dark}
+        onTheme={chooseTheme}
+        palettes={palettes}
+        onPalette={togglePalette}
+        quickAccess={
+          <>
+            <LinkButton href={backHref} variant="ghost" size="icon-xs" aria-label="Back to drawings" title="Back to drawings">
+              <ArrowLeft />
+            </LinkButton>
+            <span className="mx-0.5 h-4 w-px bg-border" />
+            <button type="button" onClick={() => editor.undo()} disabled={!state.canUndo} className="rounded p-1 hover:bg-accent disabled:opacity-40" title="Undo (Ctrl+Z)" aria-label="Undo">
+              <Undo2 className="size-3.5" />
             </button>
-          )}
-        </span>
-        <div className="ml-auto flex items-center gap-0.5">
-          <button type="button" onClick={() => editor.undo()} disabled={!state.canUndo} className="rounded p-1 hover:bg-accent disabled:opacity-40" title="Undo (Ctrl+Z)" aria-label="Undo">
-            <Undo2 className="size-4" />
-          </button>
-          <button type="button" onClick={() => editor.redo()} disabled={!state.canRedo} className="rounded p-1 hover:bg-accent disabled:opacity-40" title="Redo (Ctrl+Y)" aria-label="Redo">
-            <Redo2 className="size-4" />
-          </button>
-        </div>
-      </div>
-      <Ribbon editor={editor} state={state} dark={dark} onTheme={chooseTheme} palettes={palettes} onPalette={togglePalette} />
+            <button type="button" onClick={() => editor.redo()} disabled={!state.canRedo} className="rounded p-1 hover:bg-accent disabled:opacity-40" title="Redo (Ctrl+Y)" aria-label="Redo">
+              <Redo2 className="size-3.5" />
+            </button>
+          </>
+        }
+        status={<SaveStatus save={save} onRetry={() => void saveNow()} />}
+      />
       <div className="flex min-h-0 flex-1">
         <div className="relative min-w-0 flex-1">
           <DraftingCanvas editor={editor} dark={dark} onReady={onReady} />
+          {state.textEdit && (
+            <TextEditor
+              key={`${state.textEdit.at.x},${state.textEdit.at.y}`}
+              editor={editor}
+              request={state.textEdit}
+              color={displayColor(editor.doc.layers.get(editor.doc.currentLayer)?.color ?? 7, dark)}
+            />
+          )}
           <CommandLine editor={editor} state={state} />
         </div>
         {showPalettes && (
           <aside className="flex w-80 shrink-0 flex-col border-l bg-background">
             {palettes.properties && <PropertiesPalette editor={editor} state={state} dark={dark} onClose={() => togglePalette("properties")} />}
             {palettes.layers && <LayerManager editor={editor} state={state} dark={dark} onClose={() => togglePalette("layers")} />}
+            {palettes.styles && <StylesPalette editor={editor} state={state} onClose={() => togglePalette("styles")} />}
           </aside>
         )}
       </div>

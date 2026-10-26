@@ -57,8 +57,8 @@ export function domain(e: Entity): Domain | null {
       return { lo: -FAR, hi: FAR, periodic: false };
     case "ray":
       return { lo: 0, hi: FAR, periodic: false };
-    case "spline":
-      return null;
+    default:
+      return null; // splines and annotations can't be cut
   }
 }
 
@@ -84,8 +84,8 @@ export function pointAt(e: Entity, s: number): Vec {
     case "xline":
     case "ray":
       return add(e.base, mul(e.dir, s));
-    case "spline":
-      return e.fit[0];
+    default:
+      return { x: 0, y: 0 };
   }
 }
 
@@ -138,7 +138,7 @@ export function paramOf(e: Entity, p: Vec): number {
       return Math.max(-FAR, Math.min(FAR, dot(sub(p, e.base), e.dir)));
     case "ray":
       return Math.max(0, Math.min(FAR, dot(sub(p, e.base), e.dir)));
-    case "spline":
+    default:
       return 0;
   }
 }
@@ -178,7 +178,7 @@ export function piece(e: Entity, from: number, to: number): Entity | null {
     }
     case "ray":
       return to >= FAR - 1 ? { ...e, base: pointAt(e, from) } : line(e, pointAt(e, from), pointAt(e, to));
-    case "spline":
+    default:
       return null;
   }
 }
@@ -473,6 +473,8 @@ export function offset(e: Entity, d: number, side: Vec): Entity | null {
       if (!closed && !same(fit[fit.length - 1], shifted[shifted.length - 1])) fit.push(shifted[shifted.length - 1]);
       return { id: e.id, layer: e.layer, color: e.color, lineweight: e.lineweight, linetype: e.linetype, type: "spline", fit, closed } satisfies SplineEntity;
     }
+    default:
+      return null;
   }
 }
 
@@ -605,5 +607,15 @@ export function stretch(e: Entity, boxes: Box[], d: Vec): Entity {
     case "xline":
     case "ray":
       return inAny(e.base, boxes) ? translate(e, d) : e;
+    case "text":
+    case "mtext":
+      return inAny(e.at, boxes) ? translate(e, d) : e;
+    case "dimension":
+      // Dimensions stretch with what they measure, as in AutoCAD.
+      return { ...e, p1: move(e.p1), p2: move(e.p2), loc: move(e.loc), center: move(e.center) };
+    case "leader":
+      return { ...e, points: e.points.map(move) };
+    case "hatch":
+      return { ...e, loops: e.loops.map((loop) => loop.map(move)) };
   }
 }

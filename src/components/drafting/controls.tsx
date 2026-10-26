@@ -252,3 +252,46 @@ export const StretchIcon = svg(
     <path d="m15 12h6m-2-2 2 2-2 2" />
   </>,
 );
+export const DimLinearIcon = svg(
+  <>
+    <path d="M4 6v12M20 6v12" />
+    <path d="M4 10h16" />
+    <path d="m4 10 3-2v4zM20 10l-3-2v4z" fill="currentColor" />
+    <path d="M9 16h6" strokeWidth={1.2} />
+  </>,
+);
+export const LeaderIcon = svg(
+  <>
+    <path d="m4 20 8-8h8" />
+    <path d="m4 20 1-4 3 3z" fill="currentColor" />
+    <path d="M13 8h7M13 5h5" strokeWidth={1.2} />
+  </>,
+);
+export const HatchIcon = svg(
+  <>
+    <rect x="3.5" y="4" width="17" height="16" />
+    <path d="M3.5 12 11.5 4M3.5 20 19.5 4M11.5 20l9-9" strokeWidth={1.1} />
+  </>,
+);
+
+/** A small picture of a hatch pattern, for the pattern gallery. */
+export function PatternSwatch({ name, className }: { name: string; className?: string }) {
+  const lines: React.ReactNode[] = [];
+  const diag = (offset: number, dash?: string) => lines.push(<path key={`d${offset}${dash}`} d={`M${offset - 24} 24 L${offset} 0`} strokeDasharray={dash} />);
+  if (name === "SOLID") return <svg viewBox="0 0 24 24" className={className}><rect width="24" height="24" fill="currentColor" /></svg>;
+  if (name === "ANSI31" || name === "ANSI37") for (let o = 0; o <= 48; o += 5) diag(o);
+  if (name === "ANSI37") for (let o = -24; o <= 24; o += 5) lines.push(<path key={`c${o}`} d={`M${o} 0 L${o + 24} 24`} />);
+  if (name === "ANSI32") for (let o = 0; o <= 48; o += 8) { diag(o); diag(o + 2); }
+  if (name === "ANSI33") for (let o = 0; o <= 48; o += 7) { diag(o); diag(o + 3, "3 2"); }
+  if (name === "LINE" || name === "NET" || name === "DASH") for (let y = 2; y < 24; y += 4) lines.push(<path key={`h${y}`} d={`M0 ${y}H24`} strokeDasharray={name === "DASH" ? "3 3" : undefined} />);
+  if (name === "NET") for (let x = 2; x < 24; x += 4) lines.push(<path key={`v${x}`} d={`M${x} 0V24`} />);
+  if (name === "DOTS") for (let y = 2; y < 24; y += 4) for (let x = 2; x < 24; x += 4) lines.push(<circle key={`${x},${y}`} cx={x} cy={y} r={0.7} fill="currentColor" stroke="none" />);
+  return (
+    <svg viewBox="0 0 24 24" className={className} fill="none" stroke="currentColor" strokeWidth={0.8}>
+      <clipPath id={`clip-${name}`}>
+        <rect width="24" height="24" />
+      </clipPath>
+      <g clipPath={`url(#clip-${name})`}>{lines}</g>
+    </svg>
+  );
+}
