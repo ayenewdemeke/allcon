@@ -65,6 +65,12 @@ export class Editor {
 
   command: Command | null = null;
   lastCommand: string | null = null;
+  /** Values commands remember between uses in a session (offset distance, fillet radius...). */
+  memory: Record<string, number | string | boolean> = {};
+  /** The windows the current selection was made with (STRETCH stretches what's inside them). */
+  windows: Box[] = [];
+  /** The last point given, for "@" (AutoCAD's last point). */
+  lastPoint: Vec | null = null;
   buffer = "";
   history: HistoryLine[] = [];
   private inputs: string[] = [];
@@ -227,7 +233,8 @@ export class Editor {
   get wantsPoint() {
     if (this.hotGrip) return true;
     if (!this.command || this.command.pans) return false;
-    return !this.command.prompt().selecting;
+    const prompt = this.command.prompt();
+    return !prompt.selecting && !prompt.picking;
   }
 
   get base(): Vec | null {
@@ -357,6 +364,13 @@ export class Editor {
       if (!dragged) this.givePoint(this.point);
       return;
     }
+    if (this.command?.prompt().picking) {
+      if (!dragged) {
+        this.command.pick?.(this.pick(this.cursor), this.cursor, shift);
+        this.afterInput();
+      }
+      return;
+    }
     if (this.windowStart) {
       if (dragged || dist(this.toScreen(this.windowStart), screen) > DRAG) this.finishWindow(this.cursor, shift);
       return;
@@ -395,6 +409,8 @@ export class Editor {
     this.windowStart = null;
     this.window = null;
     const box = { minX: Math.min(w.from.x, w.to.x), minY: Math.min(w.from.y, w.to.y), maxX: Math.max(w.from.x, w.to.x), maxY: Math.max(w.from.y, w.to.y) };
+    if (!this.selection.size) this.windows = [];
+    this.windows.push(box);
     for (const e of this.doc.query(box)) {
       if (!this.doc.isEditable(e)) continue;
       if (w.crossing ? crossesBox(e, box) : insideBox(e, box)) {
@@ -446,6 +462,7 @@ export class Editor {
   /** What a click or typed point does. */
   private givePoint(p: Vec) {
     this.dynLength = null;
+    this.lastPoint = p;
     if (this.hotGrip) {
       const moved = this.stretchTo(p);
       this.doc.begin("GRIP_STRETCH");
@@ -487,7 +504,10 @@ export class Editor {
     const command = this.command;
     this.command = null;
     this.doc.commit();
-    if (command && "clearsSelection" in command) this.selection.clear();
+    if (command && "clearsSelection" in command) {
+      this.selection.clear();
+      this.windows = [];
+    }
     this.dynLength = null;
     this.afterInput();
   }
@@ -550,6 +570,7 @@ export class Editor {
       if (angle === null) return this.print("Requires a valid angle.", "error");
       return this.givePoint(polar(prompt.base, angle, this.dynLength));
     }
+    if (text === "@" && (prompt.base ?? this.lastPoint)) return this.givePoint((prompt.base ?? this.lastPoint)!);
     if (this.command?.value?.(text)) return this.afterInput();
     const input = parsePointInput(text, this.doc.units, prompt.base ?? null, this.settings.dynamic);
     if (input?.kind === "point") return this.givePoint(input.point);
@@ -647,6 +668,7 @@ export class Editor {
 
   clearSelection() {
     this.selection.clear();
+    this.windows = [];
     this.emit();
   }
 

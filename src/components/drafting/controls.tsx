@@ -204,3 +204,51 @@ export const RectangleIcon = svg(
     <rect x="19" y="16.5" width="3" height="3" fill="currentColor" stroke="none" />
   </>,
 );
+export const EllipseIcon = svg(
+  <>
+    <ellipse cx="12" cy="12" rx="9" ry="5.5" />
+    <circle cx="12" cy="12" r="1.2" fill="currentColor" />
+  </>,
+);
+export const XlineIcon = svg(
+  <>
+    <path d="M2 20 22 4" strokeDasharray="0" />
+    <circle cx="12" cy="12" r="1.4" fill="currentColor" />
+  </>,
+);
+export const RayIcon = svg(
+  <>
+    <path d="M5 18 22 4" />
+    <circle cx="5" cy="18" r="1.6" fill="currentColor" />
+  </>,
+);
+export const OffsetIcon = svg(
+  <>
+    <path d="M3 17c4-8 10-11 18-11" />
+    <path d="M3 21c4-7 10-10 18-10" strokeDasharray="2.5 2" />
+  </>,
+);
+export const FilletIcon = svg(
+  <>
+    <path d="M4 20V11a7 7 0 0 1 7-7h9" />
+  </>,
+);
+export const ChamferIcon = svg(
+  <>
+    <path d="M4 20v-9l7-7h9" />
+  </>,
+);
+export const MirrorIcon = svg(
+  <>
+    <path d="M12 3v18" strokeDasharray="2 2" />
+    <path d="M9 7 4 17h5z" />
+    <path d="M15 7l5 10h-5z" fill="currentColor" fillOpacity={0.15} />
+  </>,
+);
+export const StretchIcon = svg(
+  <>
+    <path d="M3 7h9v10H3z" />
+    <path d="M12 7l6 0M12 17h6M18 7v10" strokeDasharray="2 2" />
+    <path d="m15 12h6m-2-2 2 2-2 2" />
+  </>,
+);

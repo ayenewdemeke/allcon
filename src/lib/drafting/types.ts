@@ -27,7 +27,17 @@ export type CircleEntity = EntityBase & { type: "circle"; center: Vec; radius: n
 /** An arc, counter-clockwise from `start` to `end` (radians). */
 export type ArcEntity = EntityBase & { type: "arc"; center: Vec; radius: number; start: number; end: number };
 
-export type Entity = LineEntity | PolylineEntity | CircleEntity | ArcEntity;
+/** An ellipse (or elliptical arc): `major` is the major axis endpoint relative to the centre,
+ * `ratio` the minor/major ratio, and `start`/`end` parameters (0 to 2π for a whole ellipse). */
+export type EllipseEntity = EntityBase & { type: "ellipse"; center: Vec; major: Vec; ratio: number; start: number; end: number };
+/** A spline through fit points. */
+export type SplineEntity = EntityBase & { type: "spline"; fit: Vec[]; closed: boolean };
+/** A construction line, infinite both ways, through `base` along unit `dir`. */
+export type XlineEntity = EntityBase & { type: "xline"; base: Vec; dir: Vec };
+/** A ray, from `base` infinitely along unit `dir`. */
+export type RayEntity = EntityBase & { type: "ray"; base: Vec; dir: Vec };
+
+export type Entity = LineEntity | PolylineEntity | CircleEntity | ArcEntity | EllipseEntity | SplineEntity | XlineEntity | RayEntity;
 export type EntityType = Entity["type"];
 
 export type Layer = {
@@ -54,7 +64,16 @@ export type DrawingData = {
   view?: { cx: number; cy: number; scale: number };
 };
 
-export const ENTITY_NAMES: Record<EntityType, string> = { line: "Line", polyline: "Polyline", circle: "Circle", arc: "Arc" };
+export const ENTITY_NAMES: Record<EntityType, string> = {
+  line: "Line",
+  polyline: "Polyline",
+  circle: "Circle",
+  arc: "Arc",
+  ellipse: "Ellipse",
+  spline: "Spline",
+  xline: "Xline",
+  ray: "Ray",
+};
 
 export const newLayer = (name: string, color: number | string = 7): Layer => ({
   name,

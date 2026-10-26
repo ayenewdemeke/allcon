@@ -89,7 +89,9 @@ export class DraftDocument {
   extents(onlyVisible = true): Box {
     const box = emptyBox();
     for (const item of this.items.values()) {
-      if (onlyVisible && !this.isVisible(this.entities.get(item.id)!)) continue;
+      const e = this.entities.get(item.id)!;
+      if (onlyVisible && !this.isVisible(e)) continue;
+      if (e.type === "xline" || e.type === "ray") continue; // infinite: not part of the extents, as in AutoCAD
       box.minX = Math.min(box.minX, item.minX);
       box.minY = Math.min(box.minY, item.minY);
       box.maxX = Math.max(box.maxX, item.maxX);

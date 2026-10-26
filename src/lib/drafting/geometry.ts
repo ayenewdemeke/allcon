@@ -1,4 +1,4 @@
-import type { ArcEntity, Entity, Vec } from "./types";
+import type { ArcEntity, EllipseEntity, Entity, Vec } from "./types";
 
 // Plane geometry for drafting: entities as segments and arcs, their extents, distances,
 // intersections, and the grips that edit them.
@@ -17,6 +17,14 @@ export const mid = (a: Vec, b: Vec): Vec => ({ x: (a.x + b.x) / 2, y: (a.y + b.y
 export const angleOf = (from: Vec, to: Vec) => Math.atan2(to.y - from.y, to.x - from.x);
 export const polar = (p: Vec, angle: number, d: number): Vec => ({ x: p.x + d * Math.cos(angle), y: p.y + d * Math.sin(angle) });
 export const same = (a: Vec, b: Vec, tolerance = 1e-7) => dist(a, b) <= tolerance;
+export const perp = (a: Vec): Vec => ({ x: -a.y, y: a.x });
+export const unit = (a: Vec): Vec => {
+  const l = len(a);
+  return l < EPS ? { x: 1, y: 0 } : { x: a.x / l, y: a.y / l };
+};
+
+/** How far construction lines and rays reach when drawn and measured (they're infinite). */
+export const FAR = 1e7;
 
 export function normalizeAngle(a: number) {
   const r = a % TAU;
@@ -56,7 +64,57 @@ export function primitives(e: Entity): Primitive[] {
       return [{ kind: "arc", c: e.center, r: e.radius, start: 0, end: TAU, full: true }];
     case "arc":
       return [{ kind: "arc", c: e.center, r: e.radius, start: e.start, end: e.end, full: false }];
+    case "ellipse":
+    case "spline":
+      // Curves without exact intersection maths: their drawn segments stand in.
+      return tessellate(e).flatMap((line) => polylineSegments(line, false));
+    case "xline":
+      return [{ kind: "seg", a: add(e.base, mul(e.dir, -FAR)), b: add(e.base, mul(e.dir, FAR)) }];
+    case "ray":
+      return [{ kind: "seg", a: e.base, b: add(e.base, mul(e.dir, FAR)) }];
   }
+}
+
+// --- ellipses and splines ------------------------------------------------------------------
+
+export const ellipseMinor = (e: Pick<EllipseEntity, "major" | "ratio">) => mul(perp(e.major), e.ratio);
+export const isFullEllipse = (e: Pick<EllipseEntity, "start" | "end">) => sweepOf(e.start, e.end) >= TAU - 1e-9;
+
+export function ellipsePoint(e: Pick<EllipseEntity, "center" | "major" | "ratio">, t: number): Vec {
+  const minor = ellipseMinor(e);
+  return { x: e.center.x + e.major.x * Math.cos(t) + minor.x * Math.sin(t), y: e.center.y + e.major.y * Math.cos(t) + minor.y * Math.sin(t) };
+}
+
+/** The ellipse parameter for a direction from the centre (an angle measured from the major axis). */
+export function ellipseParamAt(e: Pick<EllipseEntity, "major" | "ratio">, angleFromMajor: number) {
+  return Math.atan2(Math.sin(angleFromMajor) / e.ratio, Math.cos(angleFromMajor));
+}
+
+/** A smooth curve through fit points (centripetal Catmull-Rom). */
+export function splinePoints(fit: Vec[], closed: boolean, perSegment = 16): Vec[] {
+  if (fit.length < 2) return fit.slice();
+  if (fit.length === 2 && !closed) return fit.slice();
+  const pts = closed ? [fit[fit.length - 1], ...fit, fit[0], fit[1]] : [add(fit[0], sub(fit[0], fit[1])), ...fit, add(fit[fit.length - 1], sub(fit[fit.length - 1], fit[fit.length - 2]))];
+  const out: Vec[] = [];
+  const count = closed ? fit.length : fit.length - 1;
+  for (let i = 0; i < count; i++) {
+    const [p0, p1, p2, p3] = [pts[i], pts[i + 1], pts[i + 2], pts[i + 3]];
+    const t1 = Math.sqrt(Math.max(dist(p0, p1), EPS));
+    const t2 = t1 + Math.sqrt(Math.max(dist(p1, p2), EPS));
+    const t3 = t2 + Math.sqrt(Math.max(dist(p2, p3), EPS));
+    for (let k = 0; k < perSegment; k++) {
+      const t = t1 + ((t2 - t1) * k) / perSegment;
+      const lerp = (a: Vec, b: Vec, ta: number, tb: number) => add(mul(a, (tb - t) / (tb - ta)), mul(b, (t - ta) / (tb - ta)));
+      const a1 = lerp(p0, p1, 0, t1);
+      const a2 = lerp(p1, p2, t1, t2);
+      const a3 = lerp(p2, p3, t2, t3);
+      const b1 = lerp(a1, a2, 0, t2);
+      const b2 = lerp(a2, a3, t1, t3);
+      out.push(lerp(b1, b2, t1, t2));
+    }
+  }
+  out.push(closed ? fit[0] : fit[fit.length - 1]);
+  return out;
 }
 
 export const arcStart = (e: { center: Vec; radius: number; start: number }) => polar(e.center, e.start, e.radius);
@@ -80,6 +138,16 @@ export function tessellate(e: Entity): Vec[][] {
       return [arcPoints(e.center, e.radius, 0, TAU)];
     case "arc":
       return [arcPoints(e.center, e.radius, e.start, sweepOf(e.start, e.end))];
+    case "ellipse": {
+      const sweep = sweepOf(e.start, e.end);
+      const n = Math.max(8, Math.ceil((128 * sweep) / TAU));
+      return [Array.from({ length: n + 1 }, (_, i) => ellipsePoint(e, e.start + (sweep * i) / n))];
+    }
+    case "spline":
+      return [splinePoints(e.fit, e.closed)];
+    case "xline":
+    case "ray":
+      return primitives(e).map((p) => [(p as Segment).a, (p as Segment).b]);
   }
 }
 
@@ -118,6 +186,12 @@ export function bounds(e: Entity): Box {
         const a = (q * Math.PI) / 2;
         if (angleInSweep(a, e.start, e.end)) extendBox(box, polar(e.center, a, e.radius));
       }
+      break;
+    case "ellipse":
+    case "spline":
+    case "xline":
+    case "ray":
+      for (const line of tessellate(e)) line.forEach((p) => extendBox(box, p));
       break;
   }
   return box;
@@ -258,7 +332,79 @@ export function translate<T extends Entity>(e: T, d: Vec): T {
       return { ...e, points: e.points.map((p) => add(p, d)) };
     case "circle":
     case "arc":
+    case "ellipse":
       return { ...e, center: add(e.center, d) };
+    case "spline":
+      return { ...e, fit: e.fit.map((p) => add(p, d)) };
+    case "xline":
+    case "ray":
+      return { ...e, base: add(e.base, d) };
+  }
+}
+
+// --- transforms ---------------------------------------------------------------------------
+
+/** A similarity transform (rotation, uniform scale, mirror, move): p → M·p + t. */
+export type Xform = { a: number; b: number; c: number; d: number; tx: number; ty: number };
+
+export const applyXf = (x: Xform, p: Vec): Vec => ({ x: x.a * p.x + x.b * p.y + x.tx, y: x.c * p.x + x.d * p.y + x.ty });
+const applyLinear = (x: Xform, v: Vec): Vec => ({ x: x.a * v.x + x.b * v.y, y: x.c * v.x + x.d * v.y });
+const scaleOf = (x: Xform) => Math.sqrt(Math.abs(x.a * x.d - x.b * x.c));
+const mirrors = (x: Xform) => x.a * x.d - x.b * x.c < 0;
+
+/** Rotation by `angle` (counter-clockwise) about `base`. */
+export function rotation(base: Vec, angle: number): Xform {
+  const c = Math.cos(angle);
+  const s = Math.sin(angle);
+  return { a: c, b: -s, c: s, d: c, tx: base.x - c * base.x + s * base.y, ty: base.y - s * base.x - c * base.y };
+}
+
+export function scaling(base: Vec, k: number): Xform {
+  return { a: k, b: 0, c: 0, d: k, tx: base.x * (1 - k), ty: base.y * (1 - k) };
+}
+
+/** Reflection across the line through `p` and `q`. */
+export function reflection(p: Vec, q: Vec): Xform {
+  const u = unit(sub(q, p));
+  const a = u.x * u.x - u.y * u.y;
+  const b = 2 * u.x * u.y;
+  return { a, b, c: b, d: -a, tx: p.x - a * p.x - b * p.y, ty: p.y - b * p.x + a * p.y };
+}
+
+export function transform<T extends Entity>(e: T, x: Xform): T {
+  const k = scaleOf(x);
+  const flip = mirrors(x);
+  const mapAngle = (angle: number) => {
+    const v = applyLinear(x, { x: Math.cos(angle), y: Math.sin(angle) });
+    return Math.atan2(v.y, v.x);
+  };
+  switch (e.type) {
+    case "line":
+      return { ...e, a: applyXf(x, e.a), b: applyXf(x, e.b) };
+    case "polyline":
+      return { ...e, points: e.points.map((p) => applyXf(x, p)), bulges: flip ? e.bulges.map((b) => -b) : e.bulges };
+    case "circle":
+      return { ...e, center: applyXf(x, e.center), radius: e.radius * k };
+    case "arc": {
+      const start = mapAngle(e.start);
+      const end = mapAngle(e.end);
+      return { ...e, center: applyXf(x, e.center), radius: e.radius * k, start: flip ? end : start, end: flip ? start : end };
+    }
+    case "ellipse": {
+      const full = isFullEllipse(e);
+      return {
+        ...e,
+        center: applyXf(x, e.center),
+        major: applyLinear(x, e.major),
+        start: full ? 0 : flip ? -e.end : e.start,
+        end: full ? TAU : flip ? -e.start : e.end,
+      };
+    }
+    case "spline":
+      return { ...e, fit: e.fit.map((p) => applyXf(x, p)) };
+    case "xline":
+    case "ray":
+      return { ...e, base: applyXf(x, e.base), dir: unit(applyLinear(x, e.dir)) };
   }
 }
 
@@ -292,6 +438,22 @@ export function grips(e: Entity): Grip[] {
         { point: arcMid(e), kind: "radius", index: 2 },
         { point: arcEnd(e), kind: "stretch", index: 3 },
       ];
+    case "ellipse": {
+      const minor = ellipseMinor(e);
+      return [
+        { point: e.center, kind: "move", index: 0 },
+        { point: add(e.center, e.major), kind: "radius", index: 1 },
+        { point: sub(e.center, e.major), kind: "radius", index: 2 },
+        { point: add(e.center, minor), kind: "radius", index: 3 },
+        { point: sub(e.center, minor), kind: "radius", index: 4 },
+      ];
+    }
+    case "spline":
+      return e.fit.map((p, i) => ({ point: p, kind: "stretch" as const, index: i }));
+    case "xline":
+      return [{ point: e.base, kind: "move", index: 0 }];
+    case "ray":
+      return [{ point: e.base, kind: "stretch", index: 0 }];
   }
 }
 
@@ -318,5 +480,24 @@ export function moveGrip<T extends Entity>(e: T, grip: Grip, to: Vec): T {
     case "arc":
       if (grip.kind === "radius") return { ...e, radius: Math.max(dist(e.center, to), EPS) };
       return grip.index === 1 ? { ...e, start: angleOf(e.center, to) } : { ...e, end: angleOf(e.center, to) };
+    case "ellipse": {
+      // A major axis end changes the major radius (and its direction); a minor end the ratio.
+      const majorLength = len(e.major);
+      if (grip.index <= 2) {
+        const r = Math.max(dist(e.center, to), EPS);
+        const v = mul(unit(sub(to, e.center)), grip.index === 1 ? r : -r);
+        return { ...e, major: v, ratio: Math.min((majorLength * e.ratio) / r, 1) };
+      }
+      return { ...e, ratio: Math.min(Math.max(dist(e.center, to) / majorLength, 1e-6), 1) };
+    }
+    case "spline": {
+      const fit = e.fit.slice();
+      fit[grip.index] = to;
+      return { ...e, fit };
+    }
+    case "xline":
+      return translate(e, d);
+    case "ray":
+      return { ...e, base: to };
   }
 }

@@ -1,10 +1,57 @@
 "use client";
 
 import { useState } from "react";
-import { Copy, Eraser, Hand, Layers, Maximize, Moon, Move, SlidersHorizontal, SquareDashed, SquareDashedMousePointer, Sun, Lightbulb, LightbulbOff, Lock, Snowflake } from "lucide-react";
+import {
+  ArrowRightToLine,
+  Bomb,
+  Combine,
+  Copy,
+  Eraser,
+  Hand,
+  Hexagon,
+  Layers,
+  LayoutGrid,
+  Lightbulb,
+  LightbulbOff,
+  Lock,
+  Maximize,
+  Moon,
+  Move,
+  Paintbrush,
+  RotateCw,
+  Scaling,
+  Scissors,
+  SlidersHorizontal,
+  Snowflake,
+  Spline,
+  SquareDashed,
+  SquareDashedMousePointer,
+  Sun,
+  Unlink,
+} from "lucide-react";
 import type { Editor, Snapshot } from "@/lib/drafting/editor";
 import { cn } from "@/lib/utils";
-import { ArcIcon, CircleIcon, ColorPicker, DropButton, LineIcon, LineweightPicker, lineweightName, Popover, PolylineIcon, RectangleIcon, Swatch } from "./controls";
+import {
+  ArcIcon,
+  ChamferIcon,
+  CircleIcon,
+  ColorPicker,
+  DropButton,
+  EllipseIcon,
+  FilletIcon,
+  LineIcon,
+  LineweightPicker,
+  lineweightName,
+  MirrorIcon,
+  OffsetIcon,
+  Popover,
+  PolylineIcon,
+  RayIcon,
+  RectangleIcon,
+  StretchIcon,
+  Swatch,
+  XlineIcon,
+} from "./controls";
 
 // The ribbon, laid out as AutoCAD's: tabs, then panels of tools with their names underneath.
 // Tools run the same commands as the command line.
@@ -60,6 +107,48 @@ function Small({ icon: Icon, label, title, onClick, active }: { icon: React.Comp
     >
       <Icon className="size-4" />
       {label}
+    </button>
+  );
+}
+
+/** A small tool with a menu of related ones (Trim/Extend, Fillet/Chamfer, Array types). */
+function SmallSplit({ icon, label, title, onClick, options }: { icon: React.ComponentType<{ className?: string }>; label: string; title: string; onClick: () => void; options: { label: string; run: () => void }[] }) {
+  return (
+    <div className="flex items-center">
+      <Small icon={icon} label={label} title={title} onClick={onClick} />
+      <Popover
+        trigger={(_, toggle) => (
+          <button type="button" onClick={toggle} className="h-6 rounded px-0.5 text-[10px] text-muted-foreground hover:bg-accent" aria-label={`${label} options`}>
+            ▾
+          </button>
+        )}
+      >
+        {(close) => (
+          <div className="w-40">
+            {options.map((o) => (
+              <button
+                key={o.label}
+                type="button"
+                className="block w-full rounded px-2 py-1 text-left text-xs hover:bg-muted"
+                onClick={() => {
+                  close();
+                  o.run();
+                }}
+              >
+                {o.label}
+              </button>
+            ))}
+          </div>
+        )}
+      </Popover>
+    </div>
+  );
+}
+
+function Icon({ icon: I, title, onClick }: { icon: React.ComponentType<{ className?: string }>; title: string; onClick: () => void }) {
+  return (
+    <button type="button" title={title} aria-label={title} onClick={onClick} className="flex size-6 items-center justify-center rounded hover:bg-accent">
+      <I className="size-4" />
     </button>
   );
 }
@@ -154,13 +243,62 @@ export function Ribbon({ editor, state, dark, onTheme, palettes, onPalette }: Pr
                   { label: "Center, Start, End", run: () => run(editor, "ARC", "C") },
                 ]}
               />
-              <Big icon={RectangleIcon} label="Rectangle" title="Rectangle (REC)" onClick={() => run(editor, "RECTANG")} />
+              <div className="grid grid-cols-2 gap-x-0.5 pt-0.5">
+                <Icon icon={RectangleIcon} title="Rectangle (REC)" onClick={() => run(editor, "RECTANG")} />
+                <Icon icon={Hexagon} title="Polygon (POL)" onClick={() => run(editor, "POLYGON")} />
+                <Icon icon={EllipseIcon} title="Ellipse (EL)" onClick={() => run(editor, "ELLIPSE")} />
+                <Icon icon={Spline} title="Spline (SPL)" onClick={() => run(editor, "SPLINE")} />
+                <Icon icon={XlineIcon} title="Construction line (XL)" onClick={() => run(editor, "XLINE")} />
+                <Icon icon={RayIcon} title="Ray" onClick={() => run(editor, "RAY")} />
+              </div>
             </Panel>
             <Panel title="Modify">
-              <div className="flex flex-col gap-0.5">
+              <div className="grid grid-cols-3 gap-x-1 gap-y-0.5">
                 <Small icon={Move} label="Move" title="Move (M)" onClick={() => run(editor, "MOVE")} />
+                <Small icon={RotateCw} label="Rotate" title="Rotate (RO)" onClick={() => run(editor, "ROTATE")} />
+                <SmallSplit
+                  icon={Scissors}
+                  label="Trim"
+                  title="Trim (TR)"
+                  onClick={() => run(editor, "TRIM")}
+                  options={[
+                    { label: "Trim", run: () => run(editor, "TRIM") },
+                    { label: "Extend", run: () => run(editor, "EXTEND") },
+                  ]}
+                />
                 <Small icon={Copy} label="Copy" title="Copy (CO)" onClick={() => run(editor, "COPY")} />
-                <Small icon={Eraser} label="Erase" title="Erase (E)" onClick={() => run(editor, "ERASE")} />
+                <Small icon={MirrorIcon} label="Mirror" title="Mirror (MI)" onClick={() => run(editor, "MIRROR")} />
+                <SmallSplit
+                  icon={FilletIcon}
+                  label="Fillet"
+                  title="Fillet (F)"
+                  onClick={() => run(editor, "FILLET")}
+                  options={[
+                    { label: "Fillet", run: () => run(editor, "FILLET") },
+                    { label: "Chamfer", run: () => run(editor, "CHAMFER") },
+                  ]}
+                />
+                <Small icon={StretchIcon} label="Stretch" title="Stretch (S)" onClick={() => run(editor, "STRETCH")} />
+                <Small icon={Scaling} label="Scale" title="Scale (SC)" onClick={() => run(editor, "SCALE")} />
+                <SmallSplit
+                  icon={LayoutGrid}
+                  label="Array"
+                  title="Rectangular array"
+                  onClick={() => run(editor, "ARRAYRECT")}
+                  options={[
+                    { label: "Rectangular Array", run: () => run(editor, "ARRAYRECT") },
+                    { label: "Polar Array", run: () => run(editor, "ARRAYPOLAR") },
+                  ]}
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-0.5 pl-1">
+                <Icon icon={Eraser} title="Erase (E)" onClick={() => run(editor, "ERASE")} />
+                <Icon icon={Bomb} title="Explode (X)" onClick={() => run(editor, "EXPLODE")} />
+                <Icon icon={OffsetIcon} title="Offset (O)" onClick={() => run(editor, "OFFSET")} />
+                <Icon icon={Combine} title="Join (J)" onClick={() => run(editor, "JOIN")} />
+                <Icon icon={Unlink} title="Break (BR)" onClick={() => run(editor, "BREAK")} />
+                <Icon icon={ArrowRightToLine} title="Extend (EX)" onClick={() => run(editor, "EXTEND")} />
+                <Icon icon={ChamferIcon} title="Chamfer (CHA)" onClick={() => run(editor, "CHAMFER")} />
               </div>
             </Panel>
             <Panel title="Layers">
@@ -208,6 +346,7 @@ export function Ribbon({ editor, state, dark, onTheme, palettes, onPalette }: Pr
               </div>
             </Panel>
             <Panel title="Properties">
+              <Big icon={Paintbrush} label="Match Properties" title="Match properties (MA)" onClick={() => run(editor, "MATCHPROP")} />
               <div className="flex w-40 flex-col gap-1 pt-1">
                 <Popover
                   trigger={(_, toggle) => (

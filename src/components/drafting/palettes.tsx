@@ -4,7 +4,7 @@ import { useState } from "react";
 import { Check, Lightbulb, LightbulbOff, Lock, LockOpen, Plus, Snowflake, Sun, Trash, X } from "lucide-react";
 import { colorName } from "@/lib/drafting/aci";
 import type { Editor, Snapshot } from "@/lib/drafting/editor";
-import { angleOf, arcEnd, arcStart, dist, sweepOf, TAU } from "@/lib/drafting/geometry";
+import { angleOf, arcEnd, arcStart, dist, isFullEllipse, len as magnitude, sweepOf, TAU, tessellate } from "@/lib/drafting/geometry";
 import { formatAngle, formatLength, parseAngle, parseLength } from "@/lib/drafting/units";
 import { ENTITY_NAMES, newLayer, type Entity, type EntityType, type Layer, type Units } from "@/lib/drafting/types";
 import { cn } from "@/lib/utils";
@@ -134,6 +134,45 @@ function Geometry({ editor, e }: { editor: Editor; e: Entity }) {
         </Group>
       );
     }
+    case "ellipse": {
+      const a = magnitude(e.major);
+      return (
+        <Group title="Geometry">
+          <Row label="Center X">{num(e.center.x, (x) => ({ ...e, center: { ...e.center, x } }))}</Row>
+          <Row label="Center Y">{num(e.center.y, (y) => ({ ...e, center: { ...e.center, y } }))}</Row>
+          <Row label="Major radius">{num(a, (r) => ({ ...e, major: { x: (e.major.x / a) * Math.max(r, 1e-9), y: (e.major.y / a) * Math.max(r, 1e-9) }, ratio: Math.min((a * e.ratio) / Math.max(r, 1e-9), 1) }))}</Row>
+          <Row label="Minor radius">{num(a * e.ratio, (r) => ({ ...e, ratio: Math.min(Math.max(r / a, 1e-6), 1) }))}</Row>
+          <Row label="Radius ratio"><Static>{e.ratio.toFixed(4)}</Static></Row>
+          <Row label="Rotation"><Static>{formatAngle(Math.atan2(e.major.y, e.major.x))}</Static></Row>
+          {isFullEllipse(e) ? (
+            <Row label="Area"><Static>{area(Math.PI * a * a * e.ratio, units)}</Static></Row>
+          ) : (
+            <Row label="Total angle"><Static>{formatAngle(sweepOf(e.start, e.end))}</Static></Row>
+          )}
+        </Group>
+      );
+    }
+    case "spline": {
+      const pts = tessellate(e)[0];
+      let length = 0;
+      for (let i = 0; i + 1 < pts.length; i++) length += dist(pts[i], pts[i + 1]);
+      return (
+        <Group title="Geometry">
+          <Row label="Fit points"><Static>{e.fit.length}</Static></Row>
+          <Row label="Closed"><Static>{e.closed ? "Yes" : "No"}</Static></Row>
+          <Row label="Length"><Static>{len(length)}</Static></Row>
+        </Group>
+      );
+    }
+    case "xline":
+    case "ray":
+      return (
+        <Group title="Geometry">
+          <Row label={e.type === "ray" ? "Start X" : "Root X"}>{num(e.base.x, (x) => ({ ...e, base: { ...e.base, x } }))}</Row>
+          <Row label={e.type === "ray" ? "Start Y" : "Root Y"}>{num(e.base.y, (y) => ({ ...e, base: { ...e.base, y } }))}</Row>
+          <Row label="Direction"><Static>{formatAngle(Math.atan2(e.dir.y, e.dir.x))}</Static></Row>
+        </Group>
+      );
     case "polyline": {
       let length = 0;
       for (let i = 0; i + 1 < e.points.length; i++) length += dist(e.points[i], e.points[i + 1]);

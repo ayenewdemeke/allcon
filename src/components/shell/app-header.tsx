@@ -18,7 +18,6 @@ import { SidebarTrigger } from "@/components/ui/sidebar";
 const SECTION_LABELS: Record<string, string> = {
   models: "Models",
   sheets: "Sheets",
-  drafting: "Drafting",
   reviews: "Review",
   mapping: "Mapping",
   report: "Report",
@@ -38,6 +37,8 @@ function useCrumbs(projectName?: string) {
   const segments = pathname.split("/").filter(Boolean);
   if (segments[0] === "library") return { crumbs: [{ label: "Library", href: "/library" }], pathname };
   if (segments[0] === "connections") return { crumbs: [{ label: "Connections", href: "/connections" }], pathname };
+  if (segments[0] === "map") return { crumbs: [{ label: "Map", href: "/map" }], pathname };
+  if (segments[0] === "drafting") return { crumbs: [{ label: "Drafting", href: "/drafting" }], pathname };
   const crumbs: Crumb[] = [{ label: "Projects", href: "/projects" }];
   if (segments[0] === "projects" && segments[1] && projectName) {
     const projectHref = `/projects/${segments[1]}`;

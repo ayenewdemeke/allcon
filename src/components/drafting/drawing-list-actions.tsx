@@ -10,8 +10,8 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, Di
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
-export function NewDrawingDialog({ projectId, label = "New drawing" }: { projectId: string; label?: string }) {
-  const [state, action, pending] = useActionState<DrawingFormState, FormData>(createDrawing.bind(null, projectId), {});
+export function NewDrawingDialog({ label = "New drawing" }: { label?: string }) {
+  const [state, action, pending] = useActionState<DrawingFormState, FormData>(createDrawing, {});
   return (
     <Dialog>
       <DialogTrigger render={<Button />}>
@@ -21,12 +21,19 @@ export function NewDrawingDialog({ projectId, label = "New drawing" }: { project
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>New drawing</DialogTitle>
-          <DialogDescription>It opens in the drafting editor, in the project&apos;s units.</DialogDescription>
+          <DialogDescription>It opens full screen in the drafting editor.</DialogDescription>
         </DialogHeader>
         <form action={action} className="grid gap-4">
           <div className="grid gap-1.5">
             <Label htmlFor="drawing-name">Name</Label>
             <Input id="drawing-name" name="name" required autoFocus placeholder="e.g. Site plan, Footing details" />
+          </div>
+          <div className="grid gap-1.5">
+            <Label htmlFor="drawing-units">Units</Label>
+            <select id="drawing-units" name="units" defaultValue="architectural" className="h-8 rounded-lg border border-input bg-transparent px-2.5 text-sm">
+              <option value="architectural">Architectural (feet and inches)</option>
+              <option value="mm">Millimeters</option>
+            </select>
           </div>
           {state.error && <p className="text-sm text-destructive">{state.error}</p>}
           <div className="flex justify-end">

@@ -60,6 +60,8 @@ const mainNav: NavItem[] = [
   { name: "Projects", href: "/projects", icon: FolderKanban },
   // Every project at its site, in 2D or photorealistic 3D.
   { name: "Map", href: "/map", icon: MapIcon },
+  // 2D drafting, like AutoCAD (drawings open full screen).
+  { name: "Drafting", href: "/drafting", icon: DraftingCompass },
   // Shared by all projects: manuals and standards that plan reviews check against.
   { name: "Library", href: "/library", icon: BookOpen },
   // AI apps (Claude, ChatGPT...) connected through MCP.
@@ -72,7 +74,6 @@ function projectNav(projectId: string, boq: string): NavItem[] {
     { name: "Overview", href: base, icon: LayoutDashboard, exact: true },
     { name: "Models", href: `${base}/models`, icon: Box },
     { name: "Sheets", href: `${base}/sheets`, icon: Layers },
-    { name: "Drafting", href: `${base}/drafting`, icon: DraftingCompass },
     { name: "Review", href: `${base}/reviews`, icon: FileSearch },
     { name: boq, href: `${base}/line-items`, icon: ListChecks },
     { name: "Mapping", href: `${base}/mapping`, icon: GitMerge },

@@ -1,4 +1,4 @@
-import { angleInSweep, arcEnd, arcMid, arcStart, closestOnPrimitive, dist, intersect, mid, polar, polylineSegments, primitives, type Primitive } from "./geometry";
+import { add, angleInSweep, arcEnd, arcMid, arcStart, closestOnPrimitive, dist, ellipseMinor, ellipsePoint, intersect, isFullEllipse, mid, polar, polylineSegments, primitives, sub, type Primitive } from "./geometry";
 import type { Entity, Vec } from "./types";
 
 // Object snaps, as in AutoCAD: the snap point nearest the cursor within the aperture wins,
@@ -48,6 +48,30 @@ function pointSnaps(e: Entity, kinds: Set<SnapKind>): Snap[] {
         if (angleInSweep(a, e.start, e.end)) push("quadrant", polar(e.center, a, e.radius));
       }
       break;
+    case "ellipse": {
+      const minor = ellipseMinor(e);
+      const full = isFullEllipse(e);
+      [add(e.center, e.major), sub(e.center, e.major), add(e.center, minor), sub(e.center, minor)].forEach((p, q) => {
+        if (full || angleInSweep([0, Math.PI, Math.PI / 2, -Math.PI / 2][q], e.start, e.end)) push("quadrant", p);
+      });
+      if (!full) {
+        push("endpoint", ellipsePoint(e, e.start));
+        push("endpoint", ellipsePoint(e, e.end));
+      }
+      break;
+    }
+    case "spline":
+      if (!e.closed && e.fit.length) {
+        push("endpoint", e.fit[0]);
+        push("endpoint", e.fit[e.fit.length - 1]);
+      }
+      break;
+    case "xline":
+      push("midpoint", e.base);
+      break;
+    case "ray":
+      push("endpoint", e.base);
+      break;
   }
   return out;
 }
@@ -72,7 +96,7 @@ export function findSnap(entities: Entity[], cursor: Vec, aperture: number, kind
     const edge = Math.min(...prims.map((p) => dist(cursor, closestOnPrimitive(cursor, p))));
     if (edge <= aperture) near.push({ e, prims });
     for (const s of pointSnaps(e, kinds)) consider(s.kind, s.point);
-    if (kinds.has("center") && (e.type === "circle" || e.type === "arc")) {
+    if (kinds.has("center") && (e.type === "circle" || e.type === "arc" || e.type === "ellipse")) {
       // Over the edge or the centre itself; a little behind real points on the edge.
       consider("center", e.center, Math.min(dist(e.center, cursor), edge + aperture * 0.3));
     }

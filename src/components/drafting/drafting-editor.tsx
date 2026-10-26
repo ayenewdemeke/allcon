@@ -192,7 +192,7 @@ function Workspace({ editor, drawing, backHref, hadView }: { editor: Editor; dra
   const showPalettes = palettes.properties || palettes.layers;
 
   return (
-    <div data-drafting-root className={cn("relative flex h-[calc(100svh-3.5rem)] min-h-[32rem] flex-col bg-background text-foreground", dark && "dark")}>
+    <div data-drafting-root className={cn("relative flex h-svh min-h-[32rem] flex-col bg-background text-foreground", dark && "dark")}>
       <div className="flex h-9 items-center gap-2 border-b px-2">
         <LinkButton href={backHref} variant="ghost" size="icon-sm" aria-label="Back to drawings">
           <ArrowLeft />
