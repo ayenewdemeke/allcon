@@ -4,11 +4,17 @@ import { useState } from "react";
 import {
   ArrowRightToLine,
   Bomb,
+  BrushCleaning,
   Combine,
+  Component,
   Copy,
+  DoorOpen,
   Eraser,
+  FileDown,
+  FileText,
   Hand,
   Hexagon,
+  ImagePlus,
   Layers,
   LayoutGrid,
   Lightbulb,
@@ -17,8 +23,10 @@ import {
   Maximize,
   Moon,
   Move,
+  PackagePlus,
   Paintbrush,
   RotateCw,
+  Save,
   Scaling,
   Scissors,
   SlidersHorizontal,
@@ -26,7 +34,10 @@ import {
   Spline,
   SquareDashed,
   SquareDashedMousePointer,
+  SquarePen,
   Sun,
+  Tag,
+  Tags,
   Unlink,
   X,
 } from "lucide-react";
@@ -68,8 +79,8 @@ type Props = {
   state: Snapshot;
   dark: boolean;
   onTheme: (dark: boolean) => void;
-  palettes: { properties: boolean; layers: boolean; styles: boolean };
-  onPalette: (p: "properties" | "layers" | "styles") => void;
+  palettes: { properties: boolean; layers: boolean; styles: boolean; blocks: boolean };
+  onPalette: (p: "properties" | "layers" | "styles" | "blocks") => void;
   /** Back, Undo and Redo: AutoCAD's Quick Access Toolbar, before the tabs. */
   quickAccess: React.ReactNode;
   /** The save state, at the end of the tab row. */
@@ -194,8 +205,24 @@ function SplitBig({ icon, label, title, onClick, options }: { icon: React.Compon
   );
 }
 
+const TABS = [
+  ["home", "Home"],
+  ["insert", "Insert"],
+  ["annotate", "Annotate"],
+  ["view", "View"],
+  ["manage", "Manage"],
+] as const;
+type Tab = (typeof TABS)[number][0] | "block";
+
 export function Ribbon({ editor, state, dark, onTheme, palettes, onPalette, quickAccess, status }: Props) {
-  const [tab, setTab] = useState<"home" | "annotate" | "view">("home");
+  const [chosen, setTab] = useState<Tab>("home");
+  // The Block Editor tab comes up when the block editor opens, as in AutoCAD.
+  const [editing, setEditing] = useState(state.blockEdit);
+  if (editing !== state.blockEdit) {
+    setEditing(state.blockEdit);
+    setTab(state.blockEdit ? "block" : "home");
+  }
+  const tab: Tab = chosen === "block" && !state.blockEdit ? "home" : chosen;
   // AutoCAD's contextual tab: Hatch Creation while HATCH runs.
   const hatching = state.command === "HATCH";
   const doc = editor.doc;
@@ -215,22 +242,39 @@ export function Ribbon({ editor, state, dark, onTheme, palettes, onPalette, quic
     <div className="border-b bg-muted/40">
       <div className="flex items-end gap-0.5 px-2 pt-1 text-xs">
         <div className="mr-2 flex items-center gap-0.5 self-center pb-0.5">{quickAccess}</div>
-        {(["home", "annotate", "view"] as const).map((t) => (
+        {TABS.map(([t, label]) => (
           <button
             key={t}
             type="button"
             onClick={() => setTab(t)}
             className={cn("rounded-t px-3 py-1", tab === t && !hatching ? "bg-background font-medium text-foreground shadow-[0_-1px_0_0] shadow-border" : "text-muted-foreground hover:text-foreground")}
           >
-            {t === "home" ? "Home" : t === "annotate" ? "Annotate" : "View"}
+            {label}
           </button>
         ))}
+        {state.blockEdit && (
+          <button
+            type="button"
+            onClick={() => setTab("block")}
+            className={cn("rounded-t px-3 py-1 text-primary", tab === "block" && !hatching ? "bg-background font-medium shadow-[0_-1px_0_0] shadow-border" : "hover:bg-background/60")}
+          >
+            Block Editor
+          </button>
+        )}
         {hatching && <span className="rounded-t bg-background px-3 py-1 font-medium text-primary shadow-[0_-1px_0_0] shadow-border">Hatch Creation</span>}
         <div className="ml-auto self-center pb-0.5">{status}</div>
       </div>
       <div className="flex h-[5.25rem] overflow-x-auto bg-background">
         {hatching ? (
           <HatchCreation editor={editor} />
+        ) : tab === "block" ? (
+          <BlockEditorTab editor={editor} state={state} />
+        ) : tab === "insert" ? (
+          <InsertTab editor={editor} onPalette={onPalette} palettes={palettes} />
+        ) : tab === "manage" ? (
+          <Panel title="Cleanup">
+            <Big icon={BrushCleaning} label="Purge" title="Remove unused blocks, layers and styles (PU)" onClick={() => run(editor, "PURGE")} />
+          </Panel>
         ) : tab === "annotate" ? (
           <AnnotateTab editor={editor} state={state} onPalette={onPalette} palettes={palettes} />
         ) : tab === "home" ? (
@@ -377,6 +421,14 @@ export function Ribbon({ editor, state, dark, onTheme, palettes, onPalette, quic
                 <p className="truncate text-[10px] text-muted-foreground">{selected.length ? `${selected.length} selected` : `Current layer: ${state.currentLayer}`}</p>
               </div>
             </Panel>
+            <Panel title="Block">
+              <Big icon={PackagePlus} label="Insert" title="Insert a block (I)" onClick={() => onPalette("blocks")} active={palettes.blocks} />
+              <div className="flex flex-col gap-0.5">
+                <Small icon={Component} label="Create" title="Create a block (B)" onClick={() => run(editor, "BLOCK")} />
+                <Small icon={SquarePen} label="Edit" title="Block editor (BE)" onClick={() => run(editor, "BEDIT")} />
+                <Small icon={Tags} label="Edit Attributes" title="Edit attributes (EATTEDIT)" onClick={() => run(editor, "EATTEDIT")} />
+              </div>
+            </Panel>
             <Panel title="Properties">
               <Big icon={Paintbrush} label="Match Properties" title="Match properties (MA)" onClick={() => run(editor, "MATCHPROP")} />
               <div className="flex w-40 flex-col gap-1 pt-1">
@@ -441,6 +493,7 @@ export function Ribbon({ editor, state, dark, onTheme, palettes, onPalette, quic
             <Panel title="Palettes">
               <Big icon={SlidersHorizontal} label="Properties" title="Properties (Ctrl+1)" onClick={() => onPalette("properties")} active={palettes.properties} />
               <Big icon={Layers} label="Layers" title="Layer Properties (LA)" onClick={() => onPalette("layers")} active={palettes.layers} />
+              <Big icon={PackagePlus} label="Blocks" title="Blocks palette" onClick={() => onPalette("blocks")} active={palettes.blocks} />
             </Panel>
             <Panel title="Theme">
               <Big icon={Sun} label="Light" title="Light theme" onClick={() => onTheme(false)} active={!dark} />
@@ -509,6 +562,46 @@ function AnnotateTab({ editor, state, onPalette, palettes }: { editor: Editor; s
       </Panel>
       <Panel title="Styles">
         <Big icon={SlidersHorizontal} label="Styles Manager" title="Text and dimension styles (ST, D)" onClick={() => onPalette("styles")} active={palettes.styles} />
+      </Panel>
+    </>
+  );
+}
+
+function InsertTab({ editor, onPalette, palettes }: { editor: Editor; onPalette: (p: "blocks") => void; palettes: { blocks: boolean } }) {
+  return (
+    <>
+      <Panel title="Block">
+        <Big icon={PackagePlus} label="Insert" title="Insert a block (I)" onClick={() => onPalette("blocks")} active={palettes.blocks} />
+        <Big icon={Tags} label="Edit Attribute" title="Edit attributes (EATTEDIT)" onClick={() => run(editor, "EATTEDIT")} />
+      </Panel>
+      <Panel title="Block Definition">
+        <Big icon={Component} label="Create Block" title="Create a block (B)" onClick={() => run(editor, "BLOCK")} />
+        <Big icon={Tag} label="Define Attributes" title="Define an attribute (ATT)" onClick={() => run(editor, "ATTDEF")} />
+        <Big icon={SquarePen} label="Block Editor" title="Edit a block (BE)" onClick={() => run(editor, "BEDIT")} />
+      </Panel>
+      <Panel title="Reference">
+        <Big icon={ImagePlus} label="Attach Image" title="Attach a picture under the drawing (IAT)" onClick={() => run(editor, "IMAGEATTACH")} />
+        <Big icon={FileText} label="Attach PDF" title="Attach a PDF page under the drawing" onClick={() => run(editor, "PDFATTACH")} />
+      </Panel>
+      <Panel title="Export">
+        <Big icon={FileDown} label="Export DXF" title="Download as DXF for AutoCAD and other CAD programs (DXFOUT)" onClick={() => run(editor, "DXFOUT")} />
+      </Panel>
+    </>
+  );
+}
+
+function BlockEditorTab({ editor, state }: { editor: Editor; state: Snapshot }) {
+  return (
+    <>
+      <Panel title="Open/Save">
+        <Big icon={Save} label="Save Block" title={`Save ${state.blockEdit} (BSAVE)`} onClick={() => run(editor, "BSAVE")} />
+      </Panel>
+      <Panel title="Block Definition">
+        <Big icon={Tag} label="Define Attribute" title="Define an attribute (ATT)" onClick={() => run(editor, "ATTDEF")} />
+        <Big icon={PackagePlus} label="Insert Block" title="Insert a block (-INSERT)" onClick={() => run(editor, "-INSERT")} />
+      </Panel>
+      <Panel title="Close">
+        <Big icon={DoorOpen} label="Close Block Editor" title="Close the block editor (BCLOSE)" onClick={() => editor.requestCloseBlockEditor()} />
       </Panel>
     </>
   );

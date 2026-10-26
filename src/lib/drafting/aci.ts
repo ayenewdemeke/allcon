@@ -31,6 +31,7 @@ export const ACI_NAMES: Record<number, string> = { 1: "Red", 2: "Yellow", 3: "Gr
 /** A colour as the property palette names it. */
 export function colorName(color: ColorValue) {
   if (color === null) return "ByLayer";
+  if (color === 0) return "ByBlock";
   if (typeof color === "string") return color.toUpperCase();
   return ACI_NAMES[color] ?? `Color ${color}`;
 }
@@ -38,7 +39,7 @@ export function colorName(color: ColorValue) {
 /** The colour to draw with: ByLayer resolved, and colour 7 black or white for the background. */
 export function displayColor(color: number | string, dark: boolean) {
   if (typeof color === "string") return color;
-  if (color === 7) return dark ? "#ffffff" : "#000000";
+  if (color === 7 || color === 0) return dark ? "#ffffff" : "#000000"; // ByBlock outside a block draws as 7
   return ACI[color] ?? "#000000";
 }
 

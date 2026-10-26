@@ -11,13 +11,13 @@ import type { DimensionEntity, DimKind, Entity, HAlign, HatchEntity, LeaderEntit
 const DEG = Math.PI / 180;
 
 /** A new text's default height: 3/32" (or 2.5 mm) on paper at the annotation scale. */
-function defaultTextHeight(ed: Editor) {
+export function defaultTextHeight(ed: Editor) {
   const remembered = ed.memory.textHeight;
   if (typeof remembered === "number") return remembered;
   return (ed.doc.units === "mm" ? 2.5 : 3 / 32) * ed.doc.annoScale;
 }
 
-const JUSTIFY: Record<string, [HAlign, VAlign]> = {
+export const JUSTIFY: Record<string, [HAlign, VAlign]> = {
   L: ["left", "baseline"],
   C: ["center", "baseline"],
   R: ["right", "baseline"],
@@ -666,13 +666,16 @@ export class HatchCommand extends SelectingCommand {
       enterLabel: "done",
     };
   }
-  /** Adds loops to the hatch being made (one hatch object for all the picks). */
-  private addLoops(loops: Vec[][]) {
+  /** Adds loops to the hatch being made (one hatch object for all the picks). Picked points
+   * make it associative; loops from selected objects don't. */
+  private addLoops(loops: Vec[][], seed: Vec | null) {
     const s = hatchSettings(this.ed);
     const existing = this.id ? (this.ed.doc.entities.get(this.id) as HatchEntity | undefined) : undefined;
-    if (existing) this.ed.doc.update({ ...existing, loops: [...existing.loops, ...loops] });
-    else {
-      const e = this.ed.make<HatchEntity>({ type: "hatch", loops, pattern: s.pattern, scale: s.scale, angle: s.angle * DEG });
+    if (existing) {
+      const seeds = seed && existing.seeds ? [...existing.seeds, seed] : undefined;
+      this.ed.doc.update({ ...existing, loops: [...existing.loops, ...loops], seeds });
+    } else {
+      const e = this.ed.make<HatchEntity>({ type: "hatch", loops, pattern: s.pattern, scale: s.scale, angle: s.angle * DEG, ...(seed ? { seeds: [seed] } : {}) });
       this.id = e.id;
       this.ed.doc.add(e);
     }
@@ -684,7 +687,7 @@ export class HatchCommand extends SelectingCommand {
     const candidates = this.ed.doc.query(view).filter((e) => this.ed.doc.isVisible(e));
     const loops = findBoundary(candidates, p, this.ed.px(0.5));
     if (!loops) return this.ed.print("Valid hatch boundary not found.", "error");
-    this.addLoops(loops);
+    this.addLoops(loops, p);
   }
   keyword(key: string) {
     if (this.step !== "pick") return;
@@ -729,7 +732,7 @@ export class HatchCommand extends SelectingCommand {
     if (this.selecting) {
       const loops = loopsFromObjects(this.targets());
       if (!loops.length) this.ed.print("Select closed objects (circles, closed polylines...).", "error");
-      else this.addLoops(loops);
+      else this.addLoops(loops, null);
       this.selecting = false;
       this.ed.clearSelection();
       return;

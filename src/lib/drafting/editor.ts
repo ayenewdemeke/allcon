@@ -4,7 +4,8 @@ import { DraftDocument, newId } from "./document";
 import { angleOf, crossesBox, dist, distanceTo, dot, grips, insideBox, moveGrip, polar, same, sub, type Box, type Grip } from "./geometry";
 import { DEFAULT_SNAPS, findSnap, type Snap, type SnapKind } from "./snaps";
 import { formatLength, parseAngle, parseLength, parsePointInput } from "./units";
-import { LW_BYLAYER, type ColorValue, type DrawingData, type Entity, type Vec } from "./types";
+import { attributeDefs } from "./blocks";
+import { LW_BYLAYER, type ColorValue, type DrawingData, type Entity, type InsertEntity, type Vec } from "./types";
 
 // The drafting editor without its screen: the view, the cursor with object snaps and polar
 // tracking, selection and grips, the command line, and the keyboard, as AutoCAD behaves. The
@@ -23,7 +24,17 @@ export type Settings = {
 
 export const DEFAULT_SETTINGS: Settings = { grid: true, snap: false, ortho: false, polar: true, polarAngle: 90, osnap: true, snapKinds: DEFAULT_SNAPS, dynamic: true };
 
-export type Palette = "properties" | "layers" | "styles";
+export type Palette = "properties" | "layers" | "styles" | "blocks";
+
+/** A file attached under the drawing, ready to place: its size at scale 1, in drawing units. */
+export type Attachment = { key: string; name: string; source: "image" | "pdf"; width: number; height: number };
+
+/** A dialog a command opens, as AutoCAD's: the shell shows it and passes back the answer. */
+export type DialogRequest =
+  | { kind: "block"; count: number; done: (r: { name: string; description: string; mode: "convert" | "retain" | "delete" } | null) => void }
+  | { kind: "attributes"; block: string; rows: { tag: string; prompt: string; value: string }[]; done: (values: Record<string, string> | null) => void }
+  | { kind: "save-block"; name: string; done: (choice: "save" | "discard" | null) => void }
+  | { kind: "purge"; done: (r: null) => void };
 
 /** Text being typed in place over the drawing (TEXT, MTEXT, MLEADER, TEXTEDIT). */
 export type TextEditRequest = {
@@ -63,6 +74,9 @@ export type Snapshot = {
   currentLayer: string;
   current: { color: ColorValue; lineweight: number };
   textEdit: TextEditRequest | null;
+  dialog: DialogRequest | null;
+  /** The block open in the block editor. */
+  blockEdit: string | null;
 };
 
 export class Editor {
@@ -73,7 +87,13 @@ export class Editor {
   selection = new Set<string>();
   /** Properties new objects get (ByLayer unless set). */
   current: { color: ColorValue; lineweight: number } = { color: null, lineweight: LW_BYLAYER };
-  ui: { openPalette: (p: Palette) => void } = { openPalette: () => {} };
+  ui: {
+    openPalette: (p: Palette) => void;
+    /** Asks for a picture or a PDF, stores it, and says how big it is (null: cancelled). */
+    attach: (source: "image" | "pdf") => Promise<Attachment | null>;
+    /** Downloads the drawing as DXF. */
+    exportDxf: () => void;
+  } = { openPalette: () => {}, attach: async () => null, exportDxf: () => {} };
 
   /** Remembers (or forgets, with undefined) a value commands use, such as the hatch pattern. */
   remember(key: string, value: number | string | boolean | undefined) {
@@ -89,8 +109,8 @@ export class Editor {
   }
 
   /** Connects the editor to its screen's palettes. */
-  setUi(ui: Editor["ui"]) {
-    this.ui = ui;
+  setUi(ui: Partial<Editor["ui"]>) {
+    this.ui = { ...this.ui, ...ui };
   }
 
   command: Command | null = null;
@@ -102,6 +122,9 @@ export class Editor {
   /** The last point given, for "@" (AutoCAD's last point). */
   lastPoint: Vec | null = null;
   textEdit: TextEditRequest | null = null;
+  dialog: DialogRequest | null = null;
+  /** The block editor: the block being edited, and the drawing it came from. */
+  blockEdit: { name: string; main: DraftDocument; view: Editor["view"]; saved: number } | null = null;
   buffer = "";
   history: HistoryLine[] = [];
   private inputs: string[] = [];
@@ -125,13 +148,26 @@ export class Editor {
   private stateListeners = new Set<() => void>();
   private pointerListeners = new Set<() => void>();
   private snapshot: Snapshot;
+  private detach: (() => void) | null = null;
 
   constructor(data: DrawingData, settings: Partial<Settings> = {}) {
     this.doc = new DraftDocument(data);
     this.settings = { ...DEFAULT_SETTINGS, ...settings };
     if (data.view) this.view = { ...data.view };
     this.snapshot = this.build();
-    this.doc.subscribe(() => {
+    this.attach(this.doc);
+  }
+
+  /** The drawing itself (in the block editor, `doc` is the block being edited). */
+  get drawing() {
+    return this.blockEdit?.main ?? this.doc;
+  }
+
+  private attach(doc: DraftDocument) {
+    this.detach?.();
+    this.doc = doc;
+    doc.activate();
+    this.detach = doc.subscribe(() => {
       // Objects that went away (undo, erase) leave the selection.
       for (const id of this.selection) if (!this.doc.entities.has(id)) this.selection.delete(id);
       this.emit();
@@ -173,6 +209,8 @@ export class Editor {
       currentLayer: this.doc.currentLayer,
       current: this.current,
       textEdit: this.textEdit,
+      dialog: this.dialog,
+      blockEdit: this.blockEdit?.name ?? null,
     };
   }
 
@@ -551,14 +589,114 @@ export class Editor {
     this.afterInput();
   }
 
-  /** Double-click: edit text in place, or open Properties for anything else (as AutoCAD). */
+  // --- dialogs ---------------------------------------------------------------------------
+
+  openDialog(req: DialogRequest) {
+    this.dialog = req;
+    this.emit();
+  }
+
+  /** The dialog's answer goes back to the command that asked (null: cancelled). */
+  closeDialog<T>(result: T | null) {
+    const req = this.dialog;
+    this.dialog = null;
+    (req?.done as ((r: T | null) => void) | undefined)?.(result);
+    this.afterInput();
+  }
+
+  /** The Edit Attributes dialog for a reference (EATTEDIT). */
+  editAttributes(e: InsertEntity) {
+    const defs = attributeDefs(this.doc.blocks.get(e.block));
+    if (!defs.length) return false;
+    this.openDialog({
+      kind: "attributes",
+      block: e.block,
+      rows: defs.map((d) => ({ tag: d.tag, prompt: d.prompt || d.tag, value: e.attribs[d.tag] ?? d.value })),
+      done: (values) => {
+        const current = this.doc.entities.get(e.id);
+        if (values && current?.type === "insert") this.updateEntity({ ...current, attribs: { ...current.attribs, ...values } });
+      },
+    });
+    return true;
+  }
+
+  // --- the block editor --------------------------------------------------------------------
+
+  /** BEDIT: the block's objects open on their own, to be changed like any drawing. */
+  editBlock(name: string) {
+    const main = this.drawing;
+    const block = main.blocks.get(name);
+    if (!block || this.blockEdit) return false;
+    if (this.command) this.cancel(false);
+    const doc = new DraftDocument({ ...main.toData(), entities: block.entities });
+    this.blockEdit = { name, main, view: { ...this.view }, saved: doc.version };
+    this.selection.clear();
+    this.attach(doc);
+    this.zoomExtents();
+    this.print(`Editing block "${name}". Close the block editor to go back to the drawing.`, "info");
+    this.emit();
+    return true;
+  }
+
+  /** Whether the block editor has changes to save. */
+  get blockChanged() {
+    return !!this.blockEdit && this.doc.version !== this.blockEdit.saved;
+  }
+
+  /** BSAVE: the block takes the objects in the block editor (its references redraw). */
+  saveBlock() {
+    const edit = this.blockEdit;
+    if (!edit) return;
+    const edited = this.doc;
+    const main = edit.main;
+    main.begin("BEDIT");
+    // Layers and blocks made while editing come along.
+    for (const layer of edited.layers.values()) if (!main.layers.has(layer.name)) main.setLayer(layer);
+    for (const block of edited.blocks.values()) if (!main.blocks.has(block.name)) main.setBlock(block);
+    main.setBlock({ ...main.blocks.get(edit.name)!, entities: [...edited.entities.values()] });
+    main.commit();
+    // The block editor shows the drawing's blocks as they now are.
+    edited.blocks = new Map(main.blocks);
+    edited.activate();
+    edit.saved = edited.version;
+    this.print(`Block "${edit.name}" saved.`, "info");
+  }
+
+  /** Leaves the block editor, saving the block's objects (or not). */
+  closeBlockEditor(save: boolean) {
+    const edit = this.blockEdit;
+    if (!edit) return;
+    if (this.command) this.cancel(false);
+    if (save) this.saveBlock();
+    this.blockEdit = null;
+    this.selection.clear();
+    this.attach(edit.main);
+    this.view = edit.view;
+    this.refreshPointer();
+    this.emit();
+  }
+
+  /** BCLOSE: asks whether to keep the changes, as AutoCAD does. */
+  requestCloseBlockEditor() {
+    const edit = this.blockEdit;
+    if (!edit) return;
+    if (!this.blockChanged) return this.closeBlockEditor(false);
+    this.openDialog({ kind: "save-block", name: edit.name, done: (choice) => choice && this.closeBlockEditor(choice === "save") });
+  }
+
+  /** Double-click: edit text in place, a block's attributes or the block itself, or open
+   * Properties for anything else (as AutoCAD). */
   doubleClick(screen: Vec) {
-    if (this.command || this.hotGrip || this.textEdit) return;
+    if (this.command || this.hotGrip || this.textEdit || this.dialog) return;
     const e = this.pick(this.toWorld(screen));
     if (!e) return;
     if (e.type === "text" || e.type === "mtext" || e.type === "dimension" || e.type === "leader") {
       this.selection.clear();
       this.startCommand(new TextEditCommand(this, e), false);
+      return;
+    }
+    if (e.type === "insert") {
+      if (!this.editAttributes(e)) this.editBlock(e.block);
       return;
     }
     this.selection = new Set([e.id]);
@@ -581,6 +719,7 @@ export class Editor {
 
   cancel(echo = true) {
     if (this.textEdit) return this.closeTextEditor(null);
+    if (this.dialog) return this.closeDialog(null);
     if (this.hotGrip) {
       this.hotGrip = null;
     } else if (this.command) {

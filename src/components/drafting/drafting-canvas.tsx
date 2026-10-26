@@ -3,15 +3,32 @@
 import { useEffect, useRef } from "react";
 import * as THREE from "three";
 import { entityColor } from "@/lib/drafting/aci";
+import { blockParts } from "@/lib/drafting/blocks";
 import type { Editor } from "@/lib/drafting/editor";
 import { bounds, graphicsOf, grips, tessellate, type TextRun } from "@/lib/drafting/geometry";
 import { capRatio } from "@/lib/drafting/graphics";
 import type { SnapKind } from "@/lib/drafting/snaps";
-import type { Entity, Vec } from "@/lib/drafting/types";
+import type { Entity, ImageEntity, Vec } from "@/lib/drafting/types";
 
 // The drawing area. Three layers: the grid (2D canvas), the drawing (WebGL, so big drawings
-// stay smooth), and on top the crosshair, snap markers, grips, selection highlight, rubber
-// band and dynamic input (2D canvas, redrawn as the cursor moves).
+// stay smooth, with attached pictures and PDF pages under the linework), and on top the
+// crosshair, snap markers, grips, selection highlight, rubber band and dynamic input (2D
+// canvas, redrawn as the cursor moves).
+
+/** Pictures under the drawing, faded toward the background. A PDF page shows its linework
+ * without the paper (white goes clear), inverted on a dark background so it stays visible, as
+ * AutoCAD adjusts underlays for the background. */
+const PICTURE_SHADER = {
+  vertexShader: "varying vec2 vUv; void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }",
+  fragmentShader: `uniform sampler2D map; uniform float opacity; uniform float invert; uniform float paper; varying vec2 vUv;
+    void main() {
+      vec4 c = texture2D(map, vUv);
+      float light = dot(c.rgb, vec3(0.299, 0.587, 0.114));
+      c.a *= 1.0 - paper * smoothstep(0.9, 0.99, light);
+      c.rgb = mix(c.rgb, 1.0 - c.rgb, invert);
+      gl_FragColor = vec4(c.rgb, c.a * opacity);
+    }`,
+};
 
 export const CANVAS_THEMES = {
   light: { bg: "#ffffff", minor: "#eef1f5", major: "#dde2ea", axisX: "rgba(220,38,38,0.45)", axisY: "rgba(22,163,74,0.45)", fg: "#1f2937", select: "#1d6ff2", tip: "#ffffff", tipText: "#1f2937", tipBorder: "#c4cad3" },
@@ -28,11 +45,12 @@ const SNAP_LABELS: Record<SnapKind, string> = {
   center: "Center",
   quadrant: "Quadrant",
   intersection: "Intersection",
+  insertion: "Insertion",
   perpendicular: "Perpendicular",
   nearest: "Nearest",
 };
 
-export function DraftingCanvas({ editor, dark, onReady }: { editor: Editor; dark: boolean; onReady?: () => void }) {
+export function DraftingCanvas({ editor, dark, onReady, pictureUrl }: { editor: Editor; dark: boolean; onReady?: () => void; pictureUrl: (key: string) => string }) {
   const host = useRef<HTMLDivElement>(null);
   const gridCanvas = useRef<HTMLCanvasElement>(null);
   const overlayCanvas = useRef<HTMLCanvasElement>(null);
@@ -40,8 +58,10 @@ export function DraftingCanvas({ editor, dark, onReady }: { editor: Editor; dark
   const darkRef = useRef(dark);
   const redraw = useRef<(rebuild?: boolean) => void>(() => {});
   const ready = useRef(onReady);
+  const pictureUrlRef = useRef(pictureUrl);
   useEffect(() => {
     ready.current = onReady;
+    pictureUrlRef.current = pictureUrl;
   });
 
   useEffect(() => {
@@ -68,6 +88,48 @@ export function DraftingCanvas({ editor, dark, onReady }: { editor: Editor; dark
     const fills = new THREE.Mesh(fillGeometry, new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.DoubleSide }));
     fills.frustumCulled = false;
     scene.add(fills, lines);
+    // Attached pictures: a textured square each, under the fills and lines.
+    const square = new THREE.PlaneGeometry(1, 1).translate(0.5, 0.5, 0);
+    const textures = new Map<string, THREE.Texture>();
+    const pictures = new Map<string, { mesh: THREE.Mesh; material: THREE.ShaderMaterial }>();
+    const loader = new THREE.TextureLoader().setCrossOrigin("anonymous");
+    const texture = (key: string) => {
+      let t = textures.get(key);
+      if (!t) {
+        t = loader.load(pictureUrlRef.current(key), () => schedule());
+        t.colorSpace = THREE.NoColorSpace;
+        t.anisotropy = 4;
+        textures.set(key, t);
+      }
+      return t;
+    };
+    const placePictures = (images: ImageEntity[], isDark: boolean) => {
+      const seen = new Set<string>();
+      images.forEach((e, i) => {
+        seen.add(e.id);
+        let p = pictures.get(e.id);
+        if (!p) {
+          const material = new THREE.ShaderMaterial({ ...PICTURE_SHADER, uniforms: { map: { value: null }, opacity: { value: 1 }, invert: { value: 0 }, paper: { value: 0 } }, transparent: true, depthWrite: false });
+          p = { mesh: new THREE.Mesh(square, material), material };
+          p.mesh.frustumCulled = false;
+          scene.add(p.mesh);
+          pictures.set(e.id, p);
+        }
+        p.material.uniforms.map.value = texture(e.key);
+        p.material.uniforms.opacity.value = 1 - Math.min(Math.max(e.fade, 0), 100) / 100;
+        p.material.uniforms.invert.value = e.source === "pdf" && isDark ? 1 : 0;
+        p.material.uniforms.paper.value = e.source === "pdf" ? 1 : 0;
+        p.mesh.position.set(e.at.x - origin.x, e.at.y - origin.y, -1 - i * 1e-3);
+        p.mesh.rotation.z = e.rotation;
+        p.mesh.scale.set(e.width, e.height, 1);
+      });
+      for (const [id, p] of pictures) {
+        if (seen.has(id)) continue;
+        scene.remove(p.mesh);
+        p.material.dispose();
+        pictures.delete(id);
+      }
+    };
     // Text is drawn on its own canvas, redrawn when the view or the drawing changes.
     let runs: { id: string; run: TextRun; color: string; box: { minX: number; minY: number; maxX: number; maxY: number } }[] = [];
     let textKey = "";
@@ -99,8 +161,8 @@ export function DraftingCanvas({ editor, dark, onReady }: { editor: Editor; dark
       const fpos: number[] = [];
       const fcol: number[] = [];
       runs = [];
-      for (const e of doc.entities.values()) {
-        if (!doc.isVisible(e)) continue;
+      const images: ImageEntity[] = [];
+      const add = (e: Entity) => {
         const css = entityColor(e, doc.layerOf(e), isDark);
         const c = colorOf(css);
         const g = graphicsOf(e);
@@ -123,7 +185,15 @@ export function DraftingCanvas({ editor, dark, onReady }: { editor: Editor; dark
           const b = bounds(e);
           for (const run of g.texts) runs.push({ id: e.id, run, color: css, box: b });
         }
+      };
+      for (const e of doc.entities.values()) {
+        if (!doc.isVisible(e)) continue;
+        if (e.type === "image") images.push(e);
+        // A block reference's objects each have their own layer and colour.
+        if (e.type !== "insert") add(e);
+        else for (const part of blockParts(e)) if (doc.isVisible(part)) add(part);
       }
+      placePictures(images, isDark);
       geometry.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
       geometry.setAttribute("color", new THREE.Float32BufferAttribute(col, 3));
       geometry.computeBoundingSphere();
@@ -246,6 +316,9 @@ export function DraftingCanvas({ editor, dark, onReady }: { editor: Editor; dark
       el.removeEventListener("auxclick", noMenu);
       geometry.dispose();
       fillGeometry.dispose();
+      square.dispose();
+      for (const p of pictures.values()) p.material.dispose();
+      for (const t of textures.values()) t.dispose();
       renderer.dispose();
       renderer.domElement.remove();
       redraw.current = () => {};
@@ -278,6 +351,11 @@ function drawGrid(canvas: HTMLCanvasElement, editor: Editor, dark: boolean) {
   const theme = dark ? CANVAS_THEMES.dark : CANVAS_THEMES.light;
   const { w, h } = editor.size;
   const scale = editor.view.scale;
+  if (editor.blockEdit) {
+    // The block editor's background, a shade apart from the drawing's, as in AutoCAD.
+    ctx.fillStyle = dark ? "rgba(255,255,255,0.04)" : "rgba(15,23,42,0.05)";
+    ctx.fillRect(0, 0, w, h);
+  }
   if (editor.settings.grid) {
     // Adaptive, as in AutoCAD: minor lines at least 12 px apart, a major line every fifth.
     const minor = GRID_STEPS[editor.doc.units].find((s) => s * scale >= 12) ?? GRID_STEPS[editor.doc.units].at(-1)!;
@@ -438,6 +516,11 @@ function drawSnapMarker(ctx: CanvasRenderingContext2D, kind: SnapKind, s: Vec) {
       ctx.lineTo(s.x, s.y);
       ctx.lineTo(s.x, s.y + r);
       break;
+    case "insertion":
+      // Two overlapping squares, as AutoCAD's insertion marker.
+      ctx.rect(s.x - r, s.y - r, r * 1.2, r * 1.2);
+      ctx.rect(s.x - r * 0.2, s.y - r * 0.2, r * 1.2, r * 1.2);
+      break;
     case "nearest":
       ctx.moveTo(s.x - r, s.y - r);
       ctx.lineTo(s.x + r, s.y - r);
@@ -473,6 +556,24 @@ function drawOverlay(canvas: HTMLCanvasElement, editor: Editor, dark: boolean) {
   const theme = dark ? CANVAS_THEMES.dark : CANVAS_THEMES.light;
   const doc = editor.doc;
   const { w, h } = editor.size;
+
+  // The block editor marks the block's base point (where references are placed by).
+  const base = editor.blockEdit && editor.drawing.blocks.get(editor.blockEdit.name)?.base;
+  if (base) {
+    const s = editor.toScreen(base);
+    ctx.strokeStyle = theme.select;
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.arc(s.x, s.y, 7, 0, Math.PI * 2);
+    ctx.moveTo(s.x - 12, s.y);
+    ctx.lineTo(s.x + 12, s.y);
+    ctx.moveTo(s.x, s.y - 12);
+    ctx.lineTo(s.x, s.y + 12);
+    ctx.stroke();
+    ctx.fillStyle = theme.select;
+    ctx.font = "11px ui-sans-serif, system-ui, sans-serif";
+    ctx.fillText("Base point", s.x + 10, s.y - 10);
+  }
 
   // Selected objects: highlighted, with their grips.
   const selected = editor.selected().filter((e) => onScreen(editor, e));

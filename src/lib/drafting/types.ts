@@ -3,7 +3,7 @@
 
 export type Vec = { x: number; y: number };
 
-/** An AutoCAD Color Index (1-255), a true colour ("#rrggbb"), or null for ByLayer. */
+/** An AutoCAD Color Index (1-255), a true colour ("#rrggbb"), null for ByLayer, or 0 for ByBlock. */
 export type ColorValue = number | string | null;
 
 /** Lineweights in hundredths of a millimetre, as DXF stores them; negative values are the special ones. */
@@ -69,8 +69,34 @@ export type DimensionEntity = EntityBase & {
 /** A multileader: an arrowhead, a leader line to a landing, and text. */
 export type LeaderEntity = EntityBase & { type: "leader"; points: Vec[]; text: string; height: number; style: string; dimStyle: string };
 
-/** A hatch: boundary loops (filled even-odd, so loops inside loops are islands) and a pattern. */
-export type HatchEntity = EntityBase & { type: "hatch"; loops: Vec[][]; pattern: string; scale: number; angle: number };
+/** A hatch: boundary loops (filled even-odd, so loops inside loops are islands) and a pattern.
+ * `seeds` are the points picked inside: while set, the hatch is associative and follows its
+ * boundary when that changes, as AutoCAD's. */
+export type HatchEntity = EntityBase & { type: "hatch"; loops: Vec[][]; pattern: string; scale: number; angle: number; seeds?: Vec[] };
+
+/** A block reference (INSERT): the block's objects placed at `at`, scaled and rotated about its
+ * base point. `attribs` are its attribute values by tag. */
+export type InsertEntity = EntityBase & { type: "insert"; block: string; at: Vec; scale: Vec; rotation: number; attribs: Record<string, string> };
+
+/** An attribute definition (ATTDEF): in a block, where a value goes and what each insert is
+ * asked for; outside a block it shows its tag. */
+export type AttdefEntity = EntityBase & {
+  type: "attdef";
+  at: Vec;
+  tag: string;
+  prompt: string;
+  value: string;
+  height: number;
+  rotation: number;
+  style: string;
+  halign: HAlign;
+  valign: VAlign;
+  invisible: boolean;
+};
+
+/** An image or a PDF page under the drawing (IMAGEATTACH, PDFATTACH), stored as a picture in
+ * file storage under `key`. `at` is its lower left corner; `fade` 0 to 100. */
+export type ImageEntity = EntityBase & { type: "image"; key: string; name: string; source: "image" | "pdf"; at: Vec; width: number; height: number; rotation: number; fade: number };
 
 export type Entity =
   | LineEntity
@@ -85,7 +111,10 @@ export type Entity =
   | MTextEntity
   | DimensionEntity
   | LeaderEntity
-  | HatchEntity;
+  | HatchEntity
+  | InsertEntity
+  | AttdefEntity
+  | ImageEntity;
 export type EntityType = Entity["type"];
 
 export type Layer = {
@@ -114,6 +143,9 @@ export type DimStyle = {
   textStyle: string;
 };
 
+/** A block definition: objects drawn about a base point, placed by inserts. */
+export type Block = { name: string; base: Vec; entities: Entity[]; description?: string };
+
 /** Drawing units: imperial drawings are in inches and read as feet and inches; metric ones in millimetres. */
 export type Units = "architectural" | "mm";
 
@@ -126,6 +158,7 @@ export type DrawingData = {
   entities: Entity[];
   textStyles?: TextStyle[];
   dimStyles?: DimStyle[];
+  blocks?: Block[];
   currentTextStyle?: string;
   currentDimStyle?: string;
   /** The annotation scale (as a factor: 48 for 1/4" = 1'-0"), for the size of new text, dimensions and hatches. */
@@ -148,6 +181,9 @@ export const ENTITY_NAMES: Record<EntityType, string> = {
   dimension: "Dimension",
   leader: "MultiLeader",
   hatch: "Hatch",
+  insert: "Block Reference",
+  attdef: "Attribute Definition",
+  image: "Image",
 };
 
 /** AutoCAD's starting styles: Standard (imperial, architectural ticks) or ISO-25 (metric). */

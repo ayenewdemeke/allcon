@@ -3,7 +3,8 @@
   "functions": {
     "api/ifc.py": {
       "maxDuration": 120,
-      "excludeFiles": "{node_modules/**,.next/**,src/**,public/**,prisma/**,samples/**,scripts/**,.git/**,**/*.test.*}"
+      "excludeFiles": "{node_modules/**,.next/**,src/**,public/**,prisma/**,samples/**,scripts/**,.git/**,**/*.test.*}",
+      "includeFiles": "api/_dxf.py"
     }
   }
 }

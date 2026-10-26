@@ -1,4 +1,4 @@
-import type { ArcEntity, EllipseEntity, Entity, HAlign, VAlign, Vec } from "./types";
+import type { ArcEntity, EllipseEntity, Entity, HAlign, ImageEntity, InsertEntity, VAlign, Vec } from "./types";
 
 // Plane geometry for drafting: entities as segments and arcs, their extents, distances,
 // intersections, and the grips that edit them.
@@ -33,7 +33,7 @@ export type TextRun = { at: Vec; text: string; height: number; rotation: number;
 /** An object's drawing: lines, filled polygons, and text. */
 export type Graphics = { lines: Vec[][]; fills: Vec[][]; texts: TextRun[] };
 
-const ANNOTATION_TYPES = new Set(["text", "mtext", "dimension", "leader", "hatch"]);
+const ANNOTATION_TYPES = new Set(["text", "mtext", "dimension", "leader", "hatch", "attdef"]);
 export const isAnnotation = (e: Entity) => ANNOTATION_TYPES.has(e.type);
 
 // Annotations' drawing depends on styles: graphics.ts provides it (see there).
@@ -44,8 +44,31 @@ export function setAnnotationGraphics(fn: typeof annotate, box: typeof boxOf) {
   boxOf = box;
 }
 
+// Block references are drawn as their block's objects in place: blocks.ts provides them.
+let partsOf: (e: InsertEntity) => Entity[] = () => [];
+export function setBlockParts(fn: typeof partsOf) {
+  partsOf = fn;
+}
+
 export function graphicsOf(e: Entity): Graphics {
+  if (e.type === "insert") {
+    const g: Graphics = { lines: [], fills: [], texts: [] };
+    for (const part of partsOf(e)) {
+      const pg = graphicsOf(part);
+      g.lines.push(...pg.lines);
+      g.fills.push(...pg.fills);
+      g.texts.push(...pg.texts);
+    }
+    return g;
+  }
   return isAnnotation(e) ? annotate(e) : { lines: tessellate(e), fills: [], texts: [] };
+}
+
+/** An image's corners, counter-clockwise from its lower left. */
+export function imageCorners(e: Pick<ImageEntity, "at" | "width" | "height" | "rotation">): Vec[] {
+  const u = polar({ x: 0, y: 0 }, e.rotation, e.width);
+  const v = polar({ x: 0, y: 0 }, e.rotation + Math.PI / 2, e.height);
+  return [e.at, add(e.at, u), add(add(e.at, u), v), add(e.at, v)];
 }
 
 /** The boxes around an object's text (text, mtext, a dimension's or a leader's). */
@@ -100,6 +123,46 @@ export type Segment = { kind: "seg"; a: Vec; b: Vec };
 export type ArcPrimitive = { kind: "arc"; c: Vec; r: number; start: number; end: number; full: boolean };
 export type Primitive = Segment | ArcPrimitive;
 
+/** A polyline's arc segment from `a` to `b` (DXF's bulge: the tangent of a quarter of the
+ * included angle, positive counter-clockwise). */
+export function bulgeArc(a: Vec, b: Vec, bulge: number) {
+  const chord = dist(a, b);
+  const sweep = 4 * Math.atan(bulge);
+  const r = chord / (2 * Math.abs(Math.sin(sweep / 2)));
+  const center = add(mid(a, b), mul(perp(unit(sub(b, a))), ((chord / 2) * (1 - bulge * bulge)) / (2 * bulge)));
+  return { center, r, start: angleOf(center, a), sweep };
+}
+
+const hasBulges = (e: { bulges: number[] }) => e.bulges.some((b) => Math.abs(b) > 1e-9);
+
+/** A polyline's segments and arcs. */
+function polylinePrimitives(points: Vec[], bulges: number[], closed: boolean): Primitive[] {
+  return polylineSegments(points, closed).map((s, i): Primitive => {
+    const b = bulges[i] ?? 0;
+    if (Math.abs(b) <= 1e-9 || same(s.a, s.b)) return s;
+    const arc = bulgeArc(s.a, s.b, b);
+    const [start, end] = b > 0 ? [arc.start, arc.start + arc.sweep] : [arc.start + arc.sweep, arc.start];
+    return { kind: "arc", c: arc.center, r: arc.r, start: normalizeAngle(start), end: normalizeAngle(end), full: false };
+  });
+}
+
+/** A polyline as points, its arc segments drawn smooth. */
+function polylinePoints(points: Vec[], bulges: number[], closed: boolean): Vec[] {
+  const ring = closed && points.length > 2 ? [...points, points[0]] : points;
+  if (!bulges.some((b) => Math.abs(b) > 1e-9)) return ring;
+  const out: Vec[] = [ring[0]];
+  for (let i = 0; i + 1 < ring.length; i++) {
+    const b = bulges[i] ?? 0;
+    if (Math.abs(b) > 1e-9 && !same(ring[i], ring[i + 1])) {
+      const arc = bulgeArc(ring[i], ring[i + 1], b);
+      const n = Math.max(4, Math.ceil((128 * Math.abs(arc.sweep)) / TAU));
+      for (let k = 1; k < n; k++) out.push(polar(arc.center, arc.start + (arc.sweep * k) / n, arc.r));
+    }
+    out.push(ring[i + 1]);
+  }
+  return out;
+}
+
 export function polylineSegments(points: Vec[], closed: boolean): Segment[] {
   const segs: Segment[] = [];
   for (let i = 0; i + 1 < points.length; i++) segs.push({ kind: "seg", a: points[i], b: points[i + 1] });
@@ -112,7 +175,7 @@ export function primitives(e: Entity): Primitive[] {
     case "line":
       return [{ kind: "seg", a: e.a, b: e.b }];
     case "polyline":
-      return polylineSegments(e.points, e.closed);
+      return polylinePrimitives(e.points, e.bulges, e.closed);
     case "circle":
       return [{ kind: "arc", c: e.center, r: e.radius, start: 0, end: TAU, full: true }];
     case "arc":
@@ -125,6 +188,10 @@ export function primitives(e: Entity): Primitive[] {
       return [{ kind: "seg", a: add(e.base, mul(e.dir, -FAR)), b: add(e.base, mul(e.dir, FAR)) }];
     case "ray":
       return [{ kind: "seg", a: e.base, b: add(e.base, mul(e.dir, FAR)) }];
+    case "insert":
+      return partsOf(e).flatMap(primitives);
+    case "image":
+      return polylineSegments(imageCorners(e), true);
     default:
       return []; // annotations aren't snapped to, cut or extended
   }
@@ -188,7 +255,7 @@ export function tessellate(e: Entity): Vec[][] {
     case "line":
       return [[e.a, e.b]];
     case "polyline":
-      return [e.closed && e.points.length > 2 ? [...e.points, e.points[0]] : e.points];
+      return [polylinePoints(e.points, e.bulges, e.closed)];
     case "circle":
       return [arcPoints(e.center, e.radius, 0, TAU)];
     case "arc":
@@ -203,6 +270,12 @@ export function tessellate(e: Entity): Vec[][] {
     case "xline":
     case "ray":
       return primitives(e).map((p) => [(p as Segment).a, (p as Segment).b]);
+    case "insert":
+      return partsOf(e).flatMap(tessellate);
+    case "image": {
+      const c = imageCorners(e);
+      return [[...c, c[0]]];
+    }
     default:
       return annotationOutline(e);
   }
@@ -230,7 +303,8 @@ export function bounds(e: Entity): Box {
       extendBox(box, e.b);
       break;
     case "polyline":
-      e.points.forEach((p) => extendBox(box, p));
+      if (hasBulges(e)) tessellate(e)[0].forEach((p) => extendBox(box, p));
+      else e.points.forEach((p) => extendBox(box, p));
       break;
     case "circle":
       extendBox(box, { x: e.center.x - e.radius, y: e.center.y - e.radius });
@@ -270,7 +344,8 @@ export function closestOnPrimitive(p: Vec, prim: Primitive): Vec {
   return dist(p, s) < dist(p, e) ? s : e;
 }
 
-export function distanceTo(e: Entity, p: Vec) {
+export function distanceTo(e: Entity, p: Vec): number {
+  if (e.type === "insert") return Math.min(Infinity, ...partsOf(e).map((part) => distanceTo(part, p)));
   if (isAnnotation(e)) {
     // Inside a text box or a hatched area counts as on it.
     const g = annotate(e);
@@ -410,7 +485,11 @@ export function translate<T extends Entity>(e: T, d: Vec): T {
     case "leader":
       return { ...e, points: e.points.map((p) => add(p, d)) };
     case "hatch":
-      return { ...e, loops: e.loops.map((loop) => loop.map((p) => add(p, d))) };
+      return { ...e, loops: e.loops.map((loop) => loop.map((p) => add(p, d))), ...(e.seeds ? { seeds: e.seeds.map((p) => add(p, d)) } : {}) };
+    case "insert":
+    case "attdef":
+    case "image":
+      return { ...e, at: add(e.at, d) };
   }
 }
 
@@ -478,7 +557,8 @@ export function transform<T extends Entity>(e: T, x: Xform): T {
     case "ray":
       return { ...e, base: applyXf(x, e.base), dir: unit(applyLinear(x, e.dir)) };
     case "text":
-    case "mtext": {
+    case "mtext":
+    case "attdef": {
       // Mirrored text still reads forwards (AutoCAD's MIRRTEXT 0): it keeps its mirrored "up".
       let rotation = mapAngle(e.rotation);
       if (flip) {
@@ -492,7 +572,25 @@ export function transform<T extends Entity>(e: T, x: Xform): T {
     case "leader":
       return { ...e, points: e.points.map((p) => applyXf(x, p)), height: e.height * k };
     case "hatch":
-      return { ...e, loops: e.loops.map((loop) => loop.map((p) => applyXf(x, p))), scale: e.scale * k, angle: mapAngle(e.angle) };
+      return {
+        ...e,
+        loops: e.loops.map((loop) => loop.map((p) => applyXf(x, p))),
+        scale: e.scale * k,
+        angle: mapAngle(e.angle),
+        ...(e.seeds ? { seeds: e.seeds.map((p) => applyXf(x, p)) } : {}),
+      };
+    case "insert": {
+      // Folded into the reference's own placement; mirrored, it's mirrored in its own Y.
+      const phi = Math.atan2(x.c, x.a);
+      return flip
+        ? { ...e, at: applyXf(x, e.at), rotation: phi - e.rotation, scale: { x: e.scale.x * k, y: -e.scale.y * k } }
+        : { ...e, at: applyXf(x, e.at), rotation: e.rotation + phi, scale: { x: e.scale.x * k, y: e.scale.y * k } };
+    }
+    case "image":
+      // Pictures aren't mirrored: a mirrored one keeps reading the right way.
+      return flip
+        ? { ...e, at: applyXf(x, imageCorners(e)[1]), rotation: mapAngle(e.rotation + Math.PI), width: e.width * k, height: e.height * k }
+        : { ...e, at: applyXf(x, e.at), rotation: mapAngle(e.rotation), width: e.width * k, height: e.height * k };
   }
 }
 
@@ -544,7 +642,11 @@ export function grips(e: Entity): Grip[] {
       return [{ point: e.base, kind: "stretch", index: 0 }];
     case "text":
     case "mtext":
+    case "attdef":
+    case "insert":
       return [{ point: e.at, kind: "move", index: 0 }];
+    case "image":
+      return imageCorners(e).map((point, index) => ({ point, kind: "stretch" as const, index }));
     case "dimension":
       return e.kind === "radius" || e.kind === "diameter"
         ? [
@@ -613,6 +715,13 @@ export function moveGrip<T extends Entity>(e: T, grip: Grip, to: Vec): T {
       const points = e.points.slice();
       points[grip.index] = to;
       return { ...e, points };
+    }
+    case "image": {
+      // A corner scales the picture about the opposite one, keeping its proportions.
+      const corners = imageCorners(e);
+      const anchor = corners[(grip.index + 2) % 4];
+      const k = Math.max(dist(anchor, to) / Math.max(dist(anchor, grip.point), EPS), 1e-6);
+      return { ...e, at: add(anchor, mul(sub(e.at, anchor), k)), width: e.width * k, height: e.height * k };
     }
     default:
       return translate(e, d);

@@ -89,7 +89,7 @@ export function Swatch({ color, dark, className }: { color: number | string; dar
   return <span className={cn("inline-block size-3 shrink-0 rounded-[2px] border border-foreground/30", className)} style={{ background: displayColor(color, dark) }} />;
 }
 
-/** AutoCAD's Select Color: the index colours, the greys, and ByLayer. */
+/** AutoCAD's Select Color: the index colours, the greys, ByLayer and ByBlock. */
 export function ColorPicker({ value, onChange, byLayer = true, dark }: { value: ColorValue; onChange: (c: ColorValue) => void; byLayer?: boolean; dark: boolean }) {
   const cell = (i: number) => (
     <button
@@ -104,9 +104,14 @@ export function ColorPicker({ value, onChange, byLayer = true, dark }: { value: 
   return (
     <div className="w-[22rem] space-y-2 p-1">
       {byLayer && (
-        <button type="button" onClick={() => onChange(null)} className={cn("w-full rounded px-2 py-1 text-left text-xs hover:bg-muted", value === null && "bg-muted font-medium")}>
-          ByLayer
-        </button>
+        <div className="flex gap-1">
+          <button type="button" onClick={() => onChange(null)} className={cn("flex-1 rounded px-2 py-1 text-left text-xs hover:bg-muted", value === null && "bg-muted font-medium")}>
+            ByLayer
+          </button>
+          <button type="button" onClick={() => onChange(0)} className={cn("flex-1 rounded px-2 py-1 text-left text-xs hover:bg-muted", value === 0 && "bg-muted font-medium")}>
+            ByBlock
+          </button>
+        </div>
       )}
       <div className="grid grid-cols-[repeat(24,minmax(0,1fr))]">{Array.from({ length: 240 }, (_, k) => cell(10 + (k % 24) * 10 + Math.floor(k / 24)))}</div>
       <div className="flex gap-1">{[1, 2, 3, 4, 5, 6, 7, 8, 9].map(cell)}</div>

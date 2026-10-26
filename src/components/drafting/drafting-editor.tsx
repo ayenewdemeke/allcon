@@ -2,11 +2,17 @@
 
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { AlertCircle, ArrowLeft, Check, Cloud, Loader2, Redo2, Undo2 } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
 import { LinkButton } from "@/components/ui/link-button";
 import { DEFAULT_SETTINGS, Editor, type Settings } from "@/lib/drafting/editor";
 import { emptyDrawing, type DrawingData, type Units } from "@/lib/drafting/types";
 import { cn } from "@/lib/utils";
+import { attachFile } from "./attach";
+import { BlocksPalette } from "./blocks-palette";
 import { CommandLine } from "./command-line";
+import { DraftingDialog } from "./dialogs";
 import { DraftingCanvas } from "./drafting-canvas";
 import { LayerManager, PropertiesPalette, StylesPalette } from "./palettes";
 import { Ribbon } from "./ribbon";
@@ -19,6 +25,7 @@ import { displayColor } from "@/lib/drafting/aci";
 // to the editor, and saves as you work.
 
 type SaveState = "saved" | "unsaved" | "saving" | "error" | "conflict";
+type PaletteName = "properties" | "layers" | "styles" | "blocks";
 
 const THEME_KEY = "conkit:drafting-theme";
 const SETTINGS_KEY = "conkit:drafting-settings";
@@ -106,7 +113,8 @@ function Workspace({ editor, drawing, backHref, hadView }: { editor: Editor; dra
   // The theme is a per-person preference: light unless they chose dark. (The workspace only
   // renders in the browser, after the drawing loads, so storage is there to read.)
   const [dark, setDark] = useState(() => stored(THEME_KEY, { dark: false }).dark);
-  const [palettes, setPalettes] = useState({ properties: false, layers: false, styles: false });
+  const [palettes, setPalettes] = useState({ properties: false, layers: false, styles: false, blocks: false });
+  const [pagePick, setPagePick] = useState<{ count: number; resolve: (page: number | null) => void } | null>(null);
   const [save, setSave] = useState<SaveState>("saved");
   const chooseTheme = (d: boolean) => {
     setDark(d);
@@ -115,10 +123,7 @@ function Workspace({ editor, drawing, backHref, hadView }: { editor: Editor; dra
     } catch {}
   };
 
-  const togglePalette = useCallback((p: "properties" | "layers" | "styles") => setPalettes((s) => ({ ...s, [p]: !s[p] })), []);
-  useEffect(() => {
-    editor.setUi({ openPalette: (p) => setPalettes((s) => ({ ...s, [p]: true })) });
-  }, [editor]);
+  const togglePalette = useCallback((p: PaletteName) => setPalettes((s) => ({ ...s, [p]: !s[p] })), []);
 
   // Drafting aids (snaps, polar angle, grid) are remembered between drawings.
   useEffect(() => {
@@ -129,19 +134,19 @@ function Workspace({ editor, drawing, backHref, hadView }: { editor: Editor; dra
 
   // --- saving -----------------------------------------------------------------------------
   const revision = useRef(drawing.revision);
-  const savedVersion = useRef(editor.doc.version);
+  const savedVersion = useRef(editor.drawing.version);
   const saving = useRef(false);
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
   const saveNow = useCallback(async () => {
     clearTimeout(timer.current);
     if (saving.current) return;
-    const version = editor.doc.version;
+    const version = editor.drawing.version;
     if (version === savedVersion.current) return;
     saving.current = true;
     setSave("saving");
     try {
-      const data = editor.doc.toData({ ...editor.view });
+      const data = editor.drawing.toData({ ...editor.view });
       const body = await gzip(JSON.stringify(data));
       const link = await fetch(`/api/drafting/${drawing.id}/save`, { method: "POST" });
       if (!link.ok) throw new Error();
@@ -156,18 +161,18 @@ function Workspace({ editor, drawing, backHref, hadView }: { editor: Editor; dra
       if (!done.ok) throw new Error();
       revision.current = ((await done.json()) as { revision: number }).revision;
       savedVersion.current = version;
-      setSave(editor.doc.version === version ? "saved" : "unsaved");
+      setSave(editor.drawing.version === version ? "saved" : "unsaved");
     } catch {
       setSave("error");
     } finally {
       saving.current = false;
-      if (editor.doc.version !== savedVersion.current) timer.current = setTimeout(() => void saveNow(), 1500);
+      if (editor.drawing.version !== savedVersion.current) timer.current = setTimeout(() => void saveNow(), 1500);
     }
   }, [editor, drawing.id]);
 
   useEffect(
     () =>
-      editor.doc.subscribe(() => {
+      editor.drawing.subscribe(() => {
         setSave((s) => (s === "conflict" ? s : "unsaved"));
         clearTimeout(timer.current);
         timer.current = setTimeout(() => void saveNow(), 1500);
@@ -177,7 +182,7 @@ function Workspace({ editor, drawing, backHref, hadView }: { editor: Editor; dra
 
   useEffect(() => {
     const warn = (e: BeforeUnloadEvent) => {
-      if (editor.doc.version !== savedVersion.current) e.preventDefault();
+      if (editor.drawing.version !== savedVersion.current) e.preventDefault();
     };
     window.addEventListener("beforeunload", warn);
     return () => {
@@ -186,11 +191,50 @@ function Workspace({ editor, drawing, backHref, hadView }: { editor: Editor; dra
     };
   }, [editor]);
 
+  // --- attaching and exporting -----------------------------------------------------------------
+  const choosePage = useCallback((count: number) => new Promise<number | null>((resolve) => setPagePick({ count, resolve })), []);
+
+  const exportDxf = useCallback(async () => {
+    // The export is made from the saved drawing: save first.
+    while (saving.current) await new Promise((r) => setTimeout(r, 200));
+    await saveNow();
+    editor.print("Exporting DXF…", "info");
+    try {
+      const res = await fetch(`/api/drafting/${drawing.id}/dxf`, { cache: "no-store" });
+      const body = (await res.json()) as { url?: string; error?: string; skipped?: Record<string, number> };
+      if (!res.ok || !body.url) throw new Error(body.error ?? "Could not export the drawing");
+      const link = document.createElement("a");
+      link.href = body.url;
+      link.click();
+      const pictures = body.skipped?.image;
+      editor.print(`Exported ${drawing.name}.dxf${pictures ? ` (without its ${pictures} attached picture${pictures === 1 ? "" : "s"})` : ""}.`, "info");
+    } catch (err) {
+      editor.print(err instanceof Error ? err.message : "Could not export the drawing", "error");
+    }
+  }, [editor, drawing.id, drawing.name, saveNow]);
+
+  useEffect(() => {
+    editor.setUi({
+      openPalette: (p) => setPalettes((s) => ({ ...s, [p]: true })),
+      attach: async (source) => {
+        try {
+          const file = await attachFile(drawing.id, editor.doc.units, source, choosePage);
+          if (file) editor.print(`Attached ${file.name}.`, "info");
+          return file;
+        } catch (err) {
+          editor.print(err instanceof Error ? err.message : "Could not attach the file", "error");
+          return null;
+        }
+      },
+      exportDxf: () => void exportDxf(),
+    });
+  }, [editor, drawing.id, choosePage, exportDxf]);
+
   // --- the keyboard ---------------------------------------------------------------------------
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement | null;
-      if (target?.closest("input, textarea, select, [contenteditable='true']")) return;
+      if (target?.closest("input, textarea, select, [contenteditable='true']") || editor.dialog) return;
       const ctrl = e.ctrlKey || e.metaKey;
       if (ctrl && e.key.toLowerCase() === "s") {
         e.preventDefault();
@@ -203,13 +247,15 @@ function Workspace({ editor, drawing, backHref, hadView }: { editor: Editor; dra
     return () => window.removeEventListener("keydown", onKey);
   }, [editor, saveNow]);
 
+  const pictureUrl = useCallback((key: string) => `/api/drafting/${drawing.id}/attachments?key=${encodeURIComponent(key)}`, [drawing.id]);
+
   const onReady = useCallback(() => {
     if (hadView) return;
-    if (editor.doc.entities.size) editor.zoomExtents();
+    if (editor.drawing.entities.size) editor.zoomExtents();
     else editor.home();
   }, [editor, hadView]);
 
-  const showPalettes = palettes.properties || palettes.layers || palettes.styles;
+  const showPalettes = palettes.properties || palettes.layers || palettes.styles || palettes.blocks;
 
   return (
     <div data-drafting-root className={cn("relative flex h-svh min-h-[32rem] flex-col bg-background text-foreground", dark && "dark")}>
@@ -238,7 +284,7 @@ function Workspace({ editor, drawing, backHref, hadView }: { editor: Editor; dra
       />
       <div className="flex min-h-0 flex-1">
         <div className="relative min-w-0 flex-1">
-          <DraftingCanvas editor={editor} dark={dark} onReady={onReady} />
+          <DraftingCanvas editor={editor} dark={dark} onReady={onReady} pictureUrl={pictureUrl} />
           {state.textEdit && (
             <TextEditor
               key={`${state.textEdit.at.x},${state.textEdit.at.y}`}
@@ -254,10 +300,55 @@ function Workspace({ editor, drawing, backHref, hadView }: { editor: Editor; dra
             {palettes.properties && <PropertiesPalette editor={editor} state={state} dark={dark} onClose={() => togglePalette("properties")} />}
             {palettes.layers && <LayerManager editor={editor} state={state} dark={dark} onClose={() => togglePalette("layers")} />}
             {palettes.styles && <StylesPalette editor={editor} state={state} onClose={() => togglePalette("styles")} />}
+            {palettes.blocks && <BlocksPalette editor={editor} state={state} dark={dark} onClose={() => togglePalette("blocks")} />}
           </aside>
         )}
       </div>
       <StatusBar editor={editor} state={state} dark={dark} onTheme={chooseTheme} />
+      {state.dialog && <DraftingDialog editor={editor} request={state.dialog} />}
+      {pagePick && (
+        <PagePicker
+          count={pagePick.count}
+          onDone={(page) => {
+            pagePick.resolve(page);
+            setPagePick(null);
+          }}
+        />
+      )}
     </div>
+  );
+}
+
+/** Which page of a PDF to attach (PDFATTACH's page list). */
+function PagePicker({ count, onDone }: { count: number; onDone: (page: number | null) => void }) {
+  const [page, setPage] = useState("1");
+  const n = Math.round(Number(page));
+  const valid = Number.isFinite(n) && n >= 1 && n <= count;
+  return (
+    <Dialog open onOpenChange={(open) => !open && onDone(null)}>
+      <DialogContent className="sm:max-w-xs" onKeyDown={(e) => e.stopPropagation()}>
+        <form
+          className="grid gap-4"
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (valid) onDone(n);
+          }}
+        >
+          <DialogHeader>
+            <DialogTitle>Attach PDF Underlay</DialogTitle>
+            <DialogDescription>This PDF has {count} pages. Which one goes under the drawing?</DialogDescription>
+          </DialogHeader>
+          <Input type="number" min={1} max={count} value={page} onChange={(e) => setPage(e.target.value)} autoFocus aria-label="Page" />
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => onDone(null)}>
+              Cancel
+            </Button>
+            <Button type="submit" disabled={!valid}>
+              OK
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
   );
 }

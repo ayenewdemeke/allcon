@@ -1,11 +1,14 @@
 import RBush from "rbush";
+import { applyBlocks } from "./blocks";
+import { findBoundary } from "./boundary";
 import { bounds, emptyBox, isAnnotation, type Box } from "./geometry";
 import { applyStyles } from "./graphics";
-import { defaultStyles, type DimStyle, type DrawingData, type Entity, type Layer, type TextStyle, type Units } from "./types";
+import { defaultStyles, type Block, type DimStyle, type DrawingData, type Entity, type HatchEntity, type Layer, type TextStyle, type Units } from "./types";
 
 // The open drawing: its entities and layers, a spatial index for picking and snapping, and
 // undo. Every change happens inside a transaction (one command is one undo step, as in
-// AutoCAD), and listeners hear about each one.
+// AutoCAD), and listeners hear about each one. Associative hatches follow their boundaries
+// within the same undo step.
 
 type Item = Box & { id: string };
 export type Setting = "currentTextStyle" | "currentDimStyle" | "annoScale";
@@ -15,10 +18,18 @@ type Change =
   | { kind: "current"; before: string; after: string }
   | { kind: "textStyle"; before: TextStyle | null; after: TextStyle | null }
   | { kind: "dimStyle"; before: DimStyle | null; after: DimStyle | null }
+  | { kind: "block"; before: Block | null; after: Block | null }
   | { kind: "setting"; key: Setting; before: string | number; after: string | number };
 type Transaction = { label: string; changes: Change[] };
 
-export const newId = () => crypto.randomUUID().replace(/-/g, "").slice(0, 16);
+/** What PURGE can remove: the names nothing uses. */
+export type Unused = { blocks: string[]; layers: string[]; textStyles: string[]; dimStyles: string[] };
+
+// Versions are unique across documents, so a view of one never mistakes another for it (the
+// block editor swaps documents in and out).
+let versions = 0;
+
+export { newId } from "./ids";
 
 export class DraftDocument {
   units: Units;
@@ -27,12 +38,13 @@ export class DraftDocument {
   currentLayer: string;
   textStyles = new Map<string, TextStyle>();
   dimStyles = new Map<string, DimStyle>();
+  blocks = new Map<string, Block>();
   currentTextStyle: string;
   currentDimStyle: string;
   /** The annotation scale factor (48 for 1/4" = 1'-0", 50 for 1:50): new text, dimensions and hatches are sized for it. */
   annoScale: number;
-  /** Bumped on every change; the renderer redraws when it moves. */
-  version = 0;
+  /** Changes on every change; the renderer redraws when it moves. */
+  version = ++versions;
 
   private tree = new RBush<Item>();
   private items = new Map<string, Item>();
@@ -52,8 +64,15 @@ export class DraftDocument {
     this.currentTextStyle = data.currentTextStyle && this.textStyles.has(data.currentTextStyle) ? data.currentTextStyle : this.textStyles.keys().next().value!;
     this.currentDimStyle = data.currentDimStyle && this.dimStyles.has(data.currentDimStyle) ? data.currentDimStyle : this.dimStyles.keys().next().value!;
     this.annoScale = data.annoScale ?? defaults.annoScale;
-    this.syncStyles();
+    for (const b of data.blocks ?? []) this.blocks.set(b.name, b);
+    this.activate();
     for (const e of data.entities) this.place(e);
+  }
+
+  /** Makes this the document being drawn: annotations use its styles, references its blocks. */
+  activate() {
+    this.syncStyles();
+    applyBlocks(this.blocks);
   }
 
   /** Annotations are drawn with these styles. */
@@ -71,6 +90,7 @@ export class DraftDocument {
       entities: [...this.entities.values()],
       textStyles: [...this.textStyles.values()],
       dimStyles: [...this.dimStyles.values()],
+      blocks: [...this.blocks.values()],
       currentTextStyle: this.currentTextStyle,
       currentDimStyle: this.currentDimStyle,
       annoScale: this.annoScale,
@@ -86,7 +106,7 @@ export class DraftDocument {
   }
 
   private changed() {
-    this.version++;
+    this.version = ++versions;
     for (const l of this.listeners) l();
   }
 
@@ -152,6 +172,7 @@ export class DraftDocument {
 
   commit() {
     const tx = this.open;
+    if (tx?.changes.length) this.reassociate(tx);
     this.open = null;
     if (tx && tx.changes.length) {
       this.undoStack.push(tx);
@@ -202,6 +223,14 @@ export class DraftDocument {
       this.syncStyles();
       // Annotations drawn with the style change size: re-index them.
       for (const e of this.entities.values()) if (isAnnotation(e)) this.place(e);
+    } else if (change.kind === "block") {
+      const block = target as Block | null;
+      const gone = (backwards ? change.after : change.before) ?? block;
+      this.blocks.delete(gone!.name);
+      if (block) this.blocks.set(block.name, block);
+      applyBlocks(this.blocks);
+      // References draw their block afresh: re-index them.
+      for (const e of this.entities.values()) if (e.type === "insert") this.place(e);
     } else if (change.kind === "setting") {
       (this as unknown as Record<Setting, string | number>)[change.key] = target as string | number;
     } else {
@@ -295,6 +324,96 @@ export class DraftDocument {
 
   setSetting(key: Setting, value: string | number) {
     if (this[key] !== value) this.record({ kind: "setting", key, before: this[key], after: value });
+  }
+
+  /** Defines (or redefines) a block. */
+  setBlock(block: Block) {
+    this.record({ kind: "block", before: this.blocks.get(block.name) ?? null, after: block });
+  }
+
+  // --- associative hatches -----------------------------------------------------------------
+
+  /** Hatches whose boundary changed in this step are traced again from the points picked for
+   * them; one whose boundary is gone stops following it (as AutoCAD drops associativity). */
+  private reassociate(tx: Transaction) {
+    const touched = new Set<string>();
+    const boxes: Box[] = [];
+    for (const c of tx.changes) {
+      if (c.kind !== "entity") continue;
+      for (const e of [c.before, c.after]) {
+        if (!e) continue;
+        touched.add(e.id);
+        if (e.type !== "hatch") boxes.push(bounds(e));
+      }
+    }
+    if (!boxes.length) return;
+    const hatches = new Map<string, HatchEntity>();
+    for (const box of boxes) {
+      for (const e of this.query(box)) if (e.type === "hatch" && e.seeds?.length && !touched.has(e.id)) hatches.set(e.id, e);
+    }
+    for (const hatch of hatches.values()) {
+      const region = bounds(hatch);
+      for (const box of boxes) {
+        region.minX = Math.min(region.minX, box.minX);
+        region.minY = Math.min(region.minY, box.minY);
+        region.maxX = Math.max(region.maxX, box.maxX);
+        region.maxY = Math.max(region.maxY, box.maxY);
+      }
+      const around = this.query(region).filter((e) => e.id !== hatch.id && this.isVisible(e));
+      const tolerance = Math.max(region.maxX - region.minX, region.maxY - region.minY) * 1e-7;
+      const loops = [];
+      for (const seed of hatch.seeds!) {
+        const found = findBoundary(around, seed, tolerance);
+        if (!found) {
+          loops.length = 0;
+          break;
+        }
+        loops.push(...found);
+      }
+      this.update(loops.length ? { ...hatch, loops } : { ...hatch, seeds: undefined });
+    }
+  }
+
+  // --- purging --------------------------------------------------------------------------
+
+  /** Blocks, layers and styles nothing in the drawing uses, as PURGE lists them. */
+  unused(): Unused {
+    const blocks = new Set<string>();
+    const layers = new Set(["0", "Defpoints", this.currentLayer]);
+    const textStyles = new Set([this.currentTextStyle]);
+    const dimStyles = new Set([this.currentDimStyle]);
+    const mark = (e: Entity, inModel: boolean) => {
+      layers.add(e.layer);
+      if (e.type === "text" || e.type === "mtext" || e.type === "attdef") textStyles.add(e.style);
+      if (e.type === "dimension") dimStyles.add(e.style);
+      if (e.type === "leader") {
+        textStyles.add(e.style);
+        dimStyles.add(e.dimStyle);
+      }
+      if (e.type === "insert" && inModel && !blocks.has(e.block)) {
+        blocks.add(e.block);
+        for (const child of this.blocks.get(e.block)?.entities ?? []) mark(child, true);
+      }
+    };
+    for (const e of this.entities.values()) mark(e, true);
+    // Layers and styles inside any block count as used (purge the block first).
+    for (const b of this.blocks.values()) for (const e of b.entities) mark(e, false);
+    for (const d of this.dimStyles.values()) if (dimStyles.has(d.name)) textStyles.add(d.textStyle);
+    return {
+      blocks: [...this.blocks.keys()].filter((n) => !blocks.has(n)),
+      layers: [...this.layers.keys()].filter((n) => !layers.has(n)),
+      textStyles: [...this.textStyles.keys()].filter((n) => !textStyles.has(n) && n !== "Standard"),
+      dimStyles: [...this.dimStyles.keys()].filter((n) => !dimStyles.has(n)),
+    };
+  }
+
+  /** Removes what PURGE was asked to (only what's unused). */
+  purge(items: Partial<Unused>) {
+    const unused = this.unused();
+    for (const name of items.blocks ?? []) if (unused.blocks.includes(name)) this.record({ kind: "block", before: this.blocks.get(name)!, after: null });
+    for (const name of items.layers ?? []) if (unused.layers.includes(name)) this.record({ kind: "layer", before: this.layers.get(name)!, after: null });
+    for (const name of items.textStyles ?? []) if (unused.textStyles.includes(name)) this.record({ kind: "textStyle", before: this.textStyles.get(name)!, after: null });
+    for (const name of items.dimStyles ?? []) if (unused.dimStyles.includes(name)) this.record({ kind: "dimStyle", before: this.dimStyles.get(name)!, after: null });
   }
 
   setCurrentLayer(name: string) {

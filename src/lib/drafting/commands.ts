@@ -36,6 +36,7 @@ import {
   TextCommand,
   TextEditCommand,
 } from "./commands-annotate";
+import { AttachCommand, AttdefCommand, AttEditCommand, BeditCommand, BlockCommand, InsertCommand, InsertPaletteCommand } from "./commands-blocks";
 import type { Editor } from "./editor";
 import type { Vec } from "./types";
 
@@ -144,6 +145,19 @@ export const COMMANDS: CommandInfo[] = [
   command("HATCH", ["H", "BH"], "Fills an enclosed area or selected objects with a hatch pattern or fill", (ed) => new HatchCommand(ed)),
   command("STYLE", ["ST"], "Creates, modifies, or specifies text styles", (ed) => new ImmediateCommand(ed, "STYLE", (e) => e.ui.openPalette("styles"))),
   command("DIMSTYLE", ["D", "DST"], "Creates and modifies dimension styles", (ed) => new ImmediateCommand(ed, "DIMSTYLE", (e) => e.ui.openPalette("styles"))),
+  // Blocks and references
+  command("BLOCK", ["B", "BMAKE"], "Creates a block definition from selected objects", (ed) => new BlockCommand(ed)),
+  command("INSERT", ["I", "CLASSICINSERT"], "Inserts a block from the Blocks palette", (ed) => new InsertPaletteCommand(ed)),
+  command("-INSERT", ["-I"], "Inserts a block by name at the command line", (ed) => new InsertCommand(ed)),
+  command("ATTDEF", ["ATT"], "Creates an attribute definition for storing data in a block", (ed) => new AttdefCommand(ed)),
+  command("EATTEDIT", ["ATTEDIT", "ATE"], "Edits the attribute values of a block reference", (ed) => new AttEditCommand(ed)),
+  command("BEDIT", ["BE"], "Opens a block definition in the block editor", (ed) => new BeditCommand(ed)),
+  command("BSAVE", [], "Saves the block in the block editor", (ed) => new ImmediateCommand(ed, "BSAVE", (e) => (e.blockEdit ? e.saveBlock() : e.print("The block editor isn't open.", "error")))),
+  command("BCLOSE", [], "Closes the block editor", (ed) => new ImmediateCommand(ed, "BCLOSE", (e) => (e.blockEdit ? e.requestCloseBlockEditor() : e.print("The block editor isn't open.", "error")))),
+  command("PURGE", ["PU"], "Removes unused blocks, layers and styles from the drawing", (ed) => new ImmediateCommand(ed, "PURGE", (e) => e.openDialog({ kind: "purge", done: () => {} }))),
+  command("IMAGEATTACH", ["IAT", "ATTACH"], "Attaches a picture under the drawing", (ed) => new AttachCommand(ed, "image")),
+  command("PDFATTACH", [], "Attaches a page of a PDF under the drawing", (ed) => new AttachCommand(ed, "pdf")),
+  command("DXFOUT", ["EXPORT", "SAVEAS"], "Downloads the drawing as a DXF file for AutoCAD and other CAD programs", (ed) => new ImmediateCommand(ed, "DXFOUT", (e) => e.ui.exportDxf())),
   // View and tools
   command("ZOOM", ["Z"], "Increases or decreases the magnification of the view", (ed) => new ZoomCommand(ed)),
   command("PAN", ["P"], "Moves the view", (ed) => new PanCommand(ed)),
@@ -155,8 +169,10 @@ export const COMMANDS: CommandInfo[] = [
 ];
 
 export function findCommand(text: string): CommandInfo | undefined {
-  const t = text.trim().toUpperCase().replace(/^[_.\-']+/, "");
-  return COMMANDS.find((c) => c.name === t || c.aliases.includes(t));
+  // A leading hyphen asks for the command-line version (-INSERT); otherwise it's ignored.
+  const raw = text.trim().toUpperCase().replace(/^[_.']+/, "");
+  const t = raw.replace(/^-+/, "");
+  return COMMANDS.find((c) => c.name === raw || c.aliases.includes(raw)) ?? COMMANDS.find((c) => c.name === t || c.aliases.includes(t));
 }
 
 /** AutoComplete for the command line: names and aliases starting with what's typed. */

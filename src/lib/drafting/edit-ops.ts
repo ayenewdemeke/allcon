@@ -1,6 +1,8 @@
+import { explodeInsert } from "./blocks";
 import {
   add,
   angleOf,
+  bulgeArc,
   cross,
   dist,
   distanceTo,
@@ -484,10 +486,20 @@ export const offsetDistanceTo = (e: Entity, p: Vec) => distanceTo(e, p);
 // --- join, explode, stretch ------------------------------------------------------------------
 
 export function explode(e: Entity): Entity[] | null {
+  if (e.type === "insert") return explodeInsert(e);
   if (e.type !== "polyline" || e.points.length < 2) return null;
   const n = e.points.length;
   const count = e.closed && n > 2 ? n : n - 1;
-  return Array.from({ length: count }, (_, i) => line(e, e.points[i], e.points[(i + 1) % n])).filter((l) => !same(l.a, l.b));
+  return Array.from({ length: count }, (_, i): Entity => {
+    const [a, b] = [e.points[i], e.points[(i + 1) % n]];
+    const bulge = e.bulges[i] ?? 0;
+    if (Math.abs(bulge) <= 1e-9 || same(a, b)) return line(e, a, b);
+    // Arc segments become arcs.
+    const arc = bulgeArc(a, b, bulge);
+    const [start, end] = bulge > 0 ? [arc.start, arc.start + arc.sweep] : [arc.start + arc.sweep, arc.start];
+    const arcEntity: ArcEntity = { id: e.id, layer: e.layer, color: e.color, lineweight: e.lineweight, linetype: e.linetype, type: "arc", center: arc.center, radius: arc.r, start, end };
+    return arcEntity;
+  }).filter((x) => x.type !== "line" || !same(x.a, x.b));
 }
 
 /** Joins objects end to end: collinear lines into one line, contiguous arcs of one circle into one arc, and chains of lines and polylines into a polyline. */
@@ -617,5 +629,9 @@ export function stretch(e: Entity, boxes: Box[], d: Vec): Entity {
       return { ...e, points: e.points.map(move) };
     case "hatch":
       return { ...e, loops: e.loops.map((loop) => loop.map(move)) };
+    case "insert":
+    case "attdef":
+    case "image":
+      return inAny(e.at, boxes) ? translate(e, d) : e;
   }
 }

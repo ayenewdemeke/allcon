@@ -2,9 +2,10 @@ import "server-only";
 import { createHmac } from "node:crypto";
 import { env } from "@/lib/env";
 import type { Georef } from "@/lib/maps/placement";
-import { newFileKey, signedReadUrl, signedWriteUrl } from "@/lib/storage";
+import { newFileKey, signedReadUrl, signedWriteUrl, type StoredFile } from "@/lib/storage";
 
-// Calls the IfcOpenShell worker (api/ifc.py), a Python function in the same deployment. Only
+// Calls the IfcOpenShell worker (api/ifc.py), a Python function in the same deployment, which
+// also converts drafting drawings to and from DXF. Only
 // conkit's server may call it: requests carry a key derived from the auth secret, which the
 // worker derives the same way. Models never pass through the request: the worker reads and
 // writes them in file storage through signed links, so there's no size limit and no state.
@@ -51,14 +52,22 @@ type WorkerResponse = {
   handles?: unknown;
   result?: unknown;
   elements?: WorkerElement[];
+  /** DXF: objects left out, by type. */
+  skipped?: Record<string, number>;
+  units?: string;
+  count?: number;
 };
 
-async function call(action: string, params: unknown, files: { read?: string; write?: string } = {}): Promise<WorkerResponse> {
+async function call(
+  action: string,
+  params: unknown,
+  files: { read?: string; write?: string; writeAs?: StoredFile; readAs?: "ifc_url" | "drawing_url" | "dxf_url" } = {},
+): Promise<WorkerResponse> {
   const payload = {
     action,
     params,
-    ifc_url: files.read ? await signedReadUrl(files.read) : undefined,
-    put: files.write ? await signedWriteUrl(files.write, IFC_FILE) : undefined,
+    [files.readAs ?? "ifc_url"]: files.read ? await signedReadUrl(files.read) : undefined,
+    put: files.write ? await signedWriteUrl(files.write, files.writeAs ?? IFC_FILE) : undefined,
   };
   let res: Response;
   try {
@@ -116,4 +125,16 @@ export async function workerElements(fileKey: string) {
 
 export async function workerHelp(usecase: string) {
   return (await call("help", { usecase })).result;
+}
+
+/** A drawing (its file at `drawingKey`) as DXF, written to `dxfKey`. */
+export async function workerDxfExport(drawingKey: string, dxfKey: string) {
+  const body = await call("dxf_export", {}, { read: drawingKey, readAs: "drawing_url", write: dxfKey, writeAs: { contentType: "application/dxf" } });
+  return { size: body.size ?? null, skipped: body.skipped ?? {} };
+}
+
+/** A DXF file (at `dxfKey`) as a drawing, written to `drawingKey` (gzipped JSON). */
+export async function workerDxfImport(dxfKey: string, drawingKey: string, units: "architectural" | "mm" | null) {
+  const body = await call("dxf_import", { units }, { read: dxfKey, readAs: "dxf_url", write: drawingKey, writeAs: { contentType: "application/json", gzipped: true } });
+  return { units: body.units === "mm" ? ("mm" as const) : ("architectural" as const), count: body.count ?? 0, skipped: body.skipped ?? {} };
 }

@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { DraftingCompass } from "lucide-react";
-import { DrawingRowActions, NewDrawingDialog } from "@/components/drafting/drawing-list-actions";
+import { DrawingRowActions, ImportDxfDialog, NewDrawingDialog } from "@/components/drafting/drawing-list-actions";
 import { PageBody, PageHeader } from "@/components/shell/page-header";
 import { Card, CardContent } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -17,7 +17,13 @@ export default async function DraftingPage() {
 
   return (
     <PageBody>
-      <PageHeader title="Drafting" description="2D drawings, drafted the way you would in AutoCAD." actions={drawings.length > 0 && <NewDrawingDialog />} />
+      <PageHeader title="Drafting" description="2D drawings, drafted the way you would in AutoCAD." actions={
+          <div className="flex gap-2">
+            <ImportDxfDialog />
+            {drawings.length > 0 && <NewDrawingDialog />}
+          </div>
+        }
+      />
       {drawings.length === 0 ? (
         <Card>
           <CardContent className="flex flex-col items-center gap-4 py-16 text-center">

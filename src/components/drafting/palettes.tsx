@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { Check, Lightbulb, LightbulbOff, Lock, LockOpen, Plus, Snowflake, Sun, Trash, X } from "lucide-react";
 import { colorName } from "@/lib/drafting/aci";
+import { attributeDefs } from "@/lib/drafting/blocks";
 import type { Editor, Snapshot } from "@/lib/drafting/editor";
 import { angleOf, arcEnd, arcStart, dist, isFullEllipse, len as magnitude, sweepOf, TAU, tessellate } from "@/lib/drafting/geometry";
 import { formatAngle, formatLength, parseAngle, parseLength, trimNumber } from "@/lib/drafting/units";
@@ -272,6 +273,67 @@ function Geometry({ editor, e }: { editor: Editor; e: Entity }) {
           <Row label="Scale">{num(e.scale, (k) => ({ ...e, scale: Math.max(k, 1e-6) }), (t) => (Number.isFinite(Number(t)) && t.trim() ? Number(t) : null), (v) => trimNumber(v, 4))}</Row>
           <Row label="Angle">{num(e.angle, (a) => ({ ...e, angle: a }), (t) => parseAngle(t), formatAngle)}</Row>
           <Row label="Area"><Static>{area(Math.max(total, 0), units)}</Static></Row>
+        </Group>
+      );
+    }
+    case "insert": {
+      const defs = attributeDefs(editor.doc.blocks.get(e.block));
+      const scale = (n: string) => (Number.isFinite(Number(n)) && n.trim() && Number(n) !== 0 ? Number(n) : null);
+      return (
+        <>
+          <Group title="Geometry">
+            <Row label="Position X">{num(e.at.x, (x) => ({ ...e, at: { ...e.at, x } }))}</Row>
+            <Row label="Position Y">{num(e.at.y, (y) => ({ ...e, at: { ...e.at, y } }))}</Row>
+          </Group>
+          <Group title="Misc">
+            <Row label="Name"><Static>{e.block}</Static></Row>
+            <Row label="Rotation">{num(e.rotation, (a) => ({ ...e, rotation: a }), (t) => parseAngle(t), formatAngle)}</Row>
+            <Row label="Scale X">{num(e.scale.x, (x) => ({ ...e, scale: { ...e.scale, x } }), scale, (v) => trimNumber(v, 4))}</Row>
+            <Row label="Scale Y">{num(e.scale.y, (y) => ({ ...e, scale: { ...e.scale, y } }), scale, (v) => trimNumber(v, 4))}</Row>
+          </Group>
+          {defs.length > 0 && (
+            <Group title="Attributes">
+              {defs.map((d) => (
+                <Row key={d.tag} label={d.tag}>
+                  {editable ? (
+                    <TextField key={e.attribs[d.tag] ?? d.value} value={e.attribs[d.tag] ?? d.value} onCommit={(text) => set({ ...e, attribs: { ...e.attribs, [d.tag]: text } })} />
+                  ) : (
+                    <Static>{e.attribs[d.tag] ?? d.value}</Static>
+                  )}
+                </Row>
+              ))}
+            </Group>
+          )}
+        </>
+      );
+    }
+    case "attdef":
+      return (
+        <Group title="Attribute">
+          <Row label="Tag">{editable ? <TextField key={e.tag} value={e.tag} onCommit={(tag) => tag.trim() && !/\s/.test(tag.trim()) && set({ ...e, tag: tag.trim().toUpperCase() })} /> : <Static>{e.tag}</Static>}</Row>
+          <Row label="Prompt">{editable ? <TextField key={e.prompt} value={e.prompt} onCommit={(prompt) => set({ ...e, prompt })} /> : <Static>{e.prompt}</Static>}</Row>
+          <Row label="Default">{editable ? <TextField key={e.value} value={e.value} onCommit={(value) => set({ ...e, value })} /> : <Static>{e.value}</Static>}</Row>
+          <Row label="Invisible">
+            <select value={e.invisible ? "yes" : "no"} disabled={!editable} onChange={(ev) => set({ ...e, invisible: ev.target.value === "yes" })} className="h-5 w-full bg-transparent text-[11px] outline-none">
+              <option value="no">No</option>
+              <option value="yes">Yes</option>
+            </select>
+          </Row>
+          <Row label="Height">{num(e.height, (h) => ({ ...e, height: Math.max(h, 1e-9) }))}</Row>
+          <Row label="Rotation">{num(e.rotation, (a) => ({ ...e, rotation: a }), (t) => parseAngle(t), formatAngle)}</Row>
+        </Group>
+      );
+    case "image": {
+      const percent = (t: string) => (Number.isFinite(Number(t)) && t.trim() ? Math.min(Math.max(Number(t), 0), 100) : null);
+      return (
+        <Group title={e.source === "pdf" ? "PDF underlay" : "Image"}>
+          <Row label="Name"><Static>{e.name}</Static></Row>
+          <Row label="Position X">{num(e.at.x, (x) => ({ ...e, at: { ...e.at, x } }))}</Row>
+          <Row label="Position Y">{num(e.at.y, (y) => ({ ...e, at: { ...e.at, y } }))}</Row>
+          <Row label="Width">{num(e.width, (w) => ({ ...e, width: Math.max(w, 1e-9), height: (e.height * Math.max(w, 1e-9)) / e.width }))}</Row>
+          <Row label="Height">{num(e.height, (h) => ({ ...e, height: Math.max(h, 1e-9), width: (e.width * Math.max(h, 1e-9)) / e.height }))}</Row>
+          <Row label="Rotation">{num(e.rotation, (a) => ({ ...e, rotation: a }), (t) => parseAngle(t), formatAngle)}</Row>
+          <Row label="Fade">{num(e.fade, (f) => ({ ...e, fade: f }), percent, (v) => String(Math.round(v)))}</Row>
         </Group>
       );
     }

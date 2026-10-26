@@ -410,6 +410,12 @@ function annotationGraphics(e: Entity): Graphics {
     case "mtext":
       g = { lines: [], fills: [], texts: textRuns(e) };
       break;
+    case "attdef": {
+      // Outside a block an attribute definition shows its tag.
+      const style = textStyle(e.style);
+      g = { lines: [], fills: [], texts: [{ at: e.at, text: e.tag, height: e.height, rotation: e.rotation, font: style.font, widthFactor: style.widthFactor, halign: e.halign, valign: e.valign }] };
+      break;
+    }
     case "dimension":
       g = dimension(e);
       break;

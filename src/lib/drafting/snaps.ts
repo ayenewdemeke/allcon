@@ -1,11 +1,12 @@
 import { add, angleInSweep, arcEnd, arcMid, arcStart, closestOnPrimitive, dist, ellipseMinor, ellipsePoint, intersect, isFullEllipse, mid, polar, polylineSegments, primitives, sub, type Primitive } from "./geometry";
+import { blockParts } from "./blocks";
 import type { Entity, Vec } from "./types";
 
 // Object snaps, as in AutoCAD: the snap point nearest the cursor within the aperture wins,
 // "nearest" only when nothing else is close, and a circle or arc offers its centre when the
 // cursor is over its edge.
 
-export type SnapKind = "endpoint" | "midpoint" | "center" | "quadrant" | "intersection" | "perpendicular" | "nearest";
+export type SnapKind = "endpoint" | "midpoint" | "center" | "quadrant" | "intersection" | "perpendicular" | "insertion" | "nearest";
 export type Snap = { point: Vec; kind: SnapKind };
 
 export const SNAP_KINDS: { kind: SnapKind; label: string }[] = [
@@ -15,6 +16,7 @@ export const SNAP_KINDS: { kind: SnapKind; label: string }[] = [
   { kind: "quadrant", label: "Quadrant" },
   { kind: "intersection", label: "Intersection" },
   { kind: "perpendicular", label: "Perpendicular" },
+  { kind: "insertion", label: "Insertion" },
   { kind: "nearest", label: "Nearest" },
 ];
 
@@ -72,6 +74,15 @@ function pointSnaps(e: Entity, kinds: Set<SnapKind>): Snap[] {
     case "ray":
       push("endpoint", e.base);
       break;
+    case "text":
+    case "mtext":
+    case "attdef":
+    case "insert":
+      push("insertion", e.at);
+      break;
+    case "image":
+      push("insertion", e.at);
+      break;
   }
   return out;
 }
@@ -91,7 +102,19 @@ export function findSnap(entities: Entity[], cursor: Vec, aperture: number, kind
   };
   const near: { e: Entity; prims: Primitive[] }[] = [];
 
-  for (const e of entities) {
+  // A block reference snaps at its insertion point, and its objects as any others.
+  const expanded: Entity[] = [];
+  const expand = (e: Entity) => {
+    expanded.push(e);
+    if (e.type === "insert") blockParts(e).forEach(expand);
+  };
+  entities.forEach(expand);
+
+  for (const e of expanded) {
+    if (e.type === "insert") {
+      for (const s of pointSnaps(e, kinds)) consider(s.kind, s.point);
+      continue;
+    }
     const prims = primitives(e);
     const edge = Math.min(...prims.map((p) => dist(cursor, closestOnPrimitive(cursor, p))));
     if (edge <= aperture) near.push({ e, prims });

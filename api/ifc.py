@@ -7,6 +7,9 @@ no code sent to this worker is ever executed. Each request carries signed links:
 the model from file storage and, for changes, one to write the result, so models of any size
 pass straight between storage and the worker, which keeps no state.
 
+It also converts drafting drawings to and from DXF (api/_dxf.py, with ezdxf), the same way:
+read from and written to file storage through signed links.
+
 Deployed as a Vercel Python function at /api/ifc. Locally: python api/ifc.py (port 5328).
 """
 
@@ -21,6 +24,7 @@ import math
 import os
 import re
 import ssl
+import sys
 import time
 import urllib.request
 from http.server import BaseHTTPRequestHandler, HTTPServer
@@ -90,6 +94,43 @@ def dump(model, payload):
         if res.status >= 300:
             raise RuntimeError(f"Could not save the model (HTTP {res.status})")
     return len(data)
+
+
+def fetch(url):
+    """A file from storage through a signed link, unzipped if stored gzipped."""
+    with urllib.request.urlopen(url, timeout=60, context=SSL_CONTEXT) as res:
+        data = res.read()
+    return gzip.decompress(data) if data[:2] == b"\x1f\x8b" else data
+
+
+def store(payload, data):
+    """Writes bytes to file storage through the signed link conkit sends."""
+    target = payload.get("put") or {}
+    request = urllib.request.Request(target["url"], data=data, method="PUT", headers=target.get("headers") or {})
+    with urllib.request.urlopen(request, timeout=60, context=SSL_CONTEXT) as res:
+        if res.status >= 300:
+            raise RuntimeError(f"Could not save the file (HTTP {res.status})")
+    return len(data)
+
+
+def dxf_module():
+    # Next to this file; loaded only for DXF work, so 3D model requests don't pay for it.
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    import _dxf
+
+    return _dxf
+
+
+def dxf_export(payload):
+    drawing = json.loads(fetch(payload["drawing_url"]))
+    data, skipped = dxf_module().export_dxf(drawing)
+    return {"size": store(payload, data), "skipped": skipped}
+
+
+def dxf_import(payload, params):
+    drawing, skipped = dxf_module().import_dxf(fetch(payload["dxf_url"]), params.get("units"))
+    size = store(payload, gzip.compress(json.dumps(drawing, separators=(",", ":")).encode("utf-8")))
+    return {"size": size, "units": drawing["units"], "count": len(drawing["entities"]), "skipped": skipped}
 
 
 def describe(entity):
@@ -717,6 +758,10 @@ def handle(payload):
     params = payload.get("params") or {}
     if action == "help":
         return {"result": help_for(params)}
+    if action == "dxf_export":
+        return dxf_export(payload)
+    if action == "dxf_import":
+        return dxf_import(payload, params)
     if action == "create":
         model, handles = create(params)
         return {"size": dump(model, payload), "handles": handles, "summary": summary(model)}

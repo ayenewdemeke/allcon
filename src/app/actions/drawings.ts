@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { z } from "zod";
 import { getCurrentUser, isUuid, requireUser } from "@/lib/auth/session";
 import { db } from "@/lib/db";
+import { drawingExtraFiles } from "@/lib/drafting/server";
 import { deleteFiles } from "@/lib/storage";
 
 const name = z.string().trim().min(1, "Give the drawing a name").max(200);
@@ -42,7 +43,8 @@ export async function renameDrawing(drawingId: string, newName: string) {
 
 export async function deleteDrawing(drawingId: string) {
   const drawing = await ownDrawing(drawingId);
+  const extra = await drawingExtraFiles(drawing.id, drawing.fileKey);
   await db.drawing.delete({ where: { id: drawing.id } });
-  await deleteFiles([drawing.fileKey]).catch((err) => console.error("Could not delete a drawing's file", err));
+  await deleteFiles([drawing.fileKey, ...extra]).catch((err) => console.error("Could not delete a drawing's files", err));
   revalidatePath("/drafting");
 }
