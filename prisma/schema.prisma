@@ -132,6 +132,7 @@ model Project {
   reviews             Review[]
   mcpActivity         McpActivity[]
   ifcModels           IfcModel[]
+  drawings            Drawing[]
 
   @@index([orgId])
   @@map("project")
@@ -786,4 +787,22 @@ model ModelShareLink {
 
   @@index([modelId])
   @@map("model_share_link")
+}
+
+// A 2D drawing made in Drafting. The drawing itself (entities, layers) is a JSON file in file
+// storage; each save writes a new file and bumps the revision.
+model Drawing {
+  id          String   @id @default(uuid()) @db.Uuid
+  projectId   String   @map("project_id") @db.Uuid
+  name        String
+  fileKey     String?  @map("file_key") // null until first saved
+  revision    Int      @default(0)
+  entityCount Int      @default(0) @map("entity_count")
+  createdById String?  @map("created_by") @db.Uuid
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @default(now()) @updatedAt @map("updated_at")
+  project     Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId])
+  @@map("drawing")
 }

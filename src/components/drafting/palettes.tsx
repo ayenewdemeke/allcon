@@ -1,0 +1,433 @@
+"use client";
+
+import { useState } from "react";
+import { Check, Lightbulb, LightbulbOff, Lock, LockOpen, Plus, Snowflake, Sun, Trash, X } from "lucide-react";
+import { colorName } from "@/lib/drafting/aci";
+import type { Editor, Snapshot } from "@/lib/drafting/editor";
+import { angleOf, arcEnd, arcStart, dist, sweepOf, TAU } from "@/lib/drafting/geometry";
+import { formatAngle, formatLength, parseAngle, parseLength } from "@/lib/drafting/units";
+import { ENTITY_NAMES, newLayer, type Entity, type EntityType, type Layer, type Units } from "@/lib/drafting/types";
+import { cn } from "@/lib/utils";
+import { ColorPicker, LineweightPicker, lineweightName, Popover, Swatch } from "./controls";
+
+// The Properties palette (Ctrl+1) and the Layer Properties Manager (LA), docked on the right as
+// in AutoCAD.
+
+export function PaletteFrame({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
+  return (
+    <section className="flex min-h-0 flex-1 flex-col border-b last:border-b-0">
+      <header className="flex h-7 shrink-0 items-center justify-between border-b bg-muted/50 px-2 text-[11px] font-semibold tracking-wide uppercase">
+        {title}
+        <button type="button" onClick={onClose} className="rounded p-0.5 text-muted-foreground hover:bg-accent hover:text-foreground" aria-label={`Close ${title}`}>
+          <X className="size-3.5" />
+        </button>
+      </header>
+      <div className="min-h-0 flex-1 overflow-y-auto">{children}</div>
+    </section>
+  );
+}
+
+function Group({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <div>
+      <div className="bg-muted/40 px-2 py-0.5 text-[11px] font-semibold">{title}</div>
+      <div className="divide-y">{children}</div>
+    </div>
+  );
+}
+
+function Row({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="grid grid-cols-[6.5rem_minmax(0,1fr)] items-center text-[11px]">
+      <span className="truncate border-r px-2 py-1 text-muted-foreground">{label}</span>
+      <div className="min-w-0 px-1 py-0.5">{children}</div>
+    </div>
+  );
+}
+
+/** A value typed in and applied on Enter or leaving the field (bad input goes back). Keyed by its value, so a change elsewhere resets it. */
+function Field({ value, parse, onCommit }: { value: string; parse: (text: string) => number | null; onCommit: (n: number) => void }) {
+  const [text, setText] = useState(value);
+  const commit = () => {
+    const n = parse(text);
+    if (n === null || text === value) setText(value);
+    else onCommit(n);
+  };
+  return (
+    <input
+      value={text}
+      onChange={(e) => setText(e.target.value)}
+      onBlur={commit}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") commit();
+        if (e.key === "Escape") setText(value);
+      }}
+      className="h-5 w-full rounded-sm bg-transparent px-1 font-mono text-[11px] outline-none hover:bg-muted focus:bg-background focus:ring-1 focus:ring-primary"
+    />
+  );
+}
+
+const Static = ({ children }: { children: React.ReactNode }) => <span className="block truncate px-1 font-mono text-muted-foreground">{children}</span>;
+
+function area(a: number, units: Units) {
+  return units === "mm" ? `${(a / 1e6).toFixed(3)} m²` : `${(a / 144).toFixed(2)} sq ft`;
+}
+
+function polygonArea(points: { x: number; y: number }[]) {
+  let s = 0;
+  for (let i = 0; i < points.length; i++) {
+    const a = points[i];
+    const b = points[(i + 1) % points.length];
+    s += a.x * b.y - b.x * a.y;
+  }
+  return Math.abs(s) / 2;
+}
+
+function Geometry({ editor, e }: { editor: Editor; e: Entity }) {
+  const units = editor.doc.units;
+  const len = (v: number) => formatLength(v, units);
+  const parseLen = (t: string) => parseLength(t, units);
+  const set = (next: Entity) => editor.updateEntity(next);
+  const editable = editor.doc.isEditable(e);
+  const num = (value: number, apply: (n: number) => Entity, parse = parseLen, format = len) =>
+    editable ? <Field key={format(value)} value={format(value)} parse={parse} onCommit={(n) => set(apply(n))} /> : <Static>{format(value)}</Static>;
+
+  switch (e.type) {
+    case "line":
+      return (
+        <Group title="Geometry">
+          <Row label="Start X">{num(e.a.x, (x) => ({ ...e, a: { ...e.a, x } }))}</Row>
+          <Row label="Start Y">{num(e.a.y, (y) => ({ ...e, a: { ...e.a, y } }))}</Row>
+          <Row label="End X">{num(e.b.x, (x) => ({ ...e, b: { ...e.b, x } }))}</Row>
+          <Row label="End Y">{num(e.b.y, (y) => ({ ...e, b: { ...e.b, y } }))}</Row>
+          <Row label="Delta X"><Static>{len(e.b.x - e.a.x)}</Static></Row>
+          <Row label="Delta Y"><Static>{len(e.b.y - e.a.y)}</Static></Row>
+          <Row label="Length"><Static>{len(dist(e.a, e.b))}</Static></Row>
+          <Row label="Angle"><Static>{formatAngle(angleOf(e.a, e.b))}</Static></Row>
+        </Group>
+      );
+    case "circle":
+      return (
+        <Group title="Geometry">
+          <Row label="Center X">{num(e.center.x, (x) => ({ ...e, center: { ...e.center, x } }))}</Row>
+          <Row label="Center Y">{num(e.center.y, (y) => ({ ...e, center: { ...e.center, y } }))}</Row>
+          <Row label="Radius">{num(e.radius, (r) => ({ ...e, radius: Math.max(r, 1e-9) }))}</Row>
+          <Row label="Diameter">{num(e.radius * 2, (d) => ({ ...e, radius: Math.max(d / 2, 1e-9) }))}</Row>
+          <Row label="Circumference"><Static>{len(TAU * e.radius)}</Static></Row>
+          <Row label="Area"><Static>{area(Math.PI * e.radius * e.radius, units)}</Static></Row>
+        </Group>
+      );
+    case "arc": {
+      const sweep = sweepOf(e.start, e.end);
+      const angle = (t: string) => parseAngle(t);
+      return (
+        <Group title="Geometry">
+          <Row label="Center X">{num(e.center.x, (x) => ({ ...e, center: { ...e.center, x } }))}</Row>
+          <Row label="Center Y">{num(e.center.y, (y) => ({ ...e, center: { ...e.center, y } }))}</Row>
+          <Row label="Radius">{num(e.radius, (r) => ({ ...e, radius: Math.max(r, 1e-9) }))}</Row>
+          <Row label="Start angle">{num(e.start, (a) => ({ ...e, start: a }), angle, formatAngle)}</Row>
+          <Row label="End angle">{num(e.end, (a) => ({ ...e, end: a }), angle, formatAngle)}</Row>
+          <Row label="Total angle"><Static>{formatAngle(sweep)}</Static></Row>
+          <Row label="Arc length"><Static>{len(e.radius * sweep)}</Static></Row>
+          <Row label="Start X, Y"><Static>{`${len(arcStart(e).x)}, ${len(arcStart(e).y)}`}</Static></Row>
+          <Row label="End X, Y"><Static>{`${len(arcEnd(e).x)}, ${len(arcEnd(e).y)}`}</Static></Row>
+        </Group>
+      );
+    }
+    case "polyline": {
+      let length = 0;
+      for (let i = 0; i + 1 < e.points.length; i++) length += dist(e.points[i], e.points[i + 1]);
+      if (e.closed && e.points.length > 2) length += dist(e.points.at(-1)!, e.points[0]);
+      return (
+        <Group title="Geometry">
+          <Row label="Vertices"><Static>{e.points.length}</Static></Row>
+          <Row label="Closed">
+            {editable ? (
+              <select value={e.closed ? "yes" : "no"} onChange={(ev) => set({ ...e, closed: ev.target.value === "yes" })} className="h-5 w-full bg-transparent text-[11px] outline-none">
+                <option value="no">No</option>
+                <option value="yes">Yes</option>
+              </select>
+            ) : (
+              <Static>{e.closed ? "Yes" : "No"}</Static>
+            )}
+          </Row>
+          <Row label="Length"><Static>{len(length)}</Static></Row>
+          {e.closed && <Row label="Area"><Static>{area(polygonArea(e.points), units)}</Static></Row>}
+        </Group>
+      );
+    }
+  }
+}
+
+export function PropertiesPalette({ editor, state, dark, onClose }: { editor: Editor; state: Snapshot; dark: boolean; onClose: () => void }) {
+  const selected = editor.selected();
+  const types = [...new Set(selected.map((e) => e.type))] as EntityType[];
+  const [filter, setFilter] = useState<EntityType | "all">("all");
+  const kind = filter !== "all" && types.includes(filter) ? filter : "all";
+  const targets = kind === "all" ? selected : selected.filter((e) => e.type === kind);
+  const doc = editor.doc;
+
+  const common = <T,>(get: (e: Entity) => T, fallback: T): T | "varies" => {
+    if (!targets.length) return fallback;
+    const first = get(targets[0]);
+    return targets.every((e) => get(e) === first) ? first : "varies";
+  };
+  const color = common((e) => e.color, state.current.color);
+  const layer = common((e) => e.layer, state.currentLayer);
+  const lw = common((e) => e.lineweight, state.current.lineweight);
+  // Changing a filtered selection only changes the filtered objects, as in AutoCAD.
+  const apply = (patch: Partial<Pick<Entity, "layer" | "color" | "lineweight">>) => {
+    if (!targets.length) return editor.setProperty(patch);
+    doc.begin("PROPERTIES");
+    for (const e of targets) if (doc.isEditable(e)) doc.update({ ...e, ...patch } as Entity);
+    doc.commit();
+  };
+  const layerColor = typeof layer === "string" && layer !== "varies" ? doc.layers.get(layer)?.color : undefined;
+
+  return (
+    <PaletteFrame title="Properties" onClose={onClose}>
+      <div className="border-b p-1.5">
+        <select
+          value={kind}
+          onChange={(e) => setFilter(e.target.value as EntityType | "all")}
+          className="h-6 w-full rounded border bg-background px-1 text-xs"
+          disabled={!selected.length}
+        >
+          {!selected.length && <option value="all">No selection</option>}
+          {selected.length > 0 && <option value="all">{types.length === 1 ? `${ENTITY_NAMES[types[0]]} (${selected.length})` : `All (${selected.length})`}</option>}
+          {types.length > 1 && types.map((t) => <option key={t} value={t}>{`${ENTITY_NAMES[t]} (${selected.filter((e) => e.type === t).length})`}</option>)}
+        </select>
+      </div>
+      <Group title="General">
+        <Row label="Color">
+          <Popover
+            trigger={(_, toggle) => (
+              <button type="button" onClick={toggle} className="flex h-5 w-full items-center gap-1.5 rounded-sm px-1 text-left hover:bg-muted">
+                {color === "varies" ? (
+                  <span className="text-muted-foreground">*VARIES*</span>
+                ) : (
+                  <>
+                    <Swatch color={color ?? layerColor ?? 7} dark={dark} />
+                    {colorName(color)}
+                  </>
+                )}
+              </button>
+            )}
+            align="right"
+          >
+            {(close) => (
+              <ColorPicker
+                value={color === "varies" ? -1 : color}
+                dark={dark}
+                onChange={(c) => {
+                  close();
+                  apply({ color: c });
+                }}
+              />
+            )}
+          </Popover>
+        </Row>
+        <Row label="Layer">
+          <select
+            value={layer === "varies" ? "" : layer}
+            onChange={(e) => e.target.value && apply({ layer: e.target.value })}
+            className="h-5 w-full bg-transparent text-[11px] outline-none"
+          >
+            {layer === "varies" && <option value="">*VARIES*</option>}
+            {[...doc.layers.values()].map((l) => (
+              <option key={l.name} value={l.name}>
+                {l.name}
+              </option>
+            ))}
+          </select>
+        </Row>
+        <Row label="Linetype">
+          <Static>ByLayer</Static>
+        </Row>
+        <Row label="Lineweight">
+          <Popover
+            trigger={(_, toggle) => (
+              <button type="button" onClick={toggle} className="h-5 w-full rounded-sm px-1 text-left hover:bg-muted">
+                {lw === "varies" ? <span className="text-muted-foreground">*VARIES*</span> : lineweightName(lw)}
+              </button>
+            )}
+            align="right"
+          >
+            {(close) => (
+              <LineweightPicker
+                value={lw === "varies" ? -99 : lw}
+                onChange={(v) => {
+                  close();
+                  apply({ lineweight: v });
+                }}
+              />
+            )}
+          </Popover>
+        </Row>
+      </Group>
+      {targets.length === 1 && <Geometry editor={editor} e={targets[0]} />}
+    </PaletteFrame>
+  );
+}
+
+export function LayerManager({ editor, state, dark, onClose }: { editor: Editor; state: Snapshot; dark: boolean; onClose: () => void }) {
+  const doc = editor.doc;
+  const layers = [...doc.layers.values()].sort((a, b) => (a.name === "0" ? -1 : b.name === "0" ? 1 : a.name.localeCompare(b.name, undefined, { numeric: true })));
+  const [picked, setPicked] = useState<string | null>(null);
+  const [renaming, setRenaming] = useState<string | null>(null);
+  const counts = new Map<string, number>();
+  for (const e of doc.entities.values()) counts.set(e.layer, (counts.get(e.layer) ?? 0) + 1);
+
+  const change = (layer: Layer, patch: Partial<Layer>) => {
+    doc.begin("LAYER");
+    doc.setLayer({ ...layer, ...patch });
+    doc.commit();
+  };
+  const create = () => {
+    let n = 1;
+    while (doc.layers.has(`Layer${n}`)) n++;
+    doc.begin("LAYER");
+    doc.setLayer(newLayer(`Layer${n}`));
+    doc.commit();
+    setPicked(`Layer${n}`);
+    setRenaming(`Layer${n}`);
+  };
+  const remove = () => {
+    if (!picked) return;
+    doc.begin("LAYER");
+    const ok = doc.removeLayer(picked);
+    doc.commit();
+    if (!ok) editor.print(`Layer "${picked}" can't be deleted: it's layer 0, the current layer, or it has objects.`, "error");
+    else setPicked(null);
+  };
+  const rename = (from: string, to: string) => {
+    setRenaming(null);
+    const name = to.trim();
+    if (!name || name === from) return;
+    if (/[<>/\\":;?*|=`]/.test(name)) return editor.print("Layer names can't contain <>/\\\":;?*|=`", "error");
+    doc.begin("LAYER");
+    const ok = doc.renameLayer(from, name);
+    doc.commit();
+    if (!ok) editor.print(`Can't rename layer "${from}" to "${name}".`, "error");
+    else setPicked(name);
+  };
+
+  const Icon = ({ on, onIcon: On, offIcon: Off, title, onClick, className }: { on: boolean; onIcon: typeof Sun; offIcon: typeof Sun; title: string; onClick: () => void; className?: string }) => (
+    <button type="button" title={title} onClick={onClick} className={cn("rounded p-0.5 hover:bg-accent", className)}>
+      {on ? <On className="size-3.5" /> : <Off className="size-3.5 opacity-60" />}
+    </button>
+  );
+
+  return (
+    <PaletteFrame title="Layer Properties" onClose={onClose}>
+      <div className="flex items-center gap-1 border-b p-1">
+        <button type="button" onClick={create} className="flex items-center gap-1 rounded px-1.5 py-0.5 text-xs hover:bg-accent" title="New layer">
+          <Plus className="size-3.5" /> New
+        </button>
+        <button type="button" onClick={remove} disabled={!picked} className="flex items-center gap-1 rounded px-1.5 py-0.5 text-xs hover:bg-accent disabled:opacity-40" title="Delete layer">
+          <Trash className="size-3.5" /> Delete
+        </button>
+        <button
+          type="button"
+          onClick={() => picked && doc.setCurrentLayer(picked)}
+          disabled={!picked}
+          className="flex items-center gap-1 rounded px-1.5 py-0.5 text-xs hover:bg-accent disabled:opacity-40"
+          title="Set current"
+        >
+          <Check className="size-3.5" /> Current
+        </button>
+      </div>
+      <table className="w-full text-[11px]">
+        <thead className="sticky top-0 bg-background text-left text-muted-foreground">
+          <tr className="border-b">
+            <th className="w-5 px-1" />
+            <th className="px-1 py-1 font-medium">Name</th>
+            <th className="w-6 font-medium" title="On">On</th>
+            <th className="w-6 font-medium" title="Freeze">Frz</th>
+            <th className="w-6 font-medium" title="Lock">Lck</th>
+            <th className="w-12 font-medium">Color</th>
+            <th className="font-medium">Lineweight</th>
+          </tr>
+        </thead>
+        <tbody>
+          {layers.map((l) => (
+            <tr
+              key={l.name}
+              onClick={() => setPicked(l.name)}
+              onDoubleClick={() => (l.name === state.currentLayer ? undefined : doc.setCurrentLayer(l.name))}
+              className={cn("border-b", picked === l.name ? "bg-primary/10" : "hover:bg-muted/60")}
+            >
+              <td className="px-1 text-center text-primary">{l.name === state.currentLayer && <Check className="size-3.5" />}</td>
+              <td className="max-w-0 px-1 py-0.5">
+                {renaming === l.name ? (
+                  <input
+                    autoFocus
+                    onFocus={(e) => e.target.select()}
+                    defaultValue={l.name}
+                    onBlur={(e) => rename(l.name, e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") rename(l.name, (e.target as HTMLInputElement).value);
+                      if (e.key === "Escape") setRenaming(null);
+                    }}
+                    className="h-5 w-full rounded-sm border bg-background px-1 outline-none"
+                  />
+                ) : (
+                  <span className="block truncate" onDoubleClick={(e) => (e.stopPropagation(), l.name !== "0" && setRenaming(l.name))} title={`${counts.get(l.name) ?? 0} objects. Double-click the name to rename.`}>
+                    {l.name}
+                  </span>
+                )}
+              </td>
+              <td><Icon on={l.on} onIcon={Lightbulb} offIcon={LightbulbOff} title={l.on ? "On" : "Off"} onClick={() => change(l, { on: !l.on })} className={l.on ? "text-amber-500" : ""} /></td>
+              <td><Icon on={!l.frozen} onIcon={Sun} offIcon={Snowflake} title={l.frozen ? "Frozen" : "Thawed"} onClick={() => l.name !== state.currentLayer && change(l, { frozen: !l.frozen })} className={l.frozen ? "text-sky-500" : "text-amber-500"} /></td>
+              <td><Icon on={!l.locked} onIcon={LockOpen} offIcon={Lock} title={l.locked ? "Locked" : "Unlocked"} onClick={() => change(l, { locked: !l.locked })} /></td>
+              <td>
+                <Popover
+                  trigger={(_, toggle) => (
+                    <button type="button" onClick={toggle} className="flex items-center gap-1 rounded px-1 hover:bg-accent">
+                      <Swatch color={l.color} dark={dark} />
+                      <span className="truncate">{typeof l.color === "number" ? l.color : "RGB"}</span>
+                    </button>
+                  )}
+                  align="right"
+                >
+                  {(close) => (
+                    <ColorPicker
+                      value={l.color}
+                      byLayer={false}
+                      dark={dark}
+                      onChange={(c) => {
+                        close();
+                        if (c !== null) change(l, { color: c });
+                      }}
+                    />
+                  )}
+                </Popover>
+              </td>
+              <td>
+                <Popover
+                  trigger={(_, toggle) => (
+                    <button type="button" onClick={toggle} className="w-full truncate rounded px-1 text-left hover:bg-accent">
+                      {lineweightName(l.lineweight)}
+                    </button>
+                  )}
+                  align="right"
+                >
+                  {(close) => (
+                    <LineweightPicker
+                      value={l.lineweight}
+                      byLayer={false}
+                      onChange={(v) => {
+                        close();
+                        change(l, { lineweight: v });
+                      }}
+                    />
+                  )}
+                </Popover>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </PaletteFrame>
+  );
+}

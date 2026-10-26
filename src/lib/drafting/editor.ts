@@ -1,0 +1,713 @@
+import { COMMANDS, findCommand, suggestCommands, type Command, type CommandInfo, type Prompt } from "./commands";
+import { DraftDocument, newId } from "./document";
+import { angleOf, crossesBox, dist, distanceTo, dot, grips, insideBox, moveGrip, polar, same, sub, type Box, type Grip } from "./geometry";
+import { DEFAULT_SNAPS, findSnap, type Snap, type SnapKind } from "./snaps";
+import { formatLength, parseAngle, parseLength, parsePointInput } from "./units";
+import { LW_BYLAYER, type ColorValue, type DrawingData, type Entity, type Vec } from "./types";
+
+// The drafting editor without its screen: the view, the cursor with object snaps and polar
+// tracking, selection and grips, the command line, and the keyboard, as AutoCAD behaves. The
+// React shell draws it and feeds it pointer and key events; tests drive it directly.
+
+export type Settings = {
+  grid: boolean;
+  snap: boolean; // grid snap (F9)
+  ortho: boolean; // F8
+  polar: boolean; // F10
+  polarAngle: number; // degrees
+  osnap: boolean; // F3
+  snapKinds: SnapKind[];
+  dynamic: boolean; // F12
+};
+
+export const DEFAULT_SETTINGS: Settings = { grid: true, snap: false, ortho: false, polar: true, polarAngle: 90, osnap: true, snapKinds: DEFAULT_SNAPS, dynamic: true };
+
+export type Palette = "properties" | "layers";
+export type HistoryLine = { text: string; kind: "command" | "input" | "info" | "error" };
+export type Window = { from: Vec; to: Vec; crossing: boolean };
+export type HotGrip = { grip: Grip; ids: string[] };
+
+const PICKBOX = 5; // pixels
+const APERTURE = 12; // pixels
+const DRAG = 5; // pixels a press can move and still be a click
+const TRACK = 10; // pixels from a polar angle that still tracks it
+
+export type Snapshot = {
+  version: number;
+  command: string | null;
+  prompt: string;
+  keywords: { key: string; label: string }[];
+  buffer: string;
+  history: HistoryLine[];
+  suggestions: CommandInfo[];
+  settings: Settings;
+  selection: string[];
+  canUndo: boolean;
+  canRedo: boolean;
+  currentLayer: string;
+  current: { color: ColorValue; lineweight: number };
+};
+
+export class Editor {
+  doc: DraftDocument;
+  view = { cx: 0, cy: 0, scale: 1 }; // scale: pixels per drawing unit
+  size = { w: 800, h: 600 };
+  settings: Settings;
+  selection = new Set<string>();
+  /** Properties new objects get (ByLayer unless set). */
+  current: { color: ColorValue; lineweight: number } = { color: null, lineweight: LW_BYLAYER };
+  ui: { openPalette: (p: Palette) => void } = { openPalette: () => {} };
+
+  /** Connects the editor to its screen's palettes. */
+  setUi(ui: Editor["ui"]) {
+    this.ui = ui;
+  }
+
+  command: Command | null = null;
+  lastCommand: string | null = null;
+  buffer = "";
+  history: HistoryLine[] = [];
+  private inputs: string[] = [];
+  private recall = -1;
+
+  // Pointer state, read by the renderer.
+  cursorScreen: Vec | null = null;
+  cursor: Vec = { x: 0, y: 0 }; // where the pointer is, in the drawing
+  point: Vec = { x: 0, y: 0 }; // the point a click would give (snapped, tracked)
+  snap: Snap | null = null;
+  tracking: { from: Vec; angle: number } | null = null;
+  hover: string | null = null;
+  hoverGrip: Grip | null = null;
+  window: Window | null = null;
+  hotGrip: HotGrip | null = null;
+  /** Dynamic input: a length typed and locked with Tab, waiting for its angle. */
+  dynLength: number | null = null;
+
+  private windowStart: Vec | null = null;
+  private press: { screen: Vec; button: number; pan: boolean; onEmpty: boolean } | null = null;
+  private stateListeners = new Set<() => void>();
+  private pointerListeners = new Set<() => void>();
+  private snapshot: Snapshot;
+
+  constructor(data: DrawingData, settings: Partial<Settings> = {}) {
+    this.doc = new DraftDocument(data);
+    this.settings = { ...DEFAULT_SETTINGS, ...settings };
+    if (data.view) this.view = { ...data.view };
+    this.snapshot = this.build();
+    this.doc.subscribe(() => {
+      // Objects that went away (undo, erase) leave the selection.
+      for (const id of this.selection) if (!this.doc.entities.has(id)) this.selection.delete(id);
+      this.emit();
+    });
+  }
+
+  // --- subscriptions --------------------------------------------------------------------
+
+  subscribe = (listener: () => void) => {
+    this.stateListeners.add(listener);
+    return () => {
+      this.stateListeners.delete(listener);
+    };
+  };
+  getSnapshot = () => this.snapshot;
+
+  /** Pointer moves (for the overlay and the coordinates readout), without rebuilding UI state. */
+  onPointer(listener: () => void) {
+    this.pointerListeners.add(listener);
+    return () => {
+      this.pointerListeners.delete(listener);
+    };
+  }
+
+  private build(): Snapshot {
+    const prompt = this.currentPrompt();
+    return {
+      version: this.doc.version,
+      command: this.hotGrip ? "STRETCH" : (this.command?.name ?? null),
+      prompt: this.formatPrompt(prompt),
+      keywords: prompt?.keywords ?? [],
+      buffer: this.buffer,
+      history: this.history.slice(-200),
+      suggestions: this.command || this.hotGrip ? [] : suggestCommands(this.buffer).slice(0, 8),
+      settings: this.settings,
+      selection: [...this.selection],
+      canUndo: this.doc.canUndo,
+      canRedo: this.doc.canRedo,
+      currentLayer: this.doc.currentLayer,
+      current: this.current,
+    };
+  }
+
+  emit() {
+    this.snapshot = this.build();
+    for (const l of this.stateListeners) l();
+    this.pointerChanged();
+  }
+
+  private pointerChanged() {
+    for (const l of this.pointerListeners) l();
+  }
+
+  // --- view ------------------------------------------------------------------------------
+
+  setSize(w: number, h: number) {
+    this.size = { w, h };
+    this.pointerChanged();
+  }
+
+  toWorld(s: Vec): Vec {
+    return { x: this.view.cx + (s.x - this.size.w / 2) / this.view.scale, y: this.view.cy - (s.y - this.size.h / 2) / this.view.scale };
+  }
+
+  toScreen(p: Vec): Vec {
+    return { x: (p.x - this.view.cx) * this.view.scale + this.size.w / 2, y: this.size.h / 2 - (p.y - this.view.cy) * this.view.scale };
+  }
+
+  /** A distance in drawing units that looks `pixels` long. */
+  px(pixels: number) {
+    return pixels / this.view.scale;
+  }
+
+  zoomAt(screen: Vec, factor: number) {
+    const before = this.toWorld(screen);
+    this.view.scale = Math.min(Math.max(this.view.scale * factor, 1e-6), 1e6);
+    const after = this.toWorld(screen);
+    this.view.cx += before.x - after.x;
+    this.view.cy += before.y - after.y;
+    this.refreshPointer();
+  }
+
+  panBy(dx: number, dy: number) {
+    this.view.cx -= dx / this.view.scale;
+    this.view.cy += dy / this.view.scale;
+    this.refreshPointer();
+  }
+
+  private fit(box: Box) {
+    const w = Math.max(box.maxX - box.minX, 1e-6);
+    const h = Math.max(box.maxY - box.minY, 1e-6);
+    this.view.scale = Math.min(this.size.w / w, this.size.h / h) * 0.9;
+    this.view.cx = (box.minX + box.maxX) / 2;
+    this.view.cy = (box.minY + box.maxY) / 2;
+    this.refreshPointer();
+  }
+
+  zoomExtents() {
+    const box = this.doc.extents();
+    if (!Number.isFinite(box.minX)) return this.home();
+    if (box.maxX - box.minX < 1e-9 && box.maxY - box.minY < 1e-9) {
+      this.view.cx = box.minX;
+      this.view.cy = box.minY;
+      return this.refreshPointer();
+    }
+    this.fit(box);
+  }
+
+  zoomWindow(a: Vec, b: Vec) {
+    this.fit({ minX: Math.min(a.x, b.x), minY: Math.min(a.y, b.y), maxX: Math.max(a.x, b.x), maxY: Math.max(a.y, b.y) });
+  }
+
+  /** An empty drawing's starting view: 40 ft or 12 m across, the origin near the lower left. */
+  home() {
+    const across = this.doc.units === "mm" ? 12000 : 480;
+    this.view.scale = this.size.w / across;
+    this.view.cx = across * 0.4;
+    this.view.cy = (this.size.h / this.view.scale) * 0.4;
+    this.refreshPointer();
+  }
+
+  // --- the cursor ------------------------------------------------------------------------
+
+  private currentPrompt(): Prompt | null {
+    if (this.hotGrip) return { text: "** STRETCH **\nSpecify stretch point", keywords: [{ key: "X", label: "eXit" }], base: this.hotGrip.grip.point };
+    return this.command ? this.command.prompt() : null;
+  }
+
+  /** Whether a click now gives a point (rather than picking objects). */
+  get wantsPoint() {
+    if (this.hotGrip) return true;
+    if (!this.command || this.command.pans) return false;
+    return !this.command.prompt().selecting;
+  }
+
+  get base(): Vec | null {
+    return this.currentPrompt()?.base ?? null;
+  }
+
+  /** Works out the point a click would give, and what's under the cursor. */
+  private resolve() {
+    const raw = this.cursor;
+    const base = this.base;
+    let point = raw;
+    let snap: Snap | null = null;
+    let tracking: Editor["tracking"] = null;
+    this.hover = null;
+    this.hoverGrip = null;
+
+    if (this.wantsPoint) {
+      if (this.settings.osnap && this.settings.snapKinds.length) {
+        const r = this.px(APERTURE);
+        const editing = new Set(this.hotGrip?.ids ?? []);
+        const near = this.doc
+          .query({ minX: raw.x - r, minY: raw.y - r, maxX: raw.x + r, maxY: raw.y + r })
+          .filter((e) => this.doc.isVisible(e) && !editing.has(e.id));
+        snap = findSnap(near, raw, r, new Set(this.settings.snapKinds), base);
+      }
+      if (snap) point = snap.point;
+      else if (base && this.settings.ortho) {
+        point = Math.abs(raw.x - base.x) >= Math.abs(raw.y - base.y) ? { x: raw.x, y: base.y } : { x: base.x, y: raw.y };
+      } else if (base && this.settings.polar && dist(base, raw) > this.px(TRACK)) {
+        const step = (this.settings.polarAngle * Math.PI) / 180;
+        const angle = Math.round(angleOf(base, raw) / step) * step;
+        const dir = { x: Math.cos(angle), y: Math.sin(angle) };
+        const along = dot(sub(raw, base), dir);
+        const off = Math.abs(sub(raw, base).x * dir.y - sub(raw, base).y * dir.x);
+        if (along > 0 && off <= this.px(TRACK)) {
+          point = polar(base, angle, along);
+          tracking = { from: base, angle };
+        }
+      }
+      if (!snap && !tracking && this.settings.snap) {
+        const unit = this.doc.units === "mm" ? 10 : 1;
+        point = { x: Math.round(point.x / unit) * unit, y: Math.round(point.y / unit) * unit };
+      }
+    } else if (!this.command?.pans) {
+      if (!this.command && this.selection.size) this.hoverGrip = this.gripAt(raw);
+      if (!this.hoverGrip) this.hover = this.pick(raw)?.id ?? null;
+    }
+    this.point = point;
+    this.snap = snap;
+    this.tracking = tracking;
+  }
+
+  private refreshPointer() {
+    if (this.cursorScreen) {
+      this.cursor = this.toWorld(this.cursorScreen);
+      this.resolve();
+    }
+    this.pointerChanged();
+  }
+
+  /** The editable object under a point (within the pickbox), nearest first. */
+  pick(p: Vec): Entity | null {
+    const r = this.px(PICKBOX);
+    let best: Entity | null = null;
+    let bestD = r;
+    for (const e of this.doc.query({ minX: p.x - r, minY: p.y - r, maxX: p.x + r, maxY: p.y + r })) {
+      if (!this.doc.isEditable(e)) continue;
+      const d = distanceTo(e, p);
+      if (d <= bestD) {
+        best = e;
+        bestD = d;
+      }
+    }
+    return best;
+  }
+
+  private gripAt(p: Vec): Grip | null {
+    const r = this.px(PICKBOX + 1);
+    for (const id of this.selection) {
+      const e = this.doc.entities.get(id);
+      if (!e || !this.doc.isEditable(e)) continue;
+      for (const g of grips(e)) if (Math.abs(g.point.x - p.x) <= r && Math.abs(g.point.y - p.y) <= r) return g;
+    }
+    return null;
+  }
+
+  // --- pointer input -----------------------------------------------------------------------
+
+  pointerMove(screen: Vec) {
+    this.cursorScreen = screen;
+    const press = this.press;
+    if (press?.pan) {
+      this.panBy(screen.x - press.screen.x, screen.y - press.screen.y);
+      press.screen = screen;
+      return;
+    }
+    this.cursor = this.toWorld(screen);
+    this.resolve();
+    if (press && press.button === 0 && press.onEmpty && !this.windowStart && dist(press.screen, screen) > DRAG) {
+      // Pressing on empty space and dragging opens a selection window.
+      this.windowStart = this.toWorld(press.screen);
+    }
+    if (this.windowStart) this.window = this.windowFrom(this.windowStart, this.cursor);
+    this.pointerChanged();
+  }
+
+  pointerLeave() {
+    this.cursorScreen = null;
+    this.hover = null;
+    this.pointerChanged();
+  }
+
+  pointerDown(screen: Vec, button: number) {
+    const pan = button === 1 || (button === 0 && !!this.command?.pans);
+    this.press = { screen, button, pan, onEmpty: button === 0 && !pan && !this.wantsPoint && !this.pick(this.toWorld(screen)) && !this.gripAt(this.toWorld(screen)) };
+  }
+
+  pointerUp(screen: Vec, button: number, shift = false) {
+    const press = this.press;
+    this.press = null;
+    if (!press || press.pan || button !== 0) return;
+    const dragged = dist(press.screen, screen) > DRAG;
+    this.cursor = this.toWorld(screen);
+    this.resolve();
+
+    if (this.wantsPoint) {
+      if (!dragged) this.givePoint(this.point);
+      return;
+    }
+    if (this.windowStart) {
+      if (dragged || dist(this.toScreen(this.windowStart), screen) > DRAG) this.finishWindow(this.cursor, shift);
+      return;
+    }
+    if (!this.command) {
+      const grip = this.gripAt(this.cursor);
+      if (grip) return this.heatGrip(grip);
+    }
+    const hit = this.pick(this.cursor);
+    if (hit) {
+      if (shift) this.selection.delete(hit.id);
+      else this.selection.add(hit.id);
+      this.emit();
+    } else if (!shift || this.command) {
+      this.windowStart = this.cursor; // click-click window
+      this.window = this.windowFrom(this.cursor, this.cursor);
+      this.pointerChanged();
+    }
+  }
+
+  /** Middle-button double-click: zoom extents. */
+  middleDoubleClick() {
+    this.zoomExtents();
+  }
+
+  wheel(screen: Vec, deltaY: number) {
+    this.zoomAt(screen, Math.pow(1.0015, -deltaY));
+  }
+
+  private windowFrom(from: Vec, to: Vec): Window {
+    return { from, to, crossing: to.x < from.x };
+  }
+
+  private finishWindow(to: Vec, shift: boolean) {
+    const w = this.windowFrom(this.windowStart!, to);
+    this.windowStart = null;
+    this.window = null;
+    const box = { minX: Math.min(w.from.x, w.to.x), minY: Math.min(w.from.y, w.to.y), maxX: Math.max(w.from.x, w.to.x), maxY: Math.max(w.from.y, w.to.y) };
+    for (const e of this.doc.query(box)) {
+      if (!this.doc.isEditable(e)) continue;
+      if (w.crossing ? crossesBox(e, box) : insideBox(e, box)) {
+        if (shift) this.selection.delete(e.id);
+        else this.selection.add(e.id);
+      }
+    }
+    this.emit();
+  }
+
+  // --- grips --------------------------------------------------------------------------
+
+  private heatGrip(grip: Grip) {
+    // Every selected object with a grip at the same spot moves with it.
+    const ids = [...this.selection].filter((id) => {
+      const e = this.doc.entities.get(id);
+      return e && this.doc.isEditable(e) && grips(e).some((g) => same(g.point, grip.point));
+    });
+    this.hotGrip = { grip, ids };
+    this.dynLength = null;
+    this.emit();
+  }
+
+  private stretchTo(to: Vec): Entity[] {
+    const hot = this.hotGrip!;
+    return hot.ids.flatMap((id) => {
+      const e = this.doc.entities.get(id);
+      const g = e && grips(e).find((x) => same(x.point, hot.grip.point));
+      return e && g ? [moveGrip(e, g, to)] : [];
+    });
+  }
+
+  // --- the command line --------------------------------------------------------------
+
+  private formatPrompt(prompt: Prompt | null) {
+    if (!prompt) return "Type a command";
+    if (!prompt.text) return "";
+    const keywords = prompt.keywords?.length ? ` or [${prompt.keywords.map((k) => k.label).join("/")}]` : "";
+    const enter = prompt.enterLabel ? ` <${prompt.enterLabel}>` : "";
+    return `${prompt.text}${keywords}${enter}:`;
+  }
+
+  print(text: string, kind: HistoryLine["kind"] = "info") {
+    this.history.push({ text, kind });
+    if (this.history.length > 500) this.history.splice(0, this.history.length - 500);
+    this.emit();
+  }
+
+  /** What a click or typed point does. */
+  private givePoint(p: Vec) {
+    this.dynLength = null;
+    if (this.hotGrip) {
+      const moved = this.stretchTo(p);
+      this.doc.begin("GRIP_STRETCH");
+      for (const e of moved) this.doc.update(e);
+      this.doc.commit();
+      this.hotGrip = null;
+      this.emit();
+      return;
+    }
+    this.command?.point?.(p);
+    this.afterInput();
+  }
+
+  private afterInput() {
+    this.resolve();
+    this.emit();
+  }
+
+  runCommand(name: string) {
+    const info = findCommand(name);
+    if (!info) {
+      this.print(`Unknown command "${name.toUpperCase()}". Press F1 for help.`, "error");
+      return;
+    }
+    if (this.command) this.cancel(false);
+    this.hotGrip = null;
+    this.windowStart = null;
+    this.window = null;
+    this.print(`Command: ${info.name}`, "command");
+    const command = info.create(this);
+    this.command = command;
+    if (!["U", "UNDO", "REDO"].includes(info.name)) this.lastCommand = info.name;
+    command.start();
+    this.afterInput();
+  }
+
+  /** The running command is done: its changes become one undo step. */
+  finish() {
+    const command = this.command;
+    this.command = null;
+    this.doc.commit();
+    if (command && "clearsSelection" in command) this.selection.clear();
+    this.dynLength = null;
+    this.afterInput();
+  }
+
+  cancel(echo = true) {
+    if (this.hotGrip) {
+      this.hotGrip = null;
+    } else if (this.command) {
+      if (echo) this.print("*Cancel*", "info");
+      this.command.cancel();
+      if (this.command) this.finish();
+    } else if (this.windowStart) {
+      this.windowStart = null;
+      this.window = null;
+    } else this.selection.clear();
+    this.buffer = "";
+    this.dynLength = null;
+    this.afterInput();
+  }
+
+  /** Enter or Space. */
+  submit() {
+    const text = this.buffer.trim();
+    this.buffer = "";
+    this.recall = -1;
+    if (text) {
+      this.inputs.push(text);
+      if (this.inputs.length > 100) this.inputs.shift();
+    }
+    if (!this.command && !this.hotGrip) {
+      if (text) this.runCommand(text);
+      else if (this.lastCommand) this.runCommand(this.lastCommand);
+      else this.emit();
+      return;
+    }
+    const prompt = this.currentPrompt()!;
+    if (!text) {
+      if (this.dynLength !== null && prompt.base) return this.givePoint(polar(prompt.base, angleOf(prompt.base, this.point), this.dynLength));
+      if (this.hotGrip) return this.cancel(false);
+      this.command!.enter();
+      return this.afterInput();
+    }
+    this.history.push({ text: `${this.formatPrompt(prompt)} ${text}`, kind: "input" });
+    const upper = text.toUpperCase();
+    const keyword = prompt.keywords?.find((k) => k.key === upper || k.label.toUpperCase() === upper);
+    if (keyword) {
+      if (this.hotGrip) return this.cancel(false);
+      this.command!.keyword?.(keyword.key);
+      return this.afterInput();
+    }
+    if (prompt.selecting) {
+      if (upper === "ALL") {
+        this.selectAll();
+        return;
+      }
+      return this.print("*Invalid selection*", "error");
+    }
+    if (this.dynLength !== null && prompt.base) {
+      const angle = parseAngle(text);
+      if (angle === null) return this.print("Requires a valid angle.", "error");
+      return this.givePoint(polar(prompt.base, angle, this.dynLength));
+    }
+    if (this.command?.value?.(text)) return this.afterInput();
+    const input = parsePointInput(text, this.doc.units, prompt.base ?? null, this.settings.dynamic);
+    if (input?.kind === "point") return this.givePoint(input.point);
+    if (input?.kind === "distance" && prompt.base) {
+      // Direct distance entry: along the cursor's (tracked or snapped) direction.
+      const angle = dist(prompt.base, this.point) > 1e-12 ? angleOf(prompt.base, this.point) : 0;
+      return this.givePoint(polar(prompt.base, angle, input.distance));
+    }
+    this.print("Point or option keyword required.", "error");
+  }
+
+  // --- the keyboard -------------------------------------------------------------------
+
+  /** A key pressed over the drawing; returns whether the editor used it. */
+  key(e: { key: string; ctrl?: boolean; shift?: boolean; alt?: boolean }): boolean {
+    const k = e.key;
+    if (e.ctrl) {
+      const lower = k.toLowerCase();
+      if (lower === "z") return e.shift ? (this.redo(), true) : (this.undo(), true);
+      if (lower === "y") return this.redo(), true;
+      if (lower === "a") return this.selectAll(), true;
+      if (k === "1") return this.ui.openPalette("properties"), true;
+      return false;
+    }
+    const toggles: Record<string, keyof Settings> = { F3: "osnap", F7: "grid", F8: "ortho", F9: "snap", F10: "polar", F12: "dynamic" };
+    if (toggles[k]) return this.toggle(toggles[k] as "osnap"), true;
+    switch (k) {
+      case "Escape":
+        this.cancel();
+        return true;
+      case "Enter":
+        this.submit();
+        return true;
+      case " ":
+        this.submit();
+        return true;
+      case "Backspace":
+        this.buffer = this.buffer.slice(0, -1);
+        this.emit();
+        return true;
+      case "Tab":
+        return this.lockLength();
+      case "Delete":
+        if (!this.command && this.selection.size) this.runCommand("ERASE");
+        return true;
+      case "ArrowUp":
+      case "ArrowDown": {
+        if (!this.inputs.length) return true;
+        this.recall = k === "ArrowUp" ? Math.min(this.recall + 1, this.inputs.length - 1) : Math.max(this.recall - 1, -1);
+        this.buffer = this.recall < 0 ? "" : this.inputs[this.inputs.length - 1 - this.recall];
+        this.emit();
+        return true;
+      }
+    }
+    if (k.length === 1 && !e.alt) {
+      this.buffer += k;
+      this.emit();
+      return true;
+    }
+    return false;
+  }
+
+  /** Tab in dynamic input: the typed length is kept, and the angle comes next. */
+  private lockLength() {
+    if (!this.wantsPoint || !this.base) return false;
+    const d = parseLength(this.buffer, this.doc.units);
+    if (d === null) return true;
+    this.dynLength = d;
+    this.buffer = "";
+    this.emit();
+    return true;
+  }
+
+  toggle(setting: "grid" | "snap" | "ortho" | "polar" | "osnap" | "dynamic") {
+    const on = !this.settings[setting];
+    // Ortho and polar tracking exclude each other, as in AutoCAD.
+    const exclusive = setting === "ortho" && on ? { polar: false } : setting === "polar" && on ? { ortho: false } : {};
+    this.settings = { ...this.settings, [setting]: on, ...exclusive };
+    const names = { grid: "Grid", snap: "Snap", ortho: "Ortho", polar: "Polar", osnap: "Osnap", dynamic: "Dynamic input" };
+    this.print(`<${names[setting]} ${on ? "on" : "off"}>`, "info");
+    this.afterInput();
+  }
+
+  setSettings(patch: Partial<Settings>) {
+    this.settings = { ...this.settings, ...patch };
+    this.afterInput();
+  }
+
+  // --- selection and edits ---------------------------------------------------------------
+
+  selectAll() {
+    for (const e of this.doc.entities.values()) if (this.doc.isEditable(e)) this.selection.add(e.id);
+    this.emit();
+  }
+
+  clearSelection() {
+    this.selection.clear();
+    this.emit();
+  }
+
+  selected(): Entity[] {
+    return [...this.selection].map((id) => this.doc.entities.get(id)!).filter(Boolean);
+  }
+
+  undo() {
+    if (this.command) this.cancel(false);
+    const label = this.doc.undo();
+    this.print(label ? `Undo: ${label}` : "Everything has been undone", "info");
+  }
+
+  redo() {
+    const label = this.doc.redo();
+    this.print(label ? `Redo: ${label}` : "Nothing to redo", "info");
+  }
+
+  /** Changes the selection's properties, or (with nothing selected) what new objects get. */
+  setProperty(patch: Partial<Pick<Entity, "layer" | "color" | "lineweight">>) {
+    const targets = this.selected().filter((e) => this.doc.isEditable(e));
+    if (!targets.length) {
+      if (patch.layer) this.doc.setCurrentLayer(patch.layer);
+      this.current = { color: patch.color !== undefined ? patch.color : this.current.color, lineweight: patch.lineweight ?? this.current.lineweight };
+      this.emit();
+      return;
+    }
+    this.doc.begin("PROPERTIES");
+    for (const e of targets) this.doc.update({ ...e, ...patch } as Entity);
+    this.doc.commit();
+  }
+
+  updateEntity(e: Entity) {
+    this.doc.begin("PROPERTIES");
+    this.doc.update(e);
+    this.doc.commit();
+  }
+
+  // --- for commands ----------------------------------------------------------------------
+
+  newId = newId;
+
+  defaults() {
+    return { layer: this.doc.currentLayer, color: this.current.color, lineweight: this.current.lineweight, linetype: "ByLayer" };
+  }
+
+  make<T extends Entity>(geometry: Omit<T, "id" | "layer" | "color" | "lineweight" | "linetype">): T {
+    return { id: newId(), ...this.defaults(), ...geometry } as T;
+  }
+
+  /** What the overlay draws as rubber band: the command's preview, or the stretched grip's objects. */
+  preview(): Entity[] {
+    if (this.hotGrip) return this.stretchTo(this.point);
+    if (!this.command || !this.wantsPoint) return [];
+    return this.command.preview?.(this.point) ?? [];
+  }
+
+  /** A typed length as the dynamic input shows it. */
+  formatLength(d: number) {
+    return formatLength(d, this.doc.units);
+  }
+}
+
+export { COMMANDS };
