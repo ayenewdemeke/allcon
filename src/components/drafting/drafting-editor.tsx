@@ -53,7 +53,9 @@ async function loadDrawing(drawingId: string, units: Units): Promise<DrawingData
   return data;
 }
 
-export function DraftingEditor({ drawing, units, backHref }: { drawing: { id: string; name: string; revision: number }; units: Units; backHref: string }) {
+type Project = { id: string; name: string };
+
+export function DraftingEditor({ drawing, units, backHref, projects }: { drawing: { id: string; name: string; revision: number }; units: Units; backHref: string; projects: Project[] }) {
   const [opened, setOpened] = useState<{ editor: Editor; hadView: boolean } | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -63,13 +65,15 @@ export function DraftingEditor({ drawing, units, backHref }: { drawing: { id: st
       .then((data) => {
         if (cancelled) return;
         const settings = stored<Settings>(SETTINGS_KEY, DEFAULT_SETTINGS);
-        setOpened({ editor: new Editor(data, settings), hadView: !!data.view });
+        const editor = new Editor(data, settings);
+        editor.drawingName = drawing.name;
+        setOpened({ editor, hadView: !!data.view });
       })
       .catch((err) => !cancelled && setError(err instanceof Error ? err.message : "Could not open the drawing"));
     return () => {
       cancelled = true;
     };
-  }, [drawing.id, units]);
+  }, [drawing.id, drawing.name, units]);
 
   if (error)
     return (
@@ -87,7 +91,7 @@ export function DraftingEditor({ drawing, units, backHref }: { drawing: { id: st
         <Loader2 className="size-5 animate-spin" /> Opening {drawing.name}…
       </div>
     );
-  return <Workspace editor={opened.editor} drawing={drawing} backHref={backHref} hadView={opened.hadView} />;
+  return <Workspace editor={opened.editor} drawing={drawing} backHref={backHref} hadView={opened.hadView} projects={projects} />;
 }
 
 /** The save state, small at the end of the ribbon's tab row (Ctrl+S saves now). */
@@ -108,7 +112,7 @@ function SaveStatus({ save, onRetry }: { save: SaveState; onRetry: () => void })
   );
 }
 
-function Workspace({ editor, drawing, backHref, hadView }: { editor: Editor; drawing: { id: string; name: string; revision: number }; backHref: string; hadView: boolean }) {
+function Workspace({ editor, drawing, backHref, hadView, projects }: { editor: Editor; drawing: { id: string; name: string; revision: number }; backHref: string; hadView: boolean; projects: Project[] }) {
   const state = useSyncExternalStore(editor.subscribe, editor.getSnapshot, editor.getSnapshot);
   // The theme is a per-person preference: light unless they chose dark. (The workspace only
   // renders in the browser, after the drawing loads, so storage is there to read.)
@@ -241,6 +245,11 @@ function Workspace({ editor, drawing, backHref, hadView }: { editor: Editor; dra
         void saveNow();
         return;
       }
+      if (ctrl && e.key.toLowerCase() === "p") {
+        e.preventDefault();
+        editor.runCommand("PLOT");
+        return;
+      }
       if (editor.key({ key: e.key, ctrl, shift: e.shiftKey, alt: e.altKey })) e.preventDefault();
     };
     window.addEventListener("keydown", onKey);
@@ -305,7 +314,7 @@ function Workspace({ editor, drawing, backHref, hadView }: { editor: Editor; dra
         )}
       </div>
       <StatusBar editor={editor} state={state} dark={dark} onTheme={chooseTheme} />
-      {state.dialog && <DraftingDialog editor={editor} request={state.dialog} />}
+      {state.dialog && <DraftingDialog editor={editor} request={state.dialog} context={{ drawingId: drawing.id, drawingName: drawing.name, projects }} />}
       {pagePick && (
         <PagePicker
           count={pagePick.count}

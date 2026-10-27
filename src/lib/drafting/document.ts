@@ -3,17 +3,25 @@ import { applyBlocks } from "./blocks";
 import { findBoundary } from "./boundary";
 import { bounds, emptyBox, isAnnotation, type Box } from "./geometry";
 import { applyStyles } from "./graphics";
-import { defaultStyles, type Block, type DimStyle, type DrawingData, type Entity, type HatchEntity, type Layer, type TextStyle, type Units } from "./types";
+import { defaultStyles, type Block, type DimStyle, type DrawingData, type Entity, type HatchEntity, type Layer, type Layout, type TextStyle, type Units } from "./types";
 
 // The open drawing: its entities and layers, a spatial index for picking and snapping, and
 // undo. Every change happens inside a transaction (one command is one undo step, as in
 // AutoCAD), and listeners hear about each one. Associative hatches follow their boundaries
 // within the same undo step.
+//
+// Entities live in spaces, as AutoCAD's: model space, and the paper space of each layout.
+// Layers, styles and blocks are shared; `entities` and the index are the active space's.
 
 type Item = Box & { id: string };
+type Space = { entities: Map<string, Entity>; tree: RBush<Item>; items: Map<string, Item> };
+/** A layout without its objects (they're in its space). */
+export type LayoutInfo = Omit<Layout, "entities">;
+export const MODEL = "model";
 export type Setting = "currentTextStyle" | "currentDimStyle" | "annoScale";
 type Change =
-  | { kind: "entity"; before: Entity | null; after: Entity | null }
+  | { kind: "entity"; space: string; before: Entity | null; after: Entity | null }
+  | { kind: "layout"; before: LayoutInfo | null; after: LayoutInfo | null }
   | { kind: "layer"; before: Layer | null; after: Layer | null }
   | { kind: "current"; before: string; after: string }
   | { kind: "textStyle"; before: TextStyle | null; after: TextStyle | null }
@@ -34,7 +42,10 @@ export { newId } from "./ids";
 export class DraftDocument {
   units: Units;
   layers = new Map<string, Layer>();
-  entities = new Map<string, Entity>();
+  /** The layouts, in tab order. */
+  layouts = new Map<string, LayoutInfo>();
+  /** The space being worked in: model space, or a layout's id. */
+  space = MODEL;
   currentLayer: string;
   textStyles = new Map<string, TextStyle>();
   dimStyles = new Map<string, DimStyle>();
@@ -46,8 +57,7 @@ export class DraftDocument {
   /** Changes on every change; the renderer redraws when it moves. */
   version = ++versions;
 
-  private tree = new RBush<Item>();
-  private items = new Map<string, Item>();
+  private spaces = new Map<string, Space>();
   private undoStack: Transaction[] = [];
   private redoStack: Transaction[] = [];
   private open: Transaction | null = null;
@@ -66,7 +76,46 @@ export class DraftDocument {
     this.annoScale = data.annoScale ?? defaults.annoScale;
     for (const b of data.blocks ?? []) this.blocks.set(b.name, b);
     this.activate();
-    for (const e of data.entities) this.place(e);
+    for (const e of data.entities) this.place(e, MODEL);
+    for (const { entities, ...layout } of data.layouts ?? []) {
+      this.layouts.set(layout.id, layout);
+      for (const e of entities) this.place(e, layout.id);
+    }
+  }
+
+  /** The active space's entities. */
+  get entities() {
+    return this.spaceOf(this.space).entities;
+  }
+
+  /** A space's entities (model space, or a layout's paper space). */
+  entitiesIn(space: string) {
+    return this.spaceOf(space).entities;
+  }
+
+  private spaceOf(id: string): Space {
+    let space = this.spaces.get(id);
+    if (!space) this.spaces.set(id, (space = { entities: new Map(), tree: new RBush<Item>(), items: new Map() }));
+    return space;
+  }
+
+  /** The layout being worked in (null in model space). */
+  get layout() {
+    return this.layouts.get(this.space) ?? null;
+  }
+
+  /** Moves to model space or a layout (not an undoable change, as in AutoCAD). */
+  setSpace(id: string) {
+    if (id !== MODEL && !this.layouts.has(id)) return;
+    if (this.open) this.commit();
+    this.space = id;
+    this.changed();
+  }
+
+  /** The scale new text, dimensions and hatches are sized for: the annotation scale in model
+   * space, 1:1 on a layout's paper. */
+  get newScale() {
+    return this.space === MODEL ? this.annoScale : 1;
   }
 
   /** Makes this the document being drawn: annotations use its styles, references its blocks. */
@@ -87,7 +136,8 @@ export class DraftDocument {
       units: this.units,
       layers: [...this.layers.values()],
       currentLayer: this.currentLayer,
-      entities: [...this.entities.values()],
+      entities: [...this.entitiesIn(MODEL).values()],
+      layouts: [...this.layouts.values()].map((l) => ({ ...l, entities: [...this.entitiesIn(l.id).values()] })),
       textStyles: [...this.textStyles.values()],
       dimStyles: [...this.dimStyles.values()],
       blocks: [...this.blocks.values()],
@@ -113,31 +163,40 @@ export class DraftDocument {
   // --- the index ------------------------------------------------------------------------
 
   /** Indexes an entity; a changed one keeps its place in the drawing order. */
-  private place(e: Entity) {
-    const old = this.items.get(e.id);
-    if (old) this.tree.remove(old);
-    this.entities.set(e.id, e);
+  private place(e: Entity, spaceId: string) {
+    const space = this.spaceOf(spaceId);
+    const old = space.items.get(e.id);
+    if (old) space.tree.remove(old);
+    space.entities.set(e.id, e);
     const item = { ...bounds(e), id: e.id };
-    this.items.set(e.id, item);
-    this.tree.insert(item);
+    space.items.set(e.id, item);
+    space.tree.insert(item);
   }
 
-  private unplace(id: string) {
-    const item = this.items.get(id);
-    if (item) this.tree.remove(item);
-    this.items.delete(id);
-    this.entities.delete(id);
+  private unplace(id: string, spaceId: string) {
+    const space = this.spaceOf(spaceId);
+    const item = space.items.get(id);
+    if (item) space.tree.remove(item);
+    space.items.delete(id);
+    space.entities.delete(id);
   }
 
-  /** Entities whose extents touch the box. */
-  query(box: Box): Entity[] {
-    return this.tree.search(box).map((i) => this.entities.get(i.id)!).filter(Boolean);
+  /** Every entity, in every space (to re-index when styles or blocks change). */
+  private *everywhere(): Generator<[Entity, string]> {
+    for (const [id, space] of this.spaces) for (const e of space.entities.values()) yield [e, id];
   }
 
-  extents(onlyVisible = true): Box {
+  /** Entities whose extents touch the box (in the active space, or the one given). */
+  query(box: Box, spaceId = this.space): Entity[] {
+    const space = this.spaceOf(spaceId);
+    return space.tree.search(box).map((i) => space.entities.get(i.id)!).filter(Boolean);
+  }
+
+  extents(onlyVisible = true, spaceId = this.space): Box {
     const box = emptyBox();
-    for (const item of this.items.values()) {
-      const e = this.entities.get(item.id)!;
+    const space = this.spaceOf(spaceId);
+    for (const item of space.items.values()) {
+      const e = space.entities.get(item.id)!;
       if (onlyVisible && !this.isVisible(e)) continue;
       if (e.type === "xline" || e.type === "ray") continue; // infinite: not part of the extents, as in AutoCAD
       box.minX = Math.min(box.minX, item.minX);
@@ -207,8 +266,16 @@ export class DraftDocument {
     const target = backwards ? change.before : change.after;
     if (change.kind === "entity") {
       const id = (change.after ?? change.before)!.id;
-      if (target) this.place(target as Entity);
-      else this.unplace(id);
+      if (target) this.place(target as Entity, change.space);
+      else this.unplace(id, change.space);
+    } else if (change.kind === "layout") {
+      const layout = target as LayoutInfo | null;
+      const gone = (backwards ? change.after : change.before) ?? layout;
+      if (layout) this.layouts.set(layout.id, layout);
+      else {
+        this.layouts.delete(gone!.id);
+        if (this.space === gone!.id) this.space = MODEL;
+      }
     } else if (change.kind === "layer") {
       const layer = target as Layer | null;
       const gone = (backwards ? change.after : change.before) ?? layer;
@@ -222,7 +289,7 @@ export class DraftDocument {
       if (style) (table as Map<string, typeof style>).set(style.name, style);
       this.syncStyles();
       // Annotations drawn with the style change size: re-index them.
-      for (const e of this.entities.values()) if (isAnnotation(e)) this.place(e);
+      for (const [e, space] of [...this.everywhere()]) if (isAnnotation(e)) this.place(e, space);
     } else if (change.kind === "block") {
       const block = target as Block | null;
       const gone = (backwards ? change.after : change.before) ?? block;
@@ -230,7 +297,7 @@ export class DraftDocument {
       if (block) this.blocks.set(block.name, block);
       applyBlocks(this.blocks);
       // References draw their block afresh: re-index them.
-      for (const e of this.entities.values()) if (e.type === "insert") this.place(e);
+      for (const [e, space] of [...this.everywhere()]) if (e.type === "insert") this.place(e, space);
     } else if (change.kind === "setting") {
       (this as unknown as Record<Setting, string | number>)[change.key] = target as string | number;
     } else {
@@ -277,17 +344,51 @@ export class DraftDocument {
   // --- edits ---------------------------------------------------------------------------
 
   add(e: Entity) {
-    this.record({ kind: "entity", before: null, after: e });
+    this.record({ kind: "entity", space: this.space, before: null, after: e });
   }
 
   update(e: Entity) {
     const before = this.entities.get(e.id) ?? null;
-    if (before !== e) this.record({ kind: "entity", before, after: e });
+    if (before !== e) this.record({ kind: "entity", space: this.space, before, after: e });
   }
 
   remove(id: string) {
     const before = this.entities.get(id);
-    if (before) this.record({ kind: "entity", before, after: null });
+    if (before) this.record({ kind: "entity", space: this.space, before, after: null });
+  }
+
+  /** Changes an entity without an undo step: a viewport's view as it's panned and zoomed. */
+  patch(e: Entity, spaceId = this.space) {
+    if (!this.spaceOf(spaceId).entities.has(e.id)) return;
+    this.place(e, spaceId);
+    this.changed();
+  }
+
+  // --- layouts ------------------------------------------------------------------------------
+
+  addLayout(layout: LayoutInfo, entities: Entity[] = []) {
+    this.record({ kind: "layout", before: null, after: layout });
+    for (const e of entities) this.record({ kind: "entity", space: layout.id, before: null, after: e });
+  }
+
+  /** Renames a layout or changes its paper or plot settings. */
+  updateLayout(layout: LayoutInfo) {
+    const before = this.layouts.get(layout.id);
+    if (before) this.record({ kind: "layout", before, after: layout });
+  }
+
+  /** Deletes a layout and what's on it (AutoCAD keeps at least one: so does the caller). */
+  removeLayout(id: string) {
+    const layout = this.layouts.get(id);
+    if (!layout) return;
+    for (const e of [...this.entitiesIn(id).values()]) this.record({ kind: "entity", space: id, before: e, after: null });
+    this.record({ kind: "layout", before: layout, after: null });
+  }
+
+  /** Where a layout was last looked at (kept with the drawing, not an undo step). */
+  setLayoutView(id: string, view: LayoutInfo["view"]) {
+    const layout = this.layouts.get(id);
+    if (layout) this.layouts.set(id, { ...layout, view });
   }
 
   setLayer(layer: Layer) {
@@ -339,7 +440,7 @@ export class DraftDocument {
     const touched = new Set<string>();
     const boxes: Box[] = [];
     for (const c of tx.changes) {
-      if (c.kind !== "entity") continue;
+      if (c.kind !== "entity" || c.space !== this.space) continue;
       for (const e of [c.before, c.after]) {
         if (!e) continue;
         touched.add(e.id);
@@ -395,7 +496,7 @@ export class DraftDocument {
         for (const child of this.blocks.get(e.block)?.entities ?? []) mark(child, true);
       }
     };
-    for (const e of this.entities.values()) mark(e, true);
+    for (const [e] of this.everywhere()) mark(e, true);
     // Layers and styles inside any block count as used (purge the block first).
     for (const b of this.blocks.values()) for (const e of b.entities) mark(e, false);
     for (const d of this.dimStyles.values()) if (dimStyles.has(d.name)) textStyles.add(d.textStyle);

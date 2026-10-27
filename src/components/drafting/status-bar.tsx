@@ -1,11 +1,15 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { ChevronUp, Compass, CornerDownRight, Grid3x3, Magnet, Moon, Sun, Target, TextCursorInput } from "lucide-react";
+import { ChevronUp, Compass, Lock, CornerDownRight, Grid3x3, Magnet, Moon, Sun, Target, TextCursorInput } from "lucide-react";
 import type { Editor, Settings, Snapshot } from "@/lib/drafting/editor";
 import { SNAP_KINDS, type SnapKind } from "@/lib/drafting/snaps";
 import { cn } from "@/lib/utils";
+import { setViewportScale } from "@/lib/drafting/commands-layout";
+import { VIEWPORT_SCALES, viewportScaleName } from "@/lib/drafting/layouts";
+import type { ViewportEntity } from "@/lib/drafting/types";
 import { Popover } from "./controls";
+import { LayoutTabs } from "./layout-tabs";
 
 // The status bar: Model tab, the cursor's coordinates, and the drafting aids with their
 // function keys, as in AutoCAD's status bar.
@@ -81,12 +85,23 @@ export function StatusBar({ editor, state, dark, onTheme }: { editor: Editor; st
 
   return (
     <div className="flex h-8 items-center gap-1 border-t bg-muted/40 px-2 text-xs">
-      <span className="rounded-t border-x border-b-2 border-b-primary bg-background px-3 py-0.5 font-medium">Model</span>
-      <span className="ml-3">
+      <LayoutTabs editor={editor} state={state} />
+      <span className="ml-3 shrink-0">
         <Coordinates editor={editor} />
       </span>
-      <div className="ml-auto flex items-center gap-0.5">
-        <span className="mr-1 font-semibold tracking-wide text-muted-foreground">MODEL</span>
+      <div className="ml-auto flex shrink-0 items-center gap-0.5">
+        {state.layout ? (
+          <button
+            type="button"
+            onClick={() => (state.viewport ? editor.exitViewport() : editor.runCommand("MSPACE"))}
+            className="mr-1 rounded px-1 font-semibold tracking-wide text-muted-foreground hover:bg-accent"
+            title={state.viewport ? "Working through a viewport: click for the paper (PS)" : "On the paper: click to work through a viewport (MS)"}
+          >
+            {state.viewport ? "MODEL" : "PAPER"}
+          </button>
+        ) : (
+          <span className="mr-1 font-semibold tracking-wide text-muted-foreground">MODEL</span>
+        )}
         <Toggle on={s.grid} label="Grid" keyName="F7" icon={Grid3x3} onClick={() => editor.toggle("grid")} />
         <Toggle on={s.snap} label="Snap to grid" keyName="F9" icon={Magnet} onClick={() => editor.toggle("snap")} />
         <Toggle on={s.ortho} label="Ortho" keyName="F8" icon={CornerDownRight} onClick={() => editor.toggle("ortho")} />
@@ -141,8 +156,9 @@ export function StatusBar({ editor, state, dark, onTheme }: { editor: Editor; st
           )}
         </Popover>
         <Toggle on={s.dynamic} label="Dynamic input" keyName="F12" icon={TextCursorInput} onClick={() => editor.toggle("dynamic")} />
+        <Toggle on={s.lineweights} label="Show lineweights" keyName="LWT" icon={LineweightIcon} onClick={() => editor.toggle("lineweights")} />
         <span className="mx-1 h-4 w-px bg-border" />
-        <Popover
+        {state.layout ? <ViewportScale editor={editor} state={state} /> : <Popover
           align="right"
           side="top"
           trigger={(_, toggle) => (
@@ -173,7 +189,7 @@ export function StatusBar({ editor, state, dark, onTheme }: { editor: Editor; st
               ))}
             </div>
           )}
-        </Popover>
+        </Popover>}
         <span className="mx-1 h-4 w-px bg-border" />
         <span className="text-muted-foreground">{editor.doc.units === "mm" ? "Millimeters" : "Architectural"}</span>
         <button type="button" onClick={() => onTheme(!dark)} className="ml-1 rounded p-1 text-muted-foreground hover:bg-accent" title={dark ? "Light theme" : "Dark theme"}>
@@ -181,5 +197,58 @@ export function StatusBar({ editor, state, dark, onTheme }: { editor: Editor; st
         </button>
       </div>
     </div>
+  );
+}
+
+function LineweightIcon({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 16 16" className={className} fill="none" stroke="currentColor" strokeLinecap="round">
+      <path d="M2 4h12" strokeWidth={0.8} />
+      <path d="M2 8h12" strokeWidth={1.6} />
+      <path d="M2 12.5h12" strokeWidth={2.6} />
+    </svg>
+  );
+}
+
+/** On a layout: the scale of the viewport worked through (or the one selected), as AutoCAD's
+ * status bar shows it. */
+function ViewportScale({ editor, state }: { editor: Editor; state: Snapshot }) {
+  void state.version;
+  const layout = state.layout!;
+  const main = editor.drawing;
+  const vp = (state.viewport ? main.entitiesIn(layout).get(state.viewport) : editor.selected().find((e) => e.type === "viewport")) as ViewportEntity | undefined;
+  const units = main.units;
+  if (!vp) return <span className="px-1.5 text-muted-foreground" title="Select a viewport, or double-click inside one, to see its scale">Viewport scale</span>;
+  return (
+    <Popover
+      align="right"
+      side="top"
+      trigger={(_, toggle) => (
+        <button type="button" onClick={toggle} className="flex h-6 items-center gap-1 rounded px-1.5 text-muted-foreground hover:bg-accent" title={vp.locked ? "Viewport scale (the viewport is locked)" : "Viewport scale"}>
+          {viewportScaleName(vp.scale, units)}
+          {vp.locked && <Lock className="size-3" />}
+          <ChevronUp className="size-3" />
+        </button>
+      )}
+    >
+      {(close) => (
+        <div className="max-h-80 w-44 overflow-y-auto">
+          <p className="px-2 py-1 text-[10px] text-muted-foreground uppercase">Viewport scale</p>
+          {VIEWPORT_SCALES[units].map(([label, k]) => (
+            <button
+              key={label}
+              type="button"
+              className={cn("block w-full rounded px-2 py-1 text-left hover:bg-muted", Math.abs(vp.scale - k) < 1e-9 * k && "bg-muted font-medium")}
+              onClick={() => {
+                close();
+                setViewportScale(editor, k);
+              }}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      )}
+    </Popover>
   );
 }

@@ -1,11 +1,12 @@
 import { COMMANDS, findCommand, suggestCommands, type Command, type CommandInfo, type Prompt } from "./commands";
 import { TextEditCommand } from "./commands-annotate";
-import { DraftDocument, newId } from "./document";
+import { DraftDocument, MODEL, newId } from "./document";
 import { angleOf, crossesBox, dist, distanceTo, dot, grips, insideBox, moveGrip, polar, same, sub, type Box, type Grip } from "./geometry";
 import { DEFAULT_SNAPS, findSnap, type Snap, type SnapKind } from "./snaps";
 import { formatLength, parseAngle, parseLength, parsePointInput } from "./units";
 import { attributeDefs } from "./blocks";
-import { LW_BYLAYER, type ColorValue, type DrawingData, type Entity, type InsertEntity, type Vec } from "./types";
+import { drawingArea, standardScaleBelow, titleBlock, VIEWPORT_LAYER, viewportScaleName } from "./layouts";
+import { defaultPaper, LW_BYLAYER, type ColorValue, type DrawingData, type Entity, type InsertEntity, type Vec, type ViewportEntity } from "./types";
 
 // The drafting editor without its screen: the view, the cursor with object snaps and polar
 // tracking, selection and grips, the command line, and the keyboard, as AutoCAD behaves. The
@@ -20,11 +21,13 @@ export type Settings = {
   osnap: boolean; // F3
   snapKinds: SnapKind[];
   dynamic: boolean; // F12
+  lineweights: boolean; // LWT: lines drawn at their lineweights
 };
 
-export const DEFAULT_SETTINGS: Settings = { grid: true, snap: false, ortho: false, polar: true, polarAngle: 90, osnap: true, snapKinds: DEFAULT_SNAPS, dynamic: true };
+export const DEFAULT_SETTINGS: Settings = { grid: true, snap: false, ortho: false, polar: true, polarAngle: 90, osnap: true, snapKinds: DEFAULT_SNAPS, dynamic: true, lineweights: false };
 
 export type Palette = "properties" | "layers" | "styles" | "blocks";
+type View = { cx: number; cy: number; scale: number };
 
 /** A file attached under the drawing, ready to place: its size at scale 1, in drawing units. */
 export type Attachment = { key: string; name: string; source: "image" | "pdf"; width: number; height: number };
@@ -34,7 +37,10 @@ export type DialogRequest =
   | { kind: "block"; count: number; done: (r: { name: string; description: string; mode: "convert" | "retain" | "delete" } | null) => void }
   | { kind: "attributes"; block: string; rows: { tag: string; prompt: string; value: string }[]; done: (values: Record<string, string> | null) => void }
   | { kind: "save-block"; name: string; done: (choice: "save" | "discard" | null) => void }
-  | { kind: "purge"; done: (r: null) => void };
+  | { kind: "purge"; done: (r: null) => void }
+  | { kind: "page-setup"; layout: string; done: (r: null) => void }
+  | { kind: "plot"; done: (r: null) => void }
+  | { kind: "publish"; done: (r: null) => void };
 
 /** Text being typed in place over the drawing (TEXT, MTEXT, MLEADER, TEXTEDIT). */
 export type TextEditRequest = {
@@ -77,6 +83,11 @@ export type Snapshot = {
   dialog: DialogRequest | null;
   /** The block open in the block editor. */
   blockEdit: string | null;
+  /** The layout being worked on (null: the Model tab), and the layouts in tab order. */
+  layout: string | null;
+  layouts: { id: string; name: string }[];
+  /** The viewport worked through (floating model space), if any. */
+  viewport: string | null;
 };
 
 export class Editor {
@@ -125,6 +136,15 @@ export class Editor {
   dialog: DialogRequest | null = null;
   /** The block editor: the block being edited, and the drawing it came from. */
   blockEdit: { name: string; main: DraftDocument; view: Editor["view"]; saved: number } | null = null;
+  /** The layout on screen (null: the Model tab). */
+  layoutId: string | null = null;
+  /** Working through a layout viewport (MSPACE): its id, and the paper's view meanwhile. */
+  viewport: string | null = null;
+  paperView: View | null = null;
+  /** The drawing's name, for new title blocks. */
+  drawingName = "";
+  /** Where model space was looked at, while a layout is on screen. */
+  private modelView: View | null = null;
   buffer = "";
   history: HistoryLine[] = [];
   private inputs: string[] = [];
@@ -211,6 +231,9 @@ export class Editor {
       textEdit: this.textEdit,
       dialog: this.dialog,
       blockEdit: this.blockEdit?.name ?? null,
+      layout: this.layoutId,
+      layouts: [...this.drawing.layouts.values()].map((l) => ({ id: l.id, name: l.name })),
+      viewport: this.viewport,
     };
   }
 
@@ -262,14 +285,24 @@ export class Editor {
   private fit(box: Box) {
     const w = Math.max(box.maxX - box.minX, 1e-6);
     const h = Math.max(box.maxY - box.minY, 1e-6);
-    this.view.scale = Math.min(this.size.w / w, this.size.h / h) * 0.9;
-    this.view.cx = (box.minX + box.maxX) / 2;
-    this.view.cy = (box.minY + box.maxY) / 2;
+    // Through a viewport, the box fits the viewport, not the screen.
+    const rect = this.viewportRect() ?? { x: 0, y: 0, w: this.size.w, h: this.size.h };
+    this.view.scale = Math.min(rect.w / w, rect.h / h) * 0.9;
+    this.view.cx = (box.minX + box.maxX) / 2 - (rect.x + rect.w / 2 - this.size.w / 2) / this.view.scale;
+    this.view.cy = (box.minY + box.maxY) / 2 + (rect.y + rect.h / 2 - this.size.h / 2) / this.view.scale;
     this.refreshPointer();
   }
 
-  zoomExtents() {
+  zoomExtents(): void {
     const box = this.doc.extents();
+    const paper = this.doc.layout?.paper;
+    if (paper && !this.viewport) {
+      // On a layout: the sheet and whatever is on or off it.
+      box.minX = Math.min(box.minX, 0);
+      box.minY = Math.min(box.minY, 0);
+      box.maxX = Math.max(box.maxX, paper.width);
+      box.maxY = Math.max(box.maxY, paper.height);
+    }
     if (!Number.isFinite(box.minX)) return this.home();
     if (box.maxX - box.minX < 1e-9 && box.maxY - box.minY < 1e-9) {
       this.view.cx = box.minX;
@@ -284,7 +317,8 @@ export class Editor {
   }
 
   /** An empty drawing's starting view: 40 ft or 12 m across, the origin near the lower left. */
-  home() {
+  home(): void {
+    if (this.doc.layout && !this.viewport) return this.zoomExtents();
     const across = this.doc.units === "mm" ? 12000 : 480;
     this.view.scale = this.size.w / across;
     this.view.cx = across * 0.4;
@@ -313,6 +347,17 @@ export class Editor {
 
   /** Works out the point a click would give, and what's under the cursor. */
   private resolve() {
+    const rect = this.viewportRect();
+    const outside = !!rect && !!this.cursorScreen && (this.cursorScreen.x < rect.x || this.cursorScreen.x > rect.x + rect.w || this.cursorScreen.y < rect.y || this.cursorScreen.y > rect.y + rect.h);
+    if (outside && !this.command) {
+      // Outside the viewport being worked through: nothing there to pick.
+      this.hover = null;
+      this.hoverGrip = null;
+      this.snap = null;
+      this.tracking = null;
+      this.point = this.cursor;
+      return;
+    }
     const raw = this.cursor;
     const base = this.base;
     let point = raw;
@@ -358,6 +403,7 @@ export class Editor {
   }
 
   private refreshPointer() {
+    this.viewChanged();
     if (this.cursorScreen) {
       this.cursor = this.toWorld(this.cursorScreen);
       this.resolve();
@@ -589,6 +635,164 @@ export class Editor {
     this.afterInput();
   }
 
+  // --- layouts ---------------------------------------------------------------------------
+
+  /** Moves to a layout's tab (or Model with null), keeping where each was looked at. */
+  setLayout(id: string | null) {
+    const main = this.drawing;
+    if (this.blockEdit || (id && !main.layouts.has(id)) || id === this.layoutId) return;
+    if (this.command) this.cancel(false);
+    this.exitViewport();
+    if (this.layoutId) main.setLayoutView(this.layoutId, { ...this.view });
+    else this.modelView = { ...this.view };
+    this.selection.clear();
+    this.windows = [];
+    this.layoutId = id;
+    main.setSpace(id ?? MODEL);
+    // Sizes remembered for new text and hatches were for the other space.
+    delete this.memory.textHeight;
+    delete this.memory.hatchScale;
+    const view = id ? main.layouts.get(id)!.view : this.modelView;
+    if (view) {
+      this.view = { ...view };
+      this.refreshPointer();
+    } else this.zoomExtents();
+    this.emit();
+  }
+
+  /** A new layout, opened: a title block, and a viewport onto the whole model inside its
+   * border (as AutoCAD's Layout1 has one), on a layer that doesn't plot. */
+  newLayout(name?: string) {
+    const main = this.drawing;
+    const names = new Set([...main.layouts.values()].map((l) => l.name));
+    let n = main.layouts.size + 1;
+    while (!name && names.has(`Layout${n}`)) n++;
+    const layoutName = name ?? `Layout${n}`;
+    const id = newId();
+    const paper = defaultPaper(main.units);
+    const block = titleBlock(paper, main.units);
+    const viewport = { ...this.fittedViewport(paper, drawingArea(paper, main.units)), layer: VIEWPORT_LAYER.name };
+    const frame = this.make<InsertEntity>({
+      type: "insert",
+      block: block.name,
+      at: { x: 0, y: 0 },
+      scale: { x: 1, y: 1 },
+      rotation: 0,
+      attribs: {
+        PROJECT: this.drawingName,
+        SHEET_TITLE: layoutName,
+        SCALE: viewportScaleName(viewport.scale, main.units),
+        DATE: new Date().toLocaleDateString("en-US"),
+        SHEET_NUMBER: "",
+      },
+    });
+    main.begin("LAYOUT");
+    if (!main.layers.has(VIEWPORT_LAYER.name)) main.setLayer(VIEWPORT_LAYER);
+    if (!main.blocks.has(block.name)) main.setBlock(block);
+    main.addLayout({ id, name: layoutName, paper, plot: { monochrome: true, lineweights: true } }, [frame, viewport]);
+    main.commit();
+    this.setLayout(id);
+    return id;
+  }
+
+  /** A viewport inside a sheet's margins showing all of the model at the largest standard
+   * scale that fits. */
+  fittedViewport(paper: { width: number; height: number }, rect?: { minX: number; minY: number; maxX: number; maxY: number }): ViewportEntity {
+    const margin = this.drawing.units === "mm" ? 10 : 0.5;
+    const r = rect ?? { minX: margin, minY: margin, maxX: paper.width - margin, maxY: paper.height - margin };
+    const model = this.drawing.extents(true, MODEL);
+    const has = Number.isFinite(model.minX);
+    const w = has ? Math.max(model.maxX - model.minX, 1e-6) : this.drawing.units === "mm" ? 12000 : 480;
+    const h = has ? Math.max(model.maxY - model.minY, 1e-6) : w / 2;
+    const fit = Math.min((r.maxX - r.minX) / w, (r.maxY - r.minY) / h) * 0.95;
+    return {
+      ...this.defaults(),
+      linetype: "ByLayer",
+      id: newId(),
+      type: "viewport",
+      center: { x: (r.minX + r.maxX) / 2, y: (r.minY + r.maxY) / 2 },
+      width: r.maxX - r.minX,
+      height: r.maxY - r.minY,
+      view: has ? { x: (model.minX + model.maxX) / 2, y: (model.minY + model.maxY) / 2 } : { x: w / 2, y: h / 2 },
+      scale: standardScaleBelow(fit, this.drawing.units),
+      locked: false,
+    };
+  }
+
+  private activeViewport(): ViewportEntity | null {
+    if (!this.viewport || !this.layoutId) return null;
+    const e = this.drawing.entitiesIn(this.layoutId).get(this.viewport);
+    return e?.type === "viewport" ? e : null;
+  }
+
+  /** The active viewport on screen, in pixels (null outside floating model space). */
+  viewportRect() {
+    const vp = this.activeViewport();
+    const paper = this.paperView;
+    if (!vp || !paper) return null;
+    const x = (vp.center.x - vp.width / 2 - paper.cx) * paper.scale + this.size.w / 2;
+    const y = this.size.h / 2 - (vp.center.y + vp.height / 2 - paper.cy) * paper.scale;
+    return { x, y, w: vp.width * paper.scale, h: vp.height * paper.scale };
+  }
+
+  /** MSPACE: work on the model through a viewport, as double-clicking inside one does. */
+  enterViewport(id: string) {
+    const layout = this.layoutId;
+    const vp = layout ? this.drawing.entitiesIn(layout).get(id) : null;
+    if (!layout || vp?.type !== "viewport") return;
+    if (this.command) this.cancel(false);
+    if (!this.viewport) this.paperView = { ...this.view };
+    this.viewport = id;
+    this.selection.clear();
+    this.drawing.setSpace(MODEL);
+    const paper = this.paperView!;
+    this.view = { cx: vp.view.x + (paper.cx - vp.center.x) / vp.scale, cy: vp.view.y + (paper.cy - vp.center.y) / vp.scale, scale: paper.scale * vp.scale };
+    this.refreshPointer();
+    this.emit();
+  }
+
+  /** PSPACE: back to the paper. */
+  exitViewport() {
+    if (!this.viewport) return;
+    if (this.command) this.cancel(false);
+    this.viewport = null;
+    this.view = { ...this.paperView! };
+    this.paperView = null;
+    this.selection.clear();
+    if (this.layoutId) this.drawing.setSpace(this.layoutId);
+    this.refreshPointer();
+    this.emit();
+  }
+
+  /** Through a viewport, panning and zooming change the viewport's view (or, when it's
+   * locked, move the paper), as in AutoCAD. */
+  private viewChanged() {
+    const vp = this.activeViewport();
+    const paper = this.paperView;
+    if (!vp || !paper || !this.layoutId) return;
+    if (vp.locked) {
+      paper.scale = this.view.scale / vp.scale;
+      paper.cx = vp.center.x + (this.view.cx - vp.view.x) * vp.scale;
+      paper.cy = vp.center.y + (this.view.cy - vp.view.y) * vp.scale;
+      return;
+    }
+    const scale = this.view.scale / paper.scale;
+    const view = { x: this.view.cx - (paper.cx - vp.center.x) / scale, y: this.view.cy - (paper.cy - vp.center.y) / scale };
+    if (Math.abs(scale - vp.scale) > 1e-12 * vp.scale || Math.abs(view.x - vp.view.x) > 1e-9 || Math.abs(view.y - vp.view.y) > 1e-9)
+      this.drawing.patch({ ...vp, scale, view }, this.layoutId);
+  }
+
+  /** The viewport on the paper under a screen point. */
+  private viewportAt(screen: Vec): ViewportEntity | null {
+    if (!this.layoutId) return null;
+    const paper = this.paperView ?? this.view;
+    const p = { x: paper.cx + (screen.x - this.size.w / 2) / paper.scale, y: paper.cy - (screen.y - this.size.h / 2) / paper.scale };
+    const found = [...this.drawing.entitiesIn(this.layoutId).values()].filter(
+      (e): e is ViewportEntity => e.type === "viewport" && this.drawing.isVisible(e) && Math.abs(p.x - e.center.x) <= e.width / 2 && Math.abs(p.y - e.center.y) <= e.height / 2,
+    );
+    return found.at(-1) ?? null;
+  }
+
   // --- dialogs ---------------------------------------------------------------------------
 
   openDialog(req: DialogRequest) {
@@ -688,6 +892,15 @@ export class Editor {
    * Properties for anything else (as AutoCAD). */
   doubleClick(screen: Vec) {
     if (this.command || this.hotGrip || this.textEdit || this.dialog) return;
+    if (this.layoutId) {
+      // On a layout, double-clicking inside a viewport works through it; outside, back to paper.
+      const vp = this.viewportAt(screen);
+      if (this.viewport && vp?.id !== this.viewport) return vp ? this.enterViewport(vp.id) : this.exitViewport();
+      if (!this.viewport && vp) {
+        const hit = this.pick(this.toWorld(screen));
+        if (!hit || hit.id === vp.id) return this.enterViewport(vp.id);
+      }
+    }
     const e = this.pick(this.toWorld(screen));
     if (!e) return;
     if (e.type === "text" || e.type === "mtext" || e.type === "dimension" || e.type === "leader") {
@@ -854,12 +1067,12 @@ export class Editor {
     return true;
   }
 
-  toggle(setting: "grid" | "snap" | "ortho" | "polar" | "osnap" | "dynamic") {
+  toggle(setting: "grid" | "snap" | "ortho" | "polar" | "osnap" | "dynamic" | "lineweights") {
     const on = !this.settings[setting];
     // Ortho and polar tracking exclude each other, as in AutoCAD.
     const exclusive = setting === "ortho" && on ? { polar: false } : setting === "polar" && on ? { ortho: false } : {};
     this.settings = { ...this.settings, [setting]: on, ...exclusive };
-    const names = { grid: "Grid", snap: "Snap", ortho: "Ortho", polar: "Polar", osnap: "Osnap", dynamic: "Dynamic input" };
+    const names = { grid: "Grid", snap: "Snap", ortho: "Ortho", polar: "Polar", osnap: "Osnap", dynamic: "Dynamic input", lineweights: "Lineweight display" };
     this.print(`<${names[setting]} ${on ? "on" : "off"}>`, "info");
     this.afterInput();
   }
@@ -926,7 +1139,9 @@ export class Editor {
   }
 
   make<T extends Entity>(geometry: Omit<T, "id" | "layer" | "color" | "lineweight" | "linetype">): T {
-    return { id: newId(), ...this.defaults(), ...geometry } as T;
+    // Dimensions and leaders on a layout's paper are drawn 1:1.
+    const paper = this.doc.space !== MODEL && (geometry.type === "dimension" || geometry.type === "leader") ? { dimScale: 1 } : {};
+    return { id: newId(), ...this.defaults(), ...paper, ...geometry } as T;
   }
 
   /** What the overlay draws as rubber band: the command's preview, or the stretched grip's objects. */

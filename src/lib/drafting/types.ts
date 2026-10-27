@@ -64,10 +64,12 @@ export type DimensionEntity = EntityBase & {
   /** Replaces the measurement; "<>" stands for it. Empty: the measurement. */
   text: string;
   style: string;
+  /** Overrides the style's overall scale: 1 for dimensions on a layout's paper. */
+  dimScale?: number;
 };
 
 /** A multileader: an arrowhead, a leader line to a landing, and text. */
-export type LeaderEntity = EntityBase & { type: "leader"; points: Vec[]; text: string; height: number; style: string; dimStyle: string };
+export type LeaderEntity = EntityBase & { type: "leader"; points: Vec[]; text: string; height: number; style: string; dimStyle: string; dimScale?: number };
 
 /** A hatch: boundary loops (filled even-odd, so loops inside loops are islands) and a pattern.
  * `seeds` are the points picked inside: while set, the hatch is associative and follows its
@@ -96,6 +98,10 @@ export type AttdefEntity = EntityBase & {
 
 /** An image or a PDF page under the drawing (IMAGEATTACH, PDFATTACH), stored as a picture in
  * file storage under `key`. `at` is its lower left corner; `fade` 0 to 100. */
+/** A layout viewport (MVIEW): a window on the paper showing model space around `view` at
+ * `scale` (paper units per drawing unit: 1/48 for 1/4" = 1'-0"). */
+export type ViewportEntity = EntityBase & { type: "viewport"; center: Vec; width: number; height: number; view: Vec; scale: number; locked: boolean };
+
 export type ImageEntity = EntityBase & { type: "image"; key: string; name: string; source: "image" | "pdf"; at: Vec; width: number; height: number; rotation: number; fade: number };
 
 export type Entity =
@@ -114,7 +120,8 @@ export type Entity =
   | HatchEntity
   | InsertEntity
   | AttdefEntity
-  | ImageEntity;
+  | ImageEntity
+  | ViewportEntity;
 export type EntityType = Entity["type"];
 
 export type Layer = {
@@ -125,6 +132,8 @@ export type Layer = {
   on: boolean;
   frozen: boolean;
   locked: boolean;
+  /** Whether the layer plots (AutoCAD's Plot/No Plot); unset: it does. */
+  plot?: boolean;
 };
 
 export type TextStyle = { name: string; font: string; widthFactor: number };
@@ -143,6 +152,42 @@ export type DimStyle = {
   textStyle: string;
 };
 
+/** A paper size, in the drawing's paper units (inches, or millimetres for metric drawings). */
+export type Paper = { name: string; width: number; height: number };
+
+/** How a layout plots: black lines (AutoCAD's monochrome.ctb) or in colour, with lineweights. */
+export type PlotSettings = { monochrome: boolean; lineweights: boolean };
+
+/** A layout (paper space): a sheet of paper with viewports onto the model, a title block and
+ * notes, drawn 1:1 in paper units. */
+export type Layout = { id: string; name: string; paper: Paper; plot: PlotSettings; entities: Entity[]; view?: { cx: number; cy: number; scale: number } };
+
+/** Paper sizes as AutoCAD's DWG To PDF lists them (landscape). */
+export const PAPER_SIZES: Record<Units, Paper[]> = {
+  architectural: [
+    { name: "ARCH E1 (42 x 30 in)", width: 42, height: 30 },
+    { name: "ARCH E (48 x 36 in)", width: 48, height: 36 },
+    { name: "ARCH D (36 x 24 in)", width: 36, height: 24 },
+    { name: "ARCH C (24 x 18 in)", width: 24, height: 18 },
+    { name: "ARCH B (18 x 12 in)", width: 18, height: 12 },
+    { name: "ANSI E (44 x 34 in)", width: 44, height: 34 },
+    { name: "ANSI D (34 x 22 in)", width: 34, height: 22 },
+    { name: "ANSI C (22 x 17 in)", width: 22, height: 17 },
+    { name: "ANSI B (17 x 11 in)", width: 17, height: 11 },
+    { name: "Letter (11 x 8.5 in)", width: 11, height: 8.5 },
+  ],
+  mm: [
+    { name: "ISO A0 (1189 x 841 mm)", width: 1189, height: 841 },
+    { name: "ISO A1 (841 x 594 mm)", width: 841, height: 594 },
+    { name: "ISO A2 (594 x 420 mm)", width: 594, height: 420 },
+    { name: "ISO A3 (420 x 297 mm)", width: 420, height: 297 },
+    { name: "ISO A4 (297 x 210 mm)", width: 297, height: 210 },
+  ],
+};
+
+/** A new layout's paper: ARCH D for architectural drawings, A1 for metric ones. */
+export const defaultPaper = (units: Units): Paper => PAPER_SIZES[units][units === "mm" ? 1 : 2];
+
 /** A block definition: objects drawn about a base point, placed by inserts. */
 export type Block = { name: string; base: Vec; entities: Entity[]; description?: string };
 
@@ -156,6 +201,7 @@ export type DrawingData = {
   layers: Layer[];
   currentLayer: string;
   entities: Entity[];
+  layouts?: Layout[];
   textStyles?: TextStyle[];
   dimStyles?: DimStyle[];
   blocks?: Block[];
@@ -184,6 +230,7 @@ export const ENTITY_NAMES: Record<EntityType, string> = {
   insert: "Block Reference",
   attdef: "Attribute Definition",
   image: "Image",
+  viewport: "Viewport",
 };
 
 /** AutoCAD's starting styles: Standard (imperial, architectural ticks) or ISO-25 (metric). */

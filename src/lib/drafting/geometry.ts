@@ -1,4 +1,4 @@
-import type { ArcEntity, EllipseEntity, Entity, HAlign, ImageEntity, InsertEntity, VAlign, Vec } from "./types";
+import type { ArcEntity, EllipseEntity, Entity, HAlign, ImageEntity, InsertEntity, VAlign, Vec, ViewportEntity } from "./types";
 
 // Plane geometry for drafting: entities as segments and arcs, their extents, distances,
 // intersections, and the grips that edit them.
@@ -62,6 +62,17 @@ export function graphicsOf(e: Entity): Graphics {
     return g;
   }
   return isAnnotation(e) ? annotate(e) : { lines: tessellate(e), fills: [], texts: [] };
+}
+
+/** A viewport's corners, counter-clockwise from its lower left. */
+export function viewportCorners(e: Pick<ViewportEntity, "center" | "width" | "height">): Vec[] {
+  const [w, h] = [e.width / 2, e.height / 2];
+  return [
+    { x: e.center.x - w, y: e.center.y - h },
+    { x: e.center.x + w, y: e.center.y - h },
+    { x: e.center.x + w, y: e.center.y + h },
+    { x: e.center.x - w, y: e.center.y + h },
+  ];
 }
 
 /** An image's corners, counter-clockwise from its lower left. */
@@ -192,6 +203,8 @@ export function primitives(e: Entity): Primitive[] {
       return partsOf(e).flatMap(primitives);
     case "image":
       return polylineSegments(imageCorners(e), true);
+    case "viewport":
+      return polylineSegments(viewportCorners(e), true);
     default:
       return []; // annotations aren't snapped to, cut or extended
   }
@@ -274,6 +287,10 @@ export function tessellate(e: Entity): Vec[][] {
       return partsOf(e).flatMap(tessellate);
     case "image": {
       const c = imageCorners(e);
+      return [[...c, c[0]]];
+    }
+    case "viewport": {
+      const c = viewportCorners(e);
       return [[...c, c[0]]];
     }
     default:
@@ -490,6 +507,8 @@ export function translate<T extends Entity>(e: T, d: Vec): T {
     case "attdef":
     case "image":
       return { ...e, at: add(e.at, d) };
+    case "viewport":
+      return { ...e, center: add(e.center, d) };
   }
 }
 
@@ -586,6 +605,9 @@ export function transform<T extends Entity>(e: T, x: Xform): T {
         ? { ...e, at: applyXf(x, e.at), rotation: phi - e.rotation, scale: { x: e.scale.x * k, y: -e.scale.y * k } }
         : { ...e, at: applyXf(x, e.at), rotation: e.rotation + phi, scale: { x: e.scale.x * k, y: e.scale.y * k } };
     }
+    case "viewport":
+      // Viewports stay upright rectangles: they move and size, the view inside keeps its scale.
+      return { ...e, center: applyXf(x, e.center), width: e.width * k, height: e.height * k };
     case "image":
       // Pictures aren't mirrored: a mirrored one keeps reading the right way.
       return flip
@@ -647,6 +669,8 @@ export function grips(e: Entity): Grip[] {
       return [{ point: e.at, kind: "move", index: 0 }];
     case "image":
       return imageCorners(e).map((point, index) => ({ point, kind: "stretch" as const, index }));
+    case "viewport":
+      return viewportCorners(e).map((point, index) => ({ point, kind: "stretch" as const, index }));
     case "dimension":
       return e.kind === "radius" || e.kind === "diameter"
         ? [
@@ -715,6 +739,11 @@ export function moveGrip<T extends Entity>(e: T, grip: Grip, to: Vec): T {
       const points = e.points.slice();
       points[grip.index] = to;
       return { ...e, points };
+    }
+    case "viewport": {
+      // A corner resizes the viewport against the opposite one.
+      const anchor = viewportCorners(e)[(grip.index + 2) % 4];
+      return { ...e, center: mid(anchor, to), width: Math.max(Math.abs(to.x - anchor.x), EPS), height: Math.max(Math.abs(to.y - anchor.y), EPS) };
     }
     case "image": {
       // A corner scales the picture about the opposite one, keeping its proportions.

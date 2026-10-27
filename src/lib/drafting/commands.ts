@@ -37,6 +37,7 @@ import {
   TextEditCommand,
 } from "./commands-annotate";
 import { AttachCommand, AttdefCommand, AttEditCommand, BeditCommand, BlockCommand, InsertCommand, InsertPaletteCommand } from "./commands-blocks";
+import { insertTitleBlock, LayoutCommand, lockViewports, MspaceCommand, MviewCommand } from "./commands-layout";
 import type { Editor } from "./editor";
 import type { Vec } from "./types";
 
@@ -158,6 +159,20 @@ export const COMMANDS: CommandInfo[] = [
   command("IMAGEATTACH", ["IAT", "ATTACH"], "Attaches a picture under the drawing", (ed) => new AttachCommand(ed, "image")),
   command("PDFATTACH", [], "Attaches a page of a PDF under the drawing", (ed) => new AttachCommand(ed, "pdf")),
   command("DXFOUT", ["EXPORT", "SAVEAS"], "Downloads the drawing as a DXF file for AutoCAD and other CAD programs", (ed) => new ImmediateCommand(ed, "DXFOUT", (e) => e.ui.exportDxf())),
+  // Layouts and plotting
+  command("LAYOUT", ["LO"], "Creates, renames, deletes and switches layouts", (ed) => new LayoutCommand(ed)),
+  command("MVIEW", ["MV"], "Creates a layout viewport onto the model", (ed) => new MviewCommand(ed)),
+  command("MSPACE", ["MS"], "Works on the model through a layout viewport", (ed) => new MspaceCommand(ed)),
+  command("PSPACE", ["PS"], "Returns from a viewport to the layout's paper", (ed) => new ImmediateCommand(ed, "PSPACE", (e) => (e.viewport ? e.exitViewport() : e.print("Already on the paper.", "info")))),
+  command("VPLOCK", [], "Locks the scale and view of viewports", (ed) => new ImmediateCommand(ed, "VPLOCK", (e) => lockViewports(e, true))),
+  command("VPUNLOCK", [], "Unlocks the scale and view of viewports", (ed) => new ImmediateCommand(ed, "VPUNLOCK", (e) => lockViewports(e, false))),
+  command("TITLEBLOCK", ["TB"], "Puts a title block on the layout's paper", (ed) => new ImmediateCommand(ed, "TITLEBLOCK", insertTitleBlock)),
+  command("PAGESETUP", [], "Sets a layout's paper size and how it plots", (ed) =>
+    new ImmediateCommand(ed, "PAGESETUP", (e) => (e.layoutId ? e.openDialog({ kind: "page-setup", layout: e.layoutId, done: () => {} }) : e.openDialog({ kind: "plot", done: () => {} }))),
+  ),
+  command("PLOT", ["PRINT"], "Plots the layout or the model to a PDF", (ed) => new ImmediateCommand(ed, "PLOT", (e) => e.openDialog({ kind: "plot", done: () => {} }))),
+  command("PUBLISH", [], "Publishes layouts to a multi-sheet PDF or to a project's Sheets", (ed) => new ImmediateCommand(ed, "PUBLISH", (e) => e.openDialog({ kind: "publish", done: () => {} }))),
+  command("LWDISPLAY", ["LWT"], "Shows or hides lineweights", (ed) => new ImmediateCommand(ed, "LWDISPLAY", (e) => e.toggle("lineweights"))),
   // View and tools
   command("ZOOM", ["Z"], "Increases or decreases the magnification of the view", (ed) => new ZoomCommand(ed)),
   command("PAN", ["P"], "Moves the view", (ed) => new PanCommand(ed)),

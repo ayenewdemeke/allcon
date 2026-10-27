@@ -14,8 +14,11 @@ const DEG = Math.PI / 180;
 export function defaultTextHeight(ed: Editor) {
   const remembered = ed.memory.textHeight;
   if (typeof remembered === "number") return remembered;
-  return (ed.doc.units === "mm" ? 2.5 : 3 / 32) * ed.doc.annoScale;
+  return (ed.doc.units === "mm" ? 2.5 : 3 / 32) * ed.doc.newScale;
 }
+
+/** A dimension style's overall scale where new dimensions go: 1 on a layout's paper. */
+const dimScaleHere = (ed: Editor, st: { scale: number }) => (ed.doc.space === "model" ? st.scale : 1);
 
 export const JUSTIFY: Record<string, [HAlign, VAlign]> = {
   L: ["left", "baseline"],
@@ -250,7 +253,7 @@ export class TextEditCommand extends Command {
       const st = dimStyle(e.type === "dimension" ? e.style : e.dimStyle);
       this.ed.openTextEditor({
         at: e.type === "dimension" ? e.loc : e.points[e.points.length - 1],
-        height: e.type === "leader" ? e.height : st.textHeight * st.scale,
+        height: e.type === "leader" ? e.height : st.textHeight * (e.dimScale ?? st.scale),
         rotation: 0,
         width: 0,
         value: e.text,
@@ -515,7 +518,7 @@ export class DimContinueCommand extends DimCommand {
     const st = dimStyle(b.style);
     const n = perp({ x: Math.cos(angle), y: Math.sin(angle) });
     const side = (b.loc.x - b.p1.x) * n.x + (b.loc.y - b.p1.y) * n.y >= 0 ? 1 : -1;
-    return this.makeDim("linear", { p1: b.p1, p2: p, loc: { x: b.loc.x + n.x * side * st.baselineSpacing * st.scale, y: b.loc.y + n.y * side * st.baselineSpacing * st.scale }, angle, style: b.style });
+    return this.makeDim("linear", { p1: b.p1, p2: p, loc: { x: b.loc.x + n.x * side * st.baselineSpacing * (b.dimScale ?? st.scale), y: b.loc.y + n.y * side * st.baselineSpacing * (b.dimScale ?? st.scale) }, angle, style: b.style });
   }
   point(p: Vec) {
     if (!this.base) return;
@@ -601,11 +604,11 @@ export class MLeaderCommand extends Command {
     this.points.push(p);
     if (this.points.length < 2) return;
     const st = dimStyle(this.ed.doc.currentDimStyle);
-    const height = st.textHeight * st.scale;
+    const height = st.textHeight * dimScaleHere(this.ed, st);
     const points = this.points.slice();
     const end = points[points.length - 1];
     const right = end.x >= points[points.length - 2].x;
-    const arrow = st.arrowSize * st.scale;
+    const arrow = st.arrowSize * dimScaleHere(this.ed, st);
     this.ed.openTextEditor({
       at: { x: end.x + (right ? arrow * 2.5 : -arrow * 12), y: end.y + height / 2 },
       height,
@@ -624,7 +627,7 @@ export class MLeaderCommand extends Command {
   preview(c: Vec): Entity[] {
     if (!this.points.length) return [];
     const st = dimStyle(this.ed.doc.currentDimStyle);
-    return [this.ed.make<LeaderEntity>({ type: "leader", points: [...this.points, c], text: "", height: st.textHeight * st.scale, style: st.textStyle, dimStyle: this.ed.doc.currentDimStyle })];
+    return [this.ed.make<LeaderEntity>({ type: "leader", points: [...this.points, c], text: "", height: st.textHeight * dimScaleHere(this.ed, st), style: st.textStyle, dimStyle: this.ed.doc.currentDimStyle })];
   }
 }
 
@@ -634,7 +637,7 @@ export class MLeaderCommand extends Command {
 export function hatchSettings(ed: Editor) {
   return {
     pattern: String(ed.memory.hatchPattern ?? "ANSI31"),
-    scale: Number(ed.memory.hatchScale ?? ed.doc.annoScale),
+    scale: Number(ed.memory.hatchScale ?? ed.doc.newScale),
     angle: Number(ed.memory.hatchAngle ?? 0),
   };
 }

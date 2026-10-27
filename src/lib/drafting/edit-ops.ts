@@ -3,6 +3,7 @@ import {
   add,
   angleOf,
   bulgeArc,
+  viewportCorners,
   cross,
   dist,
   distanceTo,
@@ -633,5 +634,13 @@ export function stretch(e: Entity, boxes: Box[], d: Vec): Entity {
     case "attdef":
     case "image":
       return inAny(e.at, boxes) ? translate(e, d) : e;
+    case "viewport": {
+      // Corners inside the window move: the viewport is the box around them.
+      const corners = viewportCorners(e).map(move);
+      const xs = corners.map((p) => p.x);
+      const ys = corners.map((p) => p.y);
+      const [x0, x1, y0, y1] = [Math.min(...xs), Math.max(...xs), Math.min(...ys), Math.max(...ys)];
+      return { ...e, center: { x: (x0 + x1) / 2, y: (y0 + y1) / 2 }, width: x1 - x0, height: y1 - y0 };
+    }
   }
 }

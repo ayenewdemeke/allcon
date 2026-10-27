@@ -1,9 +1,10 @@
 "use client";
 
 import { useState } from "react";
-import { Check, Lightbulb, LightbulbOff, Lock, LockOpen, Plus, Snowflake, Sun, Trash, X } from "lucide-react";
+import { Check, Lightbulb, LightbulbOff, Lock, LockOpen, Plus, Printer, PrinterX, Snowflake, Sun, Trash, X } from "lucide-react";
 import { colorName } from "@/lib/drafting/aci";
 import { attributeDefs } from "@/lib/drafting/blocks";
+import { VIEWPORT_SCALES, viewportScaleName } from "@/lib/drafting/layouts";
 import type { Editor, Snapshot } from "@/lib/drafting/editor";
 import { angleOf, arcEnd, arcStart, dist, isFullEllipse, len as magnitude, sweepOf, TAU, tessellate } from "@/lib/drafting/geometry";
 import { formatAngle, formatLength, parseAngle, parseLength, trimNumber } from "@/lib/drafting/units";
@@ -323,6 +324,35 @@ function Geometry({ editor, e }: { editor: Editor; e: Entity }) {
           <Row label="Rotation">{num(e.rotation, (a) => ({ ...e, rotation: a }), (t) => parseAngle(t), formatAngle)}</Row>
         </Group>
       );
+    case "viewport": {
+      const scales = VIEWPORT_SCALES[units];
+      const standard = scales.find(([, k]) => Math.abs(k - e.scale) <= 1e-9 * k);
+      return (
+        <Group title="Viewport">
+          <Row label="Center X">{num(e.center.x, (x) => ({ ...e, center: { ...e.center, x } }))}</Row>
+          <Row label="Center Y">{num(e.center.y, (y) => ({ ...e, center: { ...e.center, y } }))}</Row>
+          <Row label="Width">{num(e.width, (w) => ({ ...e, width: Math.max(w, 1e-6) }))}</Row>
+          <Row label="Height">{num(e.height, (h) => ({ ...e, height: Math.max(h, 1e-6) }))}</Row>
+          <Row label="Standard scale">
+            <select value={standard ? String(standard[1]) : ""} disabled={!editable} onChange={(ev) => ev.target.value && set({ ...e, scale: Number(ev.target.value) })} className="h-5 w-full bg-transparent text-[11px] outline-none">
+              {!standard && <option value="">Custom</option>}
+              {scales.map(([label, k]) => (
+                <option key={label} value={String(k)}>
+                  {label}
+                </option>
+              ))}
+            </select>
+          </Row>
+          <Row label="Custom scale"><Static>{viewportScaleName(e.scale, units)}</Static></Row>
+          <Row label="Display locked">
+            <select value={e.locked ? "yes" : "no"} disabled={!editable} onChange={(ev) => set({ ...e, locked: ev.target.value === "yes" })} className="h-5 w-full bg-transparent text-[11px] outline-none">
+              <option value="no">No</option>
+              <option value="yes">Yes</option>
+            </select>
+          </Row>
+        </Group>
+      );
+    }
     case "image": {
       const percent = (t: string) => (Number.isFinite(Number(t)) && t.trim() ? Math.min(Math.max(Number(t), 0), 100) : null);
       return (
@@ -548,6 +578,7 @@ export function LayerManager({ editor, state, dark, onClose }: { editor: Editor;
             <th className="w-6 font-medium" title="On">On</th>
             <th className="w-6 font-medium" title="Freeze">Frz</th>
             <th className="w-6 font-medium" title="Lock">Lck</th>
+            <th className="w-6 font-medium" title="Plot">Plt</th>
             <th className="w-12 font-medium">Color</th>
             <th className="font-medium">Lineweight</th>
           </tr>
@@ -583,6 +614,7 @@ export function LayerManager({ editor, state, dark, onClose }: { editor: Editor;
               <td><Icon on={l.on} onIcon={Lightbulb} offIcon={LightbulbOff} title={l.on ? "On" : "Off"} onClick={() => change(l, { on: !l.on })} className={l.on ? "text-amber-500" : ""} /></td>
               <td><Icon on={!l.frozen} onIcon={Sun} offIcon={Snowflake} title={l.frozen ? "Frozen" : "Thawed"} onClick={() => l.name !== state.currentLayer && change(l, { frozen: !l.frozen })} className={l.frozen ? "text-sky-500" : "text-amber-500"} /></td>
               <td><Icon on={!l.locked} onIcon={LockOpen} offIcon={Lock} title={l.locked ? "Locked" : "Unlocked"} onClick={() => change(l, { locked: !l.locked })} /></td>
+              <td><Icon on={l.plot !== false} onIcon={Printer} offIcon={PrinterX} title={l.plot !== false ? "Plots" : "Doesn't plot"} onClick={() => change(l, { plot: l.plot === false })} /></td>
               <td>
                 <Popover
                   trigger={(_, toggle) => (

@@ -112,6 +112,8 @@ export function transformAffine(e: Entity, x: Xform): Entity {
       const xf = compose(x, insertXform(e, def?.base ?? e.at));
       return { ...e, at: applyXf(xf, def?.base ?? e.at), rotation: angle({ x: xf.a, y: xf.c }), scale: { x: length({ x: xf.a, y: xf.c }), y: length({ x: xf.b, y: xf.d }) } };
     }
+    case "viewport":
+      return { ...e, center: map(e.center), width: e.width * length(linear(x, { x: 1, y: 0 })), height: e.height * length(linear(x, { x: 0, y: 1 })) };
     case "image": {
       const along = linear(x, { x: Math.cos(e.rotation), y: Math.sin(e.rotation) });
       const up = linear(x, { x: -Math.sin(e.rotation), y: Math.cos(e.rotation) });

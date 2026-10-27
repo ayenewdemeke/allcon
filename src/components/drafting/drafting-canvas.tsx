@@ -4,11 +4,15 @@ import { useEffect, useRef } from "react";
 import * as THREE from "three";
 import { entityColor } from "@/lib/drafting/aci";
 import { blockParts } from "@/lib/drafting/blocks";
+import { MODEL, type DraftDocument } from "@/lib/drafting/document";
 import type { Editor } from "@/lib/drafting/editor";
 import { bounds, graphicsOf, grips, tessellate, type TextRun } from "@/lib/drafting/geometry";
 import { capRatio } from "@/lib/drafting/graphics";
 import type { SnapKind } from "@/lib/drafting/snaps";
-import type { Entity, ImageEntity, Vec } from "@/lib/drafting/types";
+import { LW_BYBLOCK, LW_BYLAYER, LW_DEFAULT, type Entity, type ImageEntity, type Vec, type ViewportEntity } from "@/lib/drafting/types";
+import { LineMaterial } from "three/addons/lines/LineMaterial.js";
+import { LineSegments2 } from "three/addons/lines/LineSegments2.js";
+import { LineSegmentsGeometry } from "three/addons/lines/LineSegmentsGeometry.js";
 
 // The drawing area. Three layers: the grid (2D canvas), the drawing (WebGL, so big drawings
 // stay smooth, with attached pictures and PDF pages under the linework), and on top the
@@ -76,22 +80,13 @@ export function DraftingCanvas({ editor, dark, onReady, pictureUrl }: { editor: 
     const text = textCanvas.current!;
     const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
     renderer.setClearColor(0x000000, 0);
+    renderer.autoClear = false;
     renderer.domElement.className = "absolute inset-0 size-full";
     el.insertBefore(renderer.domElement, text);
-    const scene = new THREE.Scene();
     const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, -1000, 1000);
-    const geometry = new THREE.BufferGeometry();
-    const lines = new THREE.LineSegments(geometry, new THREE.LineBasicMaterial({ vertexColors: true }));
-    lines.frustumCulled = false;
-    // Filled areas (solid hatches, arrowheads) under the lines.
-    const fillGeometry = new THREE.BufferGeometry();
-    const fills = new THREE.Mesh(fillGeometry, new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.DoubleSide }));
-    fills.frustumCulled = false;
-    scene.add(fills, lines);
-    // Attached pictures: a textured square each, under the fills and lines.
+    // Attached pictures share one square, and their textures by file.
     const square = new THREE.PlaneGeometry(1, 1).translate(0.5, 0.5, 0);
     const textures = new Map<string, THREE.Texture>();
-    const pictures = new Map<string, { mesh: THREE.Mesh; material: THREE.ShaderMaterial }>();
     const loader = new THREE.TextureLoader().setCrossOrigin("anonymous");
     const texture = (key: string) => {
       let t = textures.get(key);
@@ -103,123 +98,80 @@ export function DraftingCanvas({ editor, dark, onReady, pictureUrl }: { editor: 
       }
       return t;
     };
-    const placePictures = (images: ImageEntity[], isDark: boolean) => {
-      const seen = new Set<string>();
-      images.forEach((e, i) => {
-        seen.add(e.id);
-        let p = pictures.get(e.id);
-        if (!p) {
-          const material = new THREE.ShaderMaterial({ ...PICTURE_SHADER, uniforms: { map: { value: null }, opacity: { value: 1 }, invert: { value: 0 }, paper: { value: 0 } }, transparent: true, depthWrite: false });
-          p = { mesh: new THREE.Mesh(square, material), material };
-          p.mesh.frustumCulled = false;
-          scene.add(p.mesh);
-          pictures.set(e.id, p);
-        }
-        p.material.uniforms.map.value = texture(e.key);
-        p.material.uniforms.opacity.value = 1 - Math.min(Math.max(e.fade, 0), 100) / 100;
-        p.material.uniforms.invert.value = e.source === "pdf" && isDark ? 1 : 0;
-        p.material.uniforms.paper.value = e.source === "pdf" ? 1 : 0;
-        p.mesh.position.set(e.at.x - origin.x, e.at.y - origin.y, -1 - i * 1e-3);
-        p.mesh.rotation.z = e.rotation;
-        p.mesh.scale.set(e.width, e.height, 1);
-      });
-      for (const [id, p] of pictures) {
-        if (seen.has(id)) continue;
-        scene.remove(p.mesh);
-        p.material.dispose();
-        pictures.delete(id);
-      }
-    };
-    // Text is drawn on its own canvas, redrawn when the view or the drawing changes.
-    let runs: { id: string; run: TextRun; color: string; box: { minX: number; minY: number; maxX: number; maxY: number } }[] = [];
+    // Model space, and the paper of the layout on screen.
+    const model = new Pass(square, texture);
+    const paper = new Pass(square, texture);
+    const resolution = new THREE.Vector2();
     let textKey = "";
-    // Positions are stored relative to an origin near the drawing, so survey-sized
-    // coordinates keep their precision in the GPU's single precision.
-    let origin: Vec = { x: 0, y: 0 };
     let builtVersion = -1;
-    let builtDark: boolean | null = null;
-
-    const colors = new Map<string, THREE.Color>();
-    const colorOf = (css: string) => {
-      let c = colors.get(css);
-      if (!c) colors.set(css, (c = new THREE.Color(css)));
-      return c;
-    };
+    let builtKey = "";
 
     const rebuild = () => {
-      const doc = editor.doc;
-      const isDark = darkRef.current;
-      builtVersion = doc.version;
-      builtDark = isDark;
-      const first = doc.entities.values().next().value as Entity | undefined;
-      if (first) {
-        const b = bounds(first);
-        origin = { x: b.minX, y: b.minY };
-      }
-      const pos: number[] = [];
-      const col: number[] = [];
-      const fpos: number[] = [];
-      const fcol: number[] = [];
-      runs = [];
-      const images: ImageEntity[] = [];
-      const add = (e: Entity) => {
-        const css = entityColor(e, doc.layerOf(e), isDark);
-        const c = colorOf(css);
-        const g = graphicsOf(e);
-        for (const line of g.lines) {
-          for (let i = 0; i + 1 < line.length; i++) {
-            pos.push(line[i].x - origin.x, line[i].y - origin.y, 0, line[i + 1].x - origin.x, line[i + 1].y - origin.y, 0);
-            col.push(c.r, c.g, c.b, c.r, c.g, c.b);
-          }
-        }
-        // Fills are convex (triangles, arrowheads, dots): a fan covers them.
-        for (const f of g.fills) {
-          for (let i = 1; i + 1 < f.length; i++) {
-            for (const p of [f[0], f[i], f[i + 1]]) {
-              fpos.push(p.x - origin.x, p.y - origin.y, -0.5);
-              fcol.push(c.r, c.g, c.b);
-            }
-          }
-        }
-        if (g.texts.length) {
-          const b = bounds(e);
-          for (const run of g.texts) runs.push({ id: e.id, run, color: css, box: b });
-        }
-      };
-      for (const e of doc.entities.values()) {
-        if (!doc.isVisible(e)) continue;
-        if (e.type === "image") images.push(e);
-        // A block reference's objects each have their own layer and colour.
-        if (e.type !== "insert") add(e);
-        else for (const part of blockParts(e)) if (doc.isVisible(part)) add(part);
-      }
-      placePictures(images, isDark);
-      geometry.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
-      geometry.setAttribute("color", new THREE.Float32BufferAttribute(col, 3));
-      geometry.computeBoundingSphere();
-      fillGeometry.setAttribute("position", new THREE.Float32BufferAttribute(fpos, 3));
-      fillGeometry.setAttribute("color", new THREE.Float32BufferAttribute(fcol, 3));
-      fillGeometry.computeBoundingSphere();
+      const main = editor.drawing;
+      const layout = editor.layoutId;
+      // A layout's paper is white, as AutoCAD's: colour 7 draws black on it.
+      const dark = darkRef.current && !layout;
+      const lineweights = editor.settings.lineweights;
+      builtVersion = editor.doc.version;
+      builtKey = `${darkRef.current},${layout},${lineweights}`;
+      model.build(editor.blockEdit ? editor.doc.entities.values() : main.entitiesIn(MODEL).values(), editor.doc, dark, lineweights);
+      paper.build(layout ? main.entitiesIn(layout).values() : [], main, dark, lineweights);
       textKey = "";
+    };
+
+    /** The camera for a view (centre and pixels per unit) of a pass. */
+    const look = (view: View, pass: Pass) => {
+      const { w, h } = editor.size;
+      camera.left = -w / 2 / view.scale;
+      camera.right = w / 2 / view.scale;
+      camera.top = h / 2 / view.scale;
+      camera.bottom = -h / 2 / view.scale;
+      camera.position.set(view.cx - pass.origin.x, view.cy - pass.origin.y, 10);
+      camera.updateProjectionMatrix();
     };
 
     let frame = 0;
     const draw = () => {
       frame = 0;
       const { w, h } = editor.size;
-      if (editor.doc.version !== builtVersion || darkRef.current !== builtDark) rebuild();
-      const { cx, cy, scale } = editor.view;
-      camera.left = -w / 2 / scale;
-      camera.right = w / 2 / scale;
-      camera.top = h / 2 / scale;
-      camera.bottom = -h / 2 / scale;
-      camera.position.set(cx - origin.x, cy - origin.y, 10);
-      camera.updateProjectionMatrix();
-      renderer.render(scene, camera);
-      const key = `${cx},${cy},${scale},${w},${h},${builtVersion},${builtDark},${editor.textEdit?.editing}`;
+      if (editor.doc.version !== builtVersion || `${darkRef.current},${editor.layoutId},${editor.settings.lineweights}` !== builtKey) rebuild();
+      resolution.set(w, h);
+      renderer.clear();
+      const texts: TextLayer[] = [];
+      const layout = editor.layoutId;
+      if (!layout) {
+        // Lineweights in model space: a constant width on screen, as AutoCAD shows them.
+        model.setWidths((lw) => Math.max(1, (lw / 100) * (96 / 25.4)), resolution);
+        look(editor.view, model);
+        renderer.render(model.scene, camera);
+        texts.push({ runs: model.runs, view: editor.view });
+      } else {
+        // A layout: each viewport shows the model, clipped to its frame; the paper on top.
+        const pv = editor.paperView ?? editor.view;
+        const pxPerMm = pv.scale / (editor.drawing.units === "mm" ? 1 : 25.4);
+        const onPaper = (lw: number) => Math.max(1, (lw / 100) * pxPerMm);
+        model.setWidths(onPaper, resolution);
+        paper.setWidths(onPaper, resolution);
+        renderer.setScissorTest(true);
+        for (const vp of viewportsOn(editor, layout)) {
+          const rect = screenRect(vp, pv, w, h);
+          if (rect.w <= 0 || rect.h <= 0) continue;
+          renderer.setScissor(rect.x, h - rect.y - rect.h, rect.w, rect.h);
+          const view = viewThrough(vp, pv);
+          look(view, model);
+          renderer.render(model.scene, camera);
+          texts.push({ runs: model.runs, view, clip: rect });
+        }
+        renderer.setScissorTest(false);
+        look(pv, paper);
+        renderer.render(paper.scene, camera);
+        texts.push({ runs: paper.runs, view: pv });
+      }
+      const pv = editor.paperView;
+      const key = `${editor.view.cx},${editor.view.cy},${editor.view.scale},${pv?.cx},${pv?.cy},${pv?.scale},${w},${h},${builtVersion},${builtKey},${editor.textEdit?.editing}`;
       if (key !== textKey) {
         textKey = key;
-        drawTexts(text, editor, runs);
+        drawTexts(text, editor, texts);
       }
       drawGrid(grid, editor, darkRef.current);
       drawOverlay(overlay, editor, darkRef.current);
@@ -314,10 +266,9 @@ export function DraftingCanvas({ editor, dark, onReady, pictureUrl }: { editor: 
       el.removeEventListener("wheel", onWheel);
       el.removeEventListener("contextmenu", noMenu);
       el.removeEventListener("auxclick", noMenu);
-      geometry.dispose();
-      fillGeometry.dispose();
+      model.dispose();
+      paper.dispose();
       square.dispose();
-      for (const p of pictures.values()) p.material.dispose();
       for (const t of textures.values()) t.dispose();
       renderer.dispose();
       renderer.domElement.remove();
@@ -333,6 +284,196 @@ export function DraftingCanvas({ editor, dark, onReady, pictureUrl }: { editor: 
       <canvas ref={overlayCanvas} className="absolute inset-0 size-full" />
     </div>
   );
+}
+
+type View = { cx: number; cy: number; scale: number };
+type TextRunAt = { id: string; run: TextRun; color: string; box: { minX: number; minY: number; maxX: number; maxY: number } };
+type TextLayer = { runs: TextRunAt[]; view: View; clip?: { x: number; y: number; w: number; h: number } };
+
+/** An object's lineweight, resolved (ByLayer, Default), in hundredths of a millimetre. */
+function lineweightOf(e: Entity, doc: DraftDocument) {
+  let lw = e.lineweight === LW_BYLAYER ? (doc.layerOf(e)?.lineweight ?? LW_DEFAULT) : e.lineweight;
+  if (lw === LW_BYBLOCK || lw === LW_DEFAULT || lw < 0) lw = 25; // AutoCAD's LWDEFAULT
+  return lw;
+}
+
+/** One space drawn in WebGL: its lines (thin, or grouped by lineweight when lineweights show),
+ * fills, pictures, and the text runs the text canvas draws. Positions are relative to an
+ * origin near the drawing, so survey-sized coordinates keep their precision in the GPU. */
+class Pass {
+  scene = new THREE.Scene();
+  origin: Vec = { x: 0, y: 0 };
+  runs: TextRunAt[] = [];
+  private thin = new THREE.LineSegments(new THREE.BufferGeometry(), new THREE.LineBasicMaterial({ vertexColors: true }));
+  private fills = new THREE.Mesh(new THREE.BufferGeometry(), new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.DoubleSide }));
+  private wide = new Map<number, LineSegments2>();
+  private pictures = new Map<string, { mesh: THREE.Mesh; material: THREE.ShaderMaterial }>();
+  private colors = new Map<string, THREE.Color>();
+
+  constructor(
+    private square: THREE.BufferGeometry,
+    private texture: (key: string) => THREE.Texture,
+  ) {
+    this.thin.frustumCulled = false;
+    this.fills.frustumCulled = false;
+    this.scene.add(this.fills, this.thin);
+  }
+
+  private colorOf(css: string) {
+    let c = this.colors.get(css);
+    if (!c) this.colors.set(css, (c = new THREE.Color(css)));
+    return c;
+  }
+
+  build(entities: Iterable<Entity>, doc: DraftDocument, dark: boolean, lineweights: boolean) {
+    const list = [...entities];
+    const first = list[0];
+    if (first) {
+      const b = bounds(first);
+      this.origin = { x: b.minX, y: b.minY };
+    }
+    const o = this.origin;
+    const thin: number[] = [];
+    const thinColors: number[] = [];
+    const wide = new Map<number, { pos: number[]; col: number[] }>();
+    const fpos: number[] = [];
+    const fcol: number[] = [];
+    const images: ImageEntity[] = [];
+    this.runs = [];
+    const add = (e: Entity) => {
+      const css = entityColor(e, doc.layerOf(e), dark);
+      const c = this.colorOf(css);
+      const g = graphicsOf(e);
+      const lw = lineweights ? lineweightOf(e, doc) : 0;
+      let target = { pos: thin, col: thinColors };
+      if (lw > 0) {
+        if (!wide.has(lw)) wide.set(lw, { pos: [], col: [] });
+        target = wide.get(lw)!;
+      }
+      for (const line of g.lines) {
+        for (let i = 0; i + 1 < line.length; i++) {
+          target.pos.push(line[i].x - o.x, line[i].y - o.y, 0, line[i + 1].x - o.x, line[i + 1].y - o.y, 0);
+          target.col.push(c.r, c.g, c.b, c.r, c.g, c.b);
+        }
+      }
+      // Fills are convex (triangles, arrowheads, dots): a fan covers them.
+      for (const f of g.fills) {
+        for (let i = 1; i + 1 < f.length; i++) {
+          for (const p of [f[0], f[i], f[i + 1]]) {
+            fpos.push(p.x - o.x, p.y - o.y, -0.5);
+            fcol.push(c.r, c.g, c.b);
+          }
+        }
+      }
+      if (g.texts.length) {
+        const b = bounds(e);
+        for (const run of g.texts) this.runs.push({ id: e.id, run, color: css, box: b });
+      }
+    };
+    for (const e of list) {
+      if (!doc.isVisible(e)) continue;
+      if (e.type === "image") images.push(e);
+      // A block reference's objects each have their own layer and colour.
+      if (e.type !== "insert") add(e);
+      else for (const part of blockParts(e)) if (doc.isVisible(part)) add(part);
+    }
+    this.placePictures(images, dark);
+    const set = (geometry: THREE.BufferGeometry, pos: number[], col: number[]) => {
+      geometry.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+      geometry.setAttribute("color", new THREE.Float32BufferAttribute(col, 3));
+      geometry.computeBoundingSphere();
+    };
+    set(this.thin.geometry, thin, thinColors);
+    set(this.fills.geometry, fpos, fcol);
+    // Wide lines, one object per lineweight.
+    for (const [lw, line] of this.wide) {
+      if (wide.has(lw)) continue;
+      this.scene.remove(line);
+      line.geometry.dispose();
+      line.material.dispose();
+      this.wide.delete(lw);
+    }
+    for (const [lw, { pos, col }] of wide) {
+      let line = this.wide.get(lw);
+      if (!line) {
+        line = new LineSegments2(new LineSegmentsGeometry(), new LineMaterial({ vertexColors: true, linewidth: 1, worldUnits: false }));
+        line.frustumCulled = false;
+        this.scene.add(line);
+        this.wide.set(lw, line);
+      } else {
+        line.geometry.dispose();
+        line.geometry = new LineSegmentsGeometry();
+      }
+      line.geometry.setPositions(pos);
+      line.geometry.setColors(col);
+    }
+  }
+
+  /** Lineweights in pixels, for the current view. */
+  setWidths(px: (lw: number) => number, resolution: THREE.Vector2) {
+    for (const [lw, line] of this.wide) {
+      line.material.linewidth = px(lw);
+      line.material.resolution.copy(resolution);
+    }
+  }
+
+  private placePictures(images: ImageEntity[], dark: boolean) {
+    const seen = new Set<string>();
+    images.forEach((e, i) => {
+      seen.add(e.id);
+      let p = this.pictures.get(e.id);
+      if (!p) {
+        const material = new THREE.ShaderMaterial({ ...PICTURE_SHADER, uniforms: { map: { value: null }, opacity: { value: 1 }, invert: { value: 0 }, paper: { value: 0 } }, transparent: true, depthWrite: false });
+        p = { mesh: new THREE.Mesh(this.square, material), material };
+        p.mesh.frustumCulled = false;
+        this.scene.add(p.mesh);
+        this.pictures.set(e.id, p);
+      }
+      p.material.uniforms.map.value = this.texture(e.key);
+      p.material.uniforms.opacity.value = 1 - Math.min(Math.max(e.fade, 0), 100) / 100;
+      p.material.uniforms.invert.value = e.source === "pdf" && dark ? 1 : 0;
+      p.material.uniforms.paper.value = e.source === "pdf" ? 1 : 0;
+      p.mesh.position.set(e.at.x - this.origin.x, e.at.y - this.origin.y, -1 - i * 1e-3);
+      p.mesh.rotation.z = e.rotation;
+      p.mesh.scale.set(e.width, e.height, 1);
+    });
+    for (const [id, p] of this.pictures) {
+      if (seen.has(id)) continue;
+      this.scene.remove(p.mesh);
+      p.material.dispose();
+      this.pictures.delete(id);
+    }
+  }
+
+  dispose() {
+    this.thin.geometry.dispose();
+    this.thin.material.dispose();
+    this.fills.geometry.dispose();
+    this.fills.material.dispose();
+    for (const line of this.wide.values()) {
+      line.geometry.dispose();
+      line.material.dispose();
+    }
+    for (const p of this.pictures.values()) p.material.dispose();
+  }
+}
+
+/** A layout's viewports that show (on a visible layer). */
+function viewportsOn(editor: Editor, layout: string) {
+  const main = editor.drawing;
+  return [...main.entitiesIn(layout).values()].filter((e): e is ViewportEntity => e.type === "viewport" && main.isVisible(e));
+}
+
+/** A viewport's frame on screen, for a view of the paper. */
+function screenRect(vp: ViewportEntity, pv: View, w: number, h: number) {
+  const x = (vp.center.x - vp.width / 2 - pv.cx) * pv.scale + w / 2;
+  const y = h / 2 - (vp.center.y + vp.height / 2 - pv.cy) * pv.scale;
+  return { x, y, w: vp.width * pv.scale, h: vp.height * pv.scale };
+}
+
+/** The view of the model, over the whole screen, that shows through a viewport. */
+function viewThrough(vp: ViewportEntity, pv: View): View {
+  return { cx: vp.view.x + (pv.cx - vp.center.x) / vp.scale, cy: vp.view.y + (pv.cy - vp.center.y) / vp.scale, scale: pv.scale * vp.scale };
 }
 
 function context(canvas: HTMLCanvasElement, editor: Editor) {
@@ -351,6 +492,22 @@ function drawGrid(canvas: HTMLCanvasElement, editor: Editor, dark: boolean) {
   const theme = dark ? CANVAS_THEMES.dark : CANVAS_THEMES.light;
   const { w, h } = editor.size;
   const scale = editor.view.scale;
+  const layout = editor.layoutId ? editor.drawing.layouts.get(editor.layoutId) : null;
+  if (layout) {
+    // A layout: the sheet of paper on a grey backdrop, as AutoCAD shows it.
+    const pv = editor.paperView ?? editor.view;
+    const at = (x: number, y: number) => ({ x: (x - pv.cx) * pv.scale + w / 2, y: h / 2 - (y - pv.cy) * pv.scale });
+    ctx.fillStyle = dark ? "#3b4250" : "#c9ced6";
+    ctx.fillRect(0, 0, w, h);
+    const a = at(0, layout.paper.height);
+    const sw = layout.paper.width * pv.scale;
+    const sh = layout.paper.height * pv.scale;
+    ctx.fillStyle = "rgba(0,0,0,0.3)";
+    ctx.fillRect(a.x + 5, a.y + 5, sw, sh);
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(a.x, a.y, sw, sh);
+    return;
+  }
   if (editor.blockEdit) {
     // The block editor's background, a shade apart from the drawing's, as in AutoCAD.
     ctx.fillStyle = dark ? "rgba(255,255,255,0.04)" : "rgba(15,23,42,0.05)";
@@ -400,10 +557,10 @@ function drawGrid(canvas: HTMLCanvasElement, editor: Editor, dark: boolean) {
 }
 
 /** Draws a run of text in screen space: AutoCAD's height is the capitals', so the font is sized up from it. */
-function fillRun(ctx: CanvasRenderingContext2D, editor: Editor, run: TextRun) {
-  const px = (run.height * editor.view.scale) / capRatio(run.font);
+function fillRun(ctx: CanvasRenderingContext2D, editor: Editor, run: TextRun, view: View = editor.view) {
+  const px = (run.height * view.scale) / capRatio(run.font);
   if (px < 1.5) return; // too small to read: AutoCAD shows nothing much either
-  const s = editor.toScreen(run.at);
+  const s = { x: (run.at.x - view.cx) * view.scale + editor.size.w / 2, y: editor.size.h / 2 - (run.at.y - view.cy) * view.scale };
   ctx.save();
   ctx.translate(s.x, s.y);
   ctx.rotate(-run.rotation);
@@ -412,22 +569,36 @@ function fillRun(ctx: CanvasRenderingContext2D, editor: Editor, run: TextRun) {
   ctx.textAlign = run.halign;
   ctx.textBaseline = "alphabetic";
   // Where the baseline sits relative to the insertion point, in screen pixels (down is +).
-  const capPx = run.height * editor.view.scale;
+  const capPx = run.height * view.scale;
   const shift = run.valign === "baseline" ? 0 : run.valign === "bottom" ? -capPx * 0.3 : run.valign === "middle" ? capPx / 2 : capPx;
   ctx.fillText(run.text, 0, shift);
   ctx.restore();
 }
 
-function drawTexts(canvas: HTMLCanvasElement, editor: Editor, runs: { id: string; run: TextRun; color: string; box: { minX: number; minY: number; maxX: number; maxY: number } }[]) {
+function drawTexts(canvas: HTMLCanvasElement, editor: Editor, layers: TextLayer[]) {
   const ctx = context(canvas, editor);
-  const tl = editor.toWorld({ x: 0, y: 0 });
-  const br = editor.toWorld({ x: editor.size.w, y: editor.size.h });
+  const { w, h } = editor.size;
   const editing = editor.textEdit?.editing;
-  for (const { id, run, color, box } of runs) {
-    if (id === editing) continue;
-    if (box.maxX < tl.x || box.minX > br.x || box.maxY < br.y || box.minY > tl.y) continue;
-    ctx.fillStyle = color;
-    fillRun(ctx, editor, run);
+  for (const { runs, view, clip } of layers) {
+    // What the screen (or the viewport's frame) shows, in the layer's units.
+    const r = clip ?? { x: 0, y: 0, w, h };
+    const minX = view.cx + (r.x - w / 2) / view.scale;
+    const maxX = view.cx + (r.x + r.w - w / 2) / view.scale;
+    const maxY = view.cy - (r.y - h / 2) / view.scale;
+    const minY = view.cy - (r.y + r.h - h / 2) / view.scale;
+    ctx.save();
+    if (clip) {
+      ctx.beginPath();
+      ctx.rect(clip.x, clip.y, clip.w, clip.h);
+      ctx.clip();
+    }
+    for (const { id, run, color, box } of runs) {
+      if (id === editing) continue;
+      if (box.maxX < minX || box.minX > maxX || box.maxY < minY || box.minY > maxY) continue;
+      ctx.fillStyle = color;
+      fillRun(ctx, editor, run, view);
+    }
+    ctx.restore();
   }
 }
 
@@ -573,6 +744,14 @@ function drawOverlay(canvas: HTMLCanvasElement, editor: Editor, dark: boolean) {
     ctx.fillStyle = theme.select;
     ctx.font = "11px ui-sans-serif, system-ui, sans-serif";
     ctx.fillText("Base point", s.x + 10, s.y - 10);
+  }
+
+  // The viewport worked through has a bold frame, as in AutoCAD.
+  const active = editor.viewportRect();
+  if (active) {
+    ctx.strokeStyle = theme.select;
+    ctx.lineWidth = 2.5;
+    ctx.strokeRect(active.x, active.y, active.w, active.h);
   }
 
   // Selected objects: highlighted, with their grips.

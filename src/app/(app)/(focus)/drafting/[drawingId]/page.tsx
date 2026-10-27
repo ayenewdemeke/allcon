@@ -21,12 +21,15 @@ export default async function DrawingPage({ params }: PageProps<"/drafting/[draw
     ? await db.drawing.findFirst({ where: { id: drawingId, orgId: user.orgId }, select: { id: true, name: true, revision: true, units: true } })
     : null;
   if (!drawing) notFound();
+  // The projects its layouts can be published to, as sheets.
+  const projects = await db.project.findMany({ where: { orgId: user.orgId }, select: { id: true, name: true }, orderBy: { name: "asc" } });
   return (
     <DraftingEditor
       key={drawing.id}
       drawing={{ id: drawing.id, name: drawing.name, revision: drawing.revision }}
       units={drawingUnits(drawing.units)}
       backHref="/drafting"
+      projects={projects}
     />
   );
 }

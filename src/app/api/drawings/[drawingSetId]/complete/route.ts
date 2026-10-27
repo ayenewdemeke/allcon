@@ -7,7 +7,8 @@ import { findAccessibleDrawingSet } from "@/lib/auth/session";
 const MAX_PAGES = 5000;
 
 // Page facts are read in the browser with pdf.js while the file uploads, so the server
-// never has to download or parse the PDF.
+// never has to download or parse the PDF. Sheets published from drafting also know their
+// scale (from their viewports), so they arrive calibrated.
 const body = z.object({
   uploadKey: z.string().min(1),
   pages: z
@@ -17,6 +18,8 @@ const body = z.object({
         height: z.number().positive().max(100_000),
         number: z.string().trim().max(40).nullish(),
         title: z.string().trim().max(200).nullish(),
+        metersPerPoint: z.number().positive().max(1e6).nullish(),
+        scaleLabel: z.string().trim().max(60).nullish(),
       }),
     )
     .min(1)
@@ -46,6 +49,8 @@ export async function POST(request: NextRequest, ctx: RouteContext<"/api/drawing
           height: p.height,
           number: p.number || null,
           title: p.title || null,
+          metersPerPoint: p.metersPerPoint ?? null,
+          scaleLabel: p.metersPerPoint ? p.scaleLabel || null : null,
         })),
       }),
       db.drawingSet.update({

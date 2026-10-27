@@ -4,8 +4,9 @@ DXF in and out for conkit's drafting editor, with ezdxf.
 A conkit drawing (see src/lib/drafting/types.ts) is kept to DXF's meaning, so most objects map
 one to one: layers, text and dimension styles, blocks with attributes, lines, polylines with
 arc segments, circles, arcs, ellipses, splines, text, multiline text, dimensions, leaders and
-hatches. Dimensions are written with their geometry blocks, so AutoCAD and other programs show
-them as drawn. Pictures under the drawing are left out (DXF can only point at image files).
+hatches, and layouts with their paper size and viewports. Dimensions are written with their
+geometry blocks, so AutoCAD and other programs show them as drawn. Pictures under the drawing
+are left out (DXF can only point at image files).
 
 Used by the worker (api/ifc.py): export_dxf(drawing) -> bytes, import_dxf(bytes, units) -> drawing.
 """
@@ -109,9 +110,31 @@ class Writer:
         msp = doc.modelspace()
         for e in self.drawing.get("entities") or []:
             self.add(msp, e)
+        self.layouts()
         out = io.StringIO()
         doc.write(out)
         return out.getvalue().encode("utf-8"), dict(self.skipped)
+
+    def layouts(self):
+        layouts = self.drawing.get("layouts") or []
+        if not layouts:
+            return
+        # A new DXF comes with Layout1: ours replace it.
+        self.doc.layouts.rename("Layout1", "__default__")
+        for layout in layouts:
+            paper = layout["paper"]
+            target = self.doc.layouts.new(layout["name"])
+            media = (paper.get("name") or "Custom").split(" (")[0].replace(" ", "_")
+            target.page_setup(size=(paper["width"], paper["height"]), margins=(0, 0, 0, 0), units="mm" if self.metric else "inch", name=media)
+            for e in layout.get("entities") or []:
+                self.add(target, e)
+        self.doc.layouts.delete("__default__")
+
+    def add_viewport(self, t, e, a):
+        center, view = self.xy(e["center"]), self.xy(e["view"])
+        vp = t.add_viewport(center=center, size=(e["width"], e["height"]), view_center_point=view, view_height=e["height"] / e["scale"], dxfattribs=a)
+        if e.get("locked"):
+            vp.dxf.flags = vp.dxf.flags | 16384
 
     def layers(self):
         for layer in self.drawing.get("layers") or []:
@@ -246,20 +269,22 @@ class Writer:
         kind = e["kind"]
         text = e.get("text") or "<>"
         style = e.get("style") if e.get("style") in self.doc.dimstyles else "Standard"
+        # Dimensions on a layout's paper are 1:1, whatever the style's scale.
+        override = {"dimscale": e["dimScale"]} if e.get("dimScale") else None
         p1, p2, loc, center = self.xy(e["p1"]), self.xy(e["p2"]), self.xy(e["loc"]), self.xy(e["center"])
         if kind == "linear":
-            dim = t.add_linear_dim(base=loc, p1=p1, p2=p2, angle=e.get("angle", 0) * DEG, text=text, dimstyle=style, dxfattribs=a)
+            dim = t.add_linear_dim(base=loc, p1=p1, p2=p2, angle=e.get("angle", 0) * DEG, text=text, dimstyle=style, override=override, dxfattribs=a)
         elif kind == "aligned":
             ux, uy = p2[0] - p1[0], p2[1] - p1[1]
             length = math.hypot(ux, uy) or 1
             distance = (ux * (loc[1] - p1[1]) - uy * (loc[0] - p1[0])) / length
-            dim = t.add_aligned_dim(p1=p1, p2=p2, distance=distance, text=text, dimstyle=style, dxfattribs=a)
+            dim = t.add_aligned_dim(p1=p1, p2=p2, distance=distance, text=text, dimstyle=style, override=override, dxfattribs=a)
         elif kind == "angular":
-            dim = t.add_angular_dim_3p(base=loc, center=center, p1=p1, p2=p2, text=text, dimstyle=style, dxfattribs=a)
+            dim = t.add_angular_dim_3p(base=loc, center=center, p1=p1, p2=p2, text=text, dimstyle=style, override=override, dxfattribs=a)
         elif kind in ("radius", "diameter"):
             radius = math.hypot(p1[0] - center[0], p1[1] - center[1])
             add = t.add_radius_dim if kind == "radius" else t.add_diameter_dim
-            dim = add(center=center, radius=radius, location=loc, text=text, dimstyle=style, dxfattribs=a)
+            dim = add(center=center, radius=radius, location=loc, text=text, dimstyle=style, override=override, dxfattribs=a)
         else:
             raise ValueError(kind)
         dim.render()
@@ -271,12 +296,13 @@ class Writer:
         if len(points) < 2:
             return
         d = self.dim_styles.get(e.get("dimStyle")) or {}
-        arrow = d.get("arrowSize", 0.1) * d.get("scale", 1)
+        arrow = d.get("arrowSize", 0.1) * (e.get("dimScale") or d.get("scale", 1))
         end, before = points[-1], points[-2]
         right = end[0] >= before[0]
         landing = (end[0] + (2 * arrow if right else -2 * arrow), end[1])
         style = e.get("dimStyle") if e.get("dimStyle") in self.doc.dimstyles else "Standard"
-        leader = t.add_leader(points + [landing], dimstyle=style, dxfattribs=dict(a))
+        override = {"dimscale": e["dimScale"]} if e.get("dimScale") else None
+        leader = t.add_leader(points + [landing], dimstyle=style, override=override, dxfattribs=dict(a))
         if e.get("text"):
             gap = arrow / 2
             at = (landing[0] + (gap if right else -gap), landing[1])
@@ -436,6 +462,16 @@ class Reader:
             entities = [e for e in entities if not (e["type"] == "insert" and e["block"] not in names)]
         for b in blocks:
             b["entities"] = [e for e in b["entities"] if not (e["type"] == "insert" and e["block"] not in names)]
+        layouts = []
+        for layout in doc.layouts:
+            if layout.is_modelspace:
+                continue
+            try:
+                converted = self.layout(layout, names)
+                if converted:
+                    layouts.append(converted)
+            except Exception:
+                self.skipped["LAYOUT"] += 1
         dimscale = float(doc.header.get("$DIMSCALE", 1) or 1)
         current = doc.header.get("$CLAYER", "0")
         drawing = {
@@ -448,6 +484,7 @@ class Reader:
             "textStyles": text_styles,
             "dimStyles": dim_styles,
             "blocks": blocks,
+            "layouts": layouts,
             "annoScale": dimscale * self.f if dimscale > 0 else None,
         }
         if text_styles:
@@ -457,6 +494,61 @@ class Reader:
         if drawing["annoScale"] is None:
             del drawing["annoScale"]
         return drawing, dict(self.skipped)
+
+    def layout(self, layout, block_names):
+        """A layout: its paper (in inches or millimetres), viewports and paper-space objects."""
+        d = layout.dxf
+        width, height = float(d.get("paper_width", 0) or 0), float(d.get("paper_height", 0) or 0)
+        if int(d.get("plot_rotation", 0) or 0) in (1, 3):
+            width, height = height, width
+        to_paper = 1 / 25.4 if self.units == "architectural" else 1.0  # PLOTSETTINGS sizes are in mm
+        width, height = round(width * to_paper, 4), round(height * to_paper, 4)
+        # Paper-space objects are in paper units; viewports look at the model in its units.
+        model_f = self.f
+        source_metric = int(self.doc.header.get("$MEASUREMENT", 0) or 0) == 1
+        self.f = 1.0 if source_metric == (self.units == "mm") else (25.4 if self.units == "mm" else 1 / 25.4)
+        entities = []
+        try:
+            for e in layout:
+                if e.dxftype() == "VIEWPORT":
+                    if int(e.dxf.get("id", 0) or 0) == 1 or e.dxf.get("status", 1) == 0:
+                        continue  # the paper's own viewport, or one switched off
+                    view_height = float(e.dxf.get("view_height", 0) or 0) * model_f
+                    if view_height <= 0:
+                        continue
+                    h = float(e.dxf.height) * self.f
+                    view = e.dxf.get("view_center_point", (0, 0))
+                    entities.append({
+                        **self.base(e),
+                        "type": "viewport",
+                        "center": self.p(e.dxf.center),
+                        "width": float(e.dxf.width) * self.f,
+                        "height": h,
+                        "view": {"x": float(view[0]) * model_f, "y": float(view[1]) * model_f},
+                        "scale": h / view_height,
+                        "locked": bool(int(e.dxf.get("flags", 0) or 0) & 16384),
+                    })
+                else:
+                    entities.extend(self.convert(e))
+        finally:
+            self.f = model_f
+        entities = [e for e in entities if not (e["type"] == "insert" and e["block"] not in block_names)]
+        for e in entities:
+            if e["type"] in ("dimension", "leader"):
+                e["dimScale"] = 1  # on paper, drawn 1:1
+        if not entities and width <= 0:
+            return None
+        if width <= 0 or height <= 0:
+            width, height = (36.0, 24.0) if self.units == "architectural" else (841.0, 594.0)
+        unit = "in" if self.units == "architectural" else "mm"
+        media = (d.get("paper_size", "") or "").replace("_", " ").strip()
+        return {
+            "id": new_id(),
+            "name": layout.name,
+            "paper": {"name": media or f"Custom ({width:g} x {height:g} {unit})", "width": width, "height": height},
+            "plot": {"monochrome": "monochrome" in (d.get("current_style_sheet", "") or "").lower(), "lineweights": True},
+            "entities": entities,
+        }
 
     def dim_style(self, ds):
         d = ds.dxf

@@ -158,7 +158,7 @@ export function dimText(e: DimensionEntity): string {
 
 function dimension(e: DimensionEntity): Graphics {
   const st = dimStyle(e.style);
-  const s = st.scale;
+  const s = e.dimScale ?? st.scale;
   const [arrow, th, exo, exe, gap] = [st.arrowSize * s, st.textHeight * s, st.extOffset * s, st.extBeyond * s, st.textGap * s];
   const font = textStyle(st.textStyle);
   const g: Graphics = { lines: [], fills: [], texts: [] };
@@ -254,7 +254,7 @@ function dimension(e: DimensionEntity): Graphics {
 
 function leader(e: LeaderEntity): Graphics {
   const st = dimStyle(e.dimStyle);
-  const arrow = st.arrowSize * st.scale;
+  const arrow = st.arrowSize * (e.dimScale ?? st.scale);
   const font = textStyle(e.style);
   const g: Graphics = { lines: [], fills: [], texts: [] };
   if (e.points.length < 2) return g;

@@ -10,7 +10,10 @@ import {
   Copy,
   DoorOpen,
   Eraser,
+  FileCog,
   FileDown,
+  FilePlus2,
+  FileStack,
   FileText,
   Hand,
   Hexagon,
@@ -20,11 +23,15 @@ import {
   Lightbulb,
   LightbulbOff,
   Lock,
+  LockOpen,
   Maximize,
   Moon,
   Move,
   PackagePlus,
   Paintbrush,
+  PanelRight,
+  Printer,
+  RectangleHorizontal,
   RotateCw,
   Save,
   Scaling,
@@ -211,8 +218,9 @@ const TABS = [
   ["annotate", "Annotate"],
   ["view", "View"],
   ["manage", "Manage"],
+  ["output", "Output"],
 ] as const;
-type Tab = (typeof TABS)[number][0] | "block";
+type Tab = (typeof TABS)[number][0] | "block" | "layout";
 
 export function Ribbon({ editor, state, dark, onTheme, palettes, onPalette, quickAccess, status }: Props) {
   const [chosen, setTab] = useState<Tab>("home");
@@ -222,7 +230,7 @@ export function Ribbon({ editor, state, dark, onTheme, palettes, onPalette, quic
     setEditing(state.blockEdit);
     setTab(state.blockEdit ? "block" : "home");
   }
-  const tab: Tab = chosen === "block" && !state.blockEdit ? "home" : chosen;
+  const tab: Tab = (chosen === "block" && !state.blockEdit) || (chosen === "layout" && !state.layout) ? "home" : chosen;
   // AutoCAD's contextual tab: Hatch Creation while HATCH runs.
   const hatching = state.command === "HATCH";
   const doc = editor.doc;
@@ -252,6 +260,15 @@ export function Ribbon({ editor, state, dark, onTheme, palettes, onPalette, quic
             {label}
           </button>
         ))}
+        {state.layout && !state.blockEdit && (
+          <button
+            type="button"
+            onClick={() => setTab("layout")}
+            className={cn("rounded-t px-3 py-1 text-primary", tab === "layout" && !hatching ? "bg-background font-medium shadow-[0_-1px_0_0] shadow-border" : "hover:bg-background/60")}
+          >
+            Layout
+          </button>
+        )}
         {state.blockEdit && (
           <button
             type="button"
@@ -271,6 +288,10 @@ export function Ribbon({ editor, state, dark, onTheme, palettes, onPalette, quic
           <BlockEditorTab editor={editor} state={state} />
         ) : tab === "insert" ? (
           <InsertTab editor={editor} onPalette={onPalette} palettes={palettes} />
+        ) : tab === "layout" ? (
+          <LayoutTab editor={editor} />
+        ) : tab === "output" ? (
+          <OutputTab editor={editor} state={state} />
         ) : tab === "manage" ? (
           <Panel title="Cleanup">
             <Big icon={BrushCleaning} label="Purge" title="Remove unused blocks, layers and styles (PU)" onClick={() => run(editor, "PURGE")} />
@@ -582,6 +603,46 @@ function InsertTab({ editor, onPalette, palettes }: { editor: Editor; onPalette:
       <Panel title="Reference">
         <Big icon={ImagePlus} label="Attach Image" title="Attach a picture under the drawing (IAT)" onClick={() => run(editor, "IMAGEATTACH")} />
         <Big icon={FileText} label="Attach PDF" title="Attach a PDF page under the drawing" onClick={() => run(editor, "PDFATTACH")} />
+      </Panel>
+      <Panel title="Export">
+        <Big icon={FileDown} label="Export DXF" title="Download as DXF for AutoCAD and other CAD programs (DXFOUT)" onClick={() => run(editor, "DXFOUT")} />
+      </Panel>
+    </>
+  );
+}
+
+function LayoutTab({ editor }: { editor: Editor }) {
+  return (
+    <>
+      <Panel title="Layout">
+        <Big icon={FilePlus2} label="New" title="New layout (LAYOUT, N)" onClick={() => editor.newLayout()} />
+        <Big icon={FileCog} label="Page Setup" title="Paper size and plot style (PAGESETUP)" onClick={() => run(editor, "PAGESETUP")} />
+      </Panel>
+      <Panel title="Layout Viewports">
+        <Big icon={RectangleHorizontal} label="Rectangular" title="New viewport (MV)" onClick={() => run(editor, "MVIEW")} />
+        <div className="flex flex-col gap-0.5">
+          <Small icon={Lock} label="Lock" title="Lock the viewport's scale and view (VPLOCK)" onClick={() => run(editor, "VPLOCK")} />
+          <Small icon={LockOpen} label="Unlock" title="Unlock the viewport (VPUNLOCK)" onClick={() => run(editor, "VPUNLOCK")} />
+        </div>
+      </Panel>
+      <Panel title="Title Block">
+        <Big icon={PanelRight} label="Title Block" title="Put a title block on the paper (TB)" onClick={() => run(editor, "TITLEBLOCK")} />
+      </Panel>
+      <Panel title="Plot">
+        <Big icon={Printer} label="Plot" title="Plot to PDF (Ctrl+P)" onClick={() => run(editor, "PLOT")} />
+        <Big icon={FileStack} label="Publish" title="Publish layouts to Sheets or a PDF (PUBLISH)" onClick={() => run(editor, "PUBLISH")} />
+      </Panel>
+    </>
+  );
+}
+
+function OutputTab({ editor, state }: { editor: Editor; state: Snapshot }) {
+  return (
+    <>
+      <Panel title="Plot">
+        <Big icon={Printer} label="Plot" title="Plot to PDF (Ctrl+P)" onClick={() => run(editor, "PLOT")} />
+        {state.layout && <Big icon={FileCog} label="Page Setup" title="Paper size and plot style (PAGESETUP)" onClick={() => run(editor, "PAGESETUP")} />}
+        <Big icon={FileStack} label="Publish" title="Publish layouts to Sheets or a PDF (PUBLISH)" onClick={() => run(editor, "PUBLISH")} />
       </Panel>
       <Panel title="Export">
         <Big icon={FileDown} label="Export DXF" title="Download as DXF for AutoCAD and other CAD programs (DXFOUT)" onClick={() => run(editor, "DXFOUT")} />
