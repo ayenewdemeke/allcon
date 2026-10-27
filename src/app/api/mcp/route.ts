@@ -1,5 +1,6 @@
-import { requireMcpAuth } from "@better-auth/mcp";
+import { createMcpProtectedRequestHandler } from "@better-auth/mcp";
 import { createMcpHandler } from "@modelcontextprotocol/server";
+import { createDpopReplayStore } from "better-auth/oauth2";
 import { auth, mcpResource } from "@/lib/auth/server";
 import { isUuid } from "@/lib/auth/session";
 import { db } from "@/lib/db";
@@ -16,8 +17,12 @@ const unauthorized = (message: string) =>
   Response.json({ jsonrpc: "2.0", error: { code: -32001, message }, id: null }, { status: 401 });
 
 async function handle(request: Request) {
-  const protectedHandler = requireMcpAuth(
-    auth(),
+  // Tokens are checked against the app's own address. (requireMcpAuth would take it from
+  // Better Auth, but sign-in also works on alias domains, which makes that address dynamic.)
+  const issuer = `${env().APP_URL}/api/auth`;
+  const { internalAdapter } = await auth().$context;
+  const protectedHandler = createMcpProtectedRequestHandler(
+    { issuer, audience: mcpResource(env().APP_URL), jwksUrl: `${issuer}/jwks`, dpop: { replayStore: createDpopReplayStore(internalAdapter) } },
     async (req, claims) => {
       const userId = typeof claims.sub === "string" && isUuid(claims.sub) ? claims.sub : null;
       const user = userId ? await db.user.findUnique({ where: { id: userId }, select: { id: true, orgId: true } }) : null;
@@ -34,7 +39,6 @@ async function handle(request: Request) {
       });
       return mcp.fetch(req);
     },
-    { resource: mcpResource(env().APP_URL) },
   );
   return protectedHandler(request);
 }
