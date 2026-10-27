@@ -41,6 +41,6 @@ export async function findAccessibleDrawing(drawingId: string) {
   if (!user || !isUuid(drawingId)) return null;
   return db.drawing.findFirst({
     where: { id: drawingId, orgId: user.orgId },
-    select: { id: true, fileKey: true, revision: true },
+    select: { id: true, fileKey: true, revision: true, backupKey: true },
   });
 }

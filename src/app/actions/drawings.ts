@@ -28,7 +28,7 @@ export async function createDrawing(_prev: DrawingFormState, formData: FormData)
 async function ownDrawing(drawingId: string) {
   const user = await getCurrentUser();
   if (!user || !isUuid(drawingId)) throw new Error("Drawing not found");
-  const drawing = await db.drawing.findFirst({ where: { id: drawingId, orgId: user.orgId }, select: { id: true, fileKey: true } });
+  const drawing = await db.drawing.findFirst({ where: { id: drawingId, orgId: user.orgId }, select: { id: true, fileKey: true, backupKey: true } });
   if (!drawing) throw new Error("Drawing not found");
   return drawing;
 }
@@ -45,6 +45,6 @@ export async function deleteDrawing(drawingId: string) {
   const drawing = await ownDrawing(drawingId);
   const extra = await drawingExtraFiles(drawing.id, drawing.fileKey);
   await db.drawing.delete({ where: { id: drawing.id } });
-  await deleteFiles([drawing.fileKey, ...extra]).catch((err) => console.error("Could not delete a drawing's files", err));
+  await deleteFiles([drawing.fileKey, drawing.backupKey, ...extra]).catch((err) => console.error("Could not delete a drawing's files", err));
   revalidatePath("/drafting");
 }

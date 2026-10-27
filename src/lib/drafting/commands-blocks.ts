@@ -69,7 +69,8 @@ export class InsertPaletteCommand extends Command {
 /** -INSERT, or a block picked in the palette: place a reference, then fill in its attributes. */
 export class InsertCommand extends Command {
   name = "-INSERT";
-  private step: "name" | "point" | "scale" | "rotation" | "attributes" = "name";
+  private step: "name" | "point" | "scale" | "rotation" | "xscale" | "yscale" | "angle" | "attributes" = "name";
+  private yScale: number | null = null;
   private scale = 1;
   private rotation = 0;
   private at: Vec | null = null;
@@ -104,6 +105,12 @@ export class InsertCommand extends Command {
         return { text: "Specify scale factor for XYZ axes", enterLabel: String(this.scale) };
       case "rotation":
         return { text: "Specify rotation angle", enterLabel: formatAngle(this.rotation) };
+      case "xscale":
+        return { text: "Enter X scale factor", enterLabel: String(this.scale) };
+      case "yscale":
+        return { text: "Enter Y scale factor", enterLabel: "use X scale factor" };
+      case "angle":
+        return { text: "Specify rotation angle", base: this.at, enterLabel: formatAngle(this.rotation) };
       case "attributes": {
         const d = this.asked[Object.keys(this.values).length];
         if (!d) return { text: "" }; // all answered: being placed
@@ -112,17 +119,27 @@ export class InsertCommand extends Command {
     }
   }
   private make(at: Vec): InsertEntity {
-    return this.ed.make<InsertEntity>({ type: "insert", block: this.block!, at, scale: { x: this.scale, y: this.scale }, rotation: this.rotation, attribs: this.values });
+    return this.ed.make<InsertEntity>({ type: "insert", block: this.block!, at, scale: { x: this.scale, y: this.yScale ?? this.scale }, rotation: this.rotation, attribs: this.values });
   }
   preview(cursor: Vec): Entity[] {
     return this.step === "point" && this.block ? [this.make(cursor)] : [];
   }
   point(p: Vec) {
+    if (this.step === "angle") return this.setAngle(angleOf(this.at!, p));
     if (this.step !== "point") return;
     this.at = p;
+    // At the command line, AutoCAD asks for the scales and rotation next; from the palette, not.
+    if (this.name === "-INSERT") this.step = "xscale";
+    else this.askAttributes();
+  }
+  private askAttributes() {
     this.asked = attributeDefs(this.ed.doc.blocks.get(this.block!));
     this.step = "attributes";
     this.next();
+  }
+  private setAngle(a: number) {
+    this.rotation = a;
+    this.askAttributes();
   }
   /** The next attribute to ask for, or the reference is placed. */
   private next() {
@@ -156,6 +173,24 @@ export class InsertCommand extends Command {
       this.step = "point";
       return true;
     }
+    if (this.step === "xscale" || this.step === "yscale") {
+      const n = parseNumber(text);
+      if (n === null || n === 0) return false;
+      if (this.step === "xscale") {
+        this.scale = n;
+        this.step = "yscale";
+      } else {
+        this.yScale = n;
+        this.step = "angle";
+      }
+      return true;
+    }
+    if (this.step === "angle") {
+      const a = parseAngle(text);
+      if (a === null) return false;
+      this.setAngle(a);
+      return true;
+    }
     if (this.step === "attributes") {
       this.values = { ...this.values, [this.asked[Object.keys(this.values).length].tag]: text };
       this.next();
@@ -169,6 +204,9 @@ export class InsertCommand extends Command {
       if (typeof last === "string" && this.ed.doc.blocks.has(last)) this.use(last);
       else this.ed.finish();
     } else if (this.step === "scale" || this.step === "rotation") this.step = "point";
+    else if (this.step === "xscale") this.step = "yscale";
+    else if (this.step === "yscale") this.step = "angle";
+    else if (this.step === "angle") this.setAngle(this.rotation);
     else if (this.step === "attributes") {
       const d = this.asked[Object.keys(this.values).length];
       this.values = { ...this.values, [d.tag]: d.value };
@@ -397,6 +435,63 @@ export class AttachCommand extends Command {
   }
   private place(scale: number) {
     this.ed.doc.add(this.make(scale));
+    this.ed.finish();
+  }
+}
+
+/** -BLOCK: AutoCAD's command-line BLOCK: name, base point, then the objects (which become the
+ * block and are removed from the drawing, as AutoCAD's -BLOCK does). */
+export class BlockLineCommand extends Command {
+  name = "-BLOCK";
+  private step: "name" | "redefine" | "base" | "objects" = "name";
+  private blockName = "";
+  private base: Vec | null = null;
+  start() {
+    this.ed.doc.begin("-BLOCK");
+  }
+  prompt(): Prompt {
+    if (this.step === "name") return { text: "Enter block name", keywords: [{ key: "?", label: "?" }], spaces: true };
+    if (this.step === "redefine") return { text: `Block "${this.blockName}" already exists. Redefine it?`, keywords: [{ key: "Y", label: "Yes" }, { key: "N", label: "No" }], enterLabel: "N" };
+    if (this.step === "base") return { text: "Specify insertion base point" };
+    return { text: "Select objects", selecting: true };
+  }
+  keyword(key: string) {
+    if (this.step === "name" && key === "?") this.ed.print(`Blocks: ${[...this.ed.doc.blocks.keys()].join(", ") || "none"}`, "info");
+    else if (this.step === "redefine") {
+      if (key === "Y") this.step = "base";
+      else this.ed.finish();
+    }
+  }
+  value(text: string) {
+    if (this.step !== "name") return false;
+    const name = text.trim();
+    if (!name || /[<>/\\":;?*|,=`]/.test(name)) return this.ed.print("Invalid block name.", "error"), true;
+    this.blockName = name;
+    this.step = this.ed.doc.blocks.has(name) ? "redefine" : "base";
+    return true;
+  }
+  point(p: Vec) {
+    if (this.step !== "base") return;
+    this.base = p;
+    this.step = "objects";
+    this.ed.selection.clear();
+  }
+  enter() {
+    if (this.step === "redefine") return this.ed.finish();
+    if (this.step !== "objects") return this.ed.finish();
+    const objects = this.ed.selected().filter((e) => this.ed.doc.isEditable(e));
+    if (!objects.length) {
+      this.ed.print("No objects selected.", "error");
+      return this.ed.finish();
+    }
+    if (objects.some((e) => e.type === "insert" && (e.block === this.blockName || nestedBlocks(e.block).has(this.blockName)))) {
+      this.ed.print(`Block "${this.blockName}" can't contain a reference to itself.`, "error");
+      return this.ed.finish();
+    }
+    this.ed.doc.setBlock({ name: this.blockName, base: this.base!, entities: objects });
+    for (const e of objects) this.ed.doc.remove(e.id);
+    this.ed.print(`Block "${this.blockName}" defined with ${objects.length} object${objects.length === 1 ? "" : "s"}.`, "info");
+    this.ed.selection.clear();
     this.ed.finish();
   }
 }

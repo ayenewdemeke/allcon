@@ -746,6 +746,32 @@ function drawOverlay(canvas: HTMLCanvasElement, editor: Editor, dark: boolean) {
     ctx.fillText("Base point", s.x + 10, s.y - 10);
   }
 
+  // Others' cursors, where they're working in the same space: an arrow and their name.
+  for (const o of editor.others) {
+    if (!o.cursor || o.space !== editor.doc.space || editor.blockEdit) continue;
+    const p = editor.toScreen({ x: o.cursor[0], y: o.cursor[1] });
+    if (p.x < -20 || p.y < -20 || p.x > w + 20 || p.y > h + 20) continue;
+    ctx.fillStyle = o.color;
+    ctx.strokeStyle = "#ffffff";
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(p.x, p.y);
+    ctx.lineTo(p.x + 4, p.y + 14);
+    ctx.lineTo(p.x + 7, p.y + 8);
+    ctx.lineTo(p.x + 13, p.y + 6);
+    ctx.closePath();
+    ctx.stroke();
+    ctx.fill();
+    ctx.font = "11px ui-sans-serif, system-ui, sans-serif";
+    const label = o.name.split("@")[0];
+    const tw = ctx.measureText(label).width + 8;
+    ctx.beginPath();
+    ctx.roundRect(p.x + 10, p.y + 12, tw, 16, 4);
+    ctx.fill();
+    ctx.fillStyle = "#ffffff";
+    ctx.fillText(label, p.x + 14, p.y + 24);
+  }
+
   // The viewport worked through has a bold frame, as in AutoCAD.
   const active = editor.viewportRect();
   if (active) {

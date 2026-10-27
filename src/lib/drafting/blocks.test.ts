@@ -54,11 +54,10 @@ describe("blocks", () => {
     makeBlock(ed, "DESK", "delete");
     type(ed, "-INSERT");
     type(ed, "desk");
-    type(ed, "S");
-    type(ed, "2");
-    type(ed, "R");
-    type(ed, "90");
     type(ed, "500,0");
+    type(ed, "2"); // X scale
+    enter(ed); // Y: as X
+    type(ed, "90"); // rotation
     const [ref] = ofType<InsertEntity>(ed, "insert");
     const b = bounds(ref);
     close(b.minX, 400);
@@ -147,6 +146,9 @@ describe("attributes", () => {
     type(ed, "-INSERT");
     type(ed, "TAG");
     type(ed, "0,0");
+    enter(ed);
+    enter(ed);
+    enter(ed);
     expect(ed.getSnapshot().prompt).toBe("Room name <OFFICE>:");
     for (const ch of "LIVING ROOM") ed.key({ key: ch });
     enter(ed);
@@ -168,6 +170,9 @@ describe("the block editor", () => {
     type(ed, "-INSERT");
     type(ed, "DESK");
     type(ed, "500,0");
+    enter(ed);
+    enter(ed);
+    enter(ed);
     ed.editBlock("DESK");
     expect(ed.getSnapshot().blockEdit).toBe("DESK");
     expect(ed.doc.entities.size).toBe(2);

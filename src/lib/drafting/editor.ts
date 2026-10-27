@@ -141,6 +141,14 @@ export class Editor {
   /** Working through a layout viewport (MSPACE): its id, and the paper's view meanwhile. */
   viewport: string | null = null;
   paperView: View | null = null;
+  /** Others in the drawing (collaborators, AI apps), with their cursors, for the overlay. */
+  others: { id: string; name: string; color: string; space: string | null; cursor: [number, number] | null }[] = [];
+
+  setOthers(others: Editor["others"]) {
+    this.others = others;
+    this.pointerChanged();
+  }
+
   /** The drawing's name, for new title blocks. */
   drawingName = "";
   /** Where model space was looked at, while a layout is on screen. */
@@ -164,6 +172,10 @@ export class Editor {
   dynLength: number | null = null;
 
   private windowStart: Vec | null = null;
+  /** A selection window given by typed corners (W or C at Select objects). */
+  private typedWindow: { crossing: boolean; first: Vec | null } | null = null;
+  /** The selection the last command used (P at Select objects). */
+  private previousSelection: string[] = [];
   private press: { screen: Vec; button: number; pan: boolean; onEmpty: boolean } | null = null;
   private stateListeners = new Set<() => void>();
   private pointerListeners = new Set<() => void>();
@@ -188,6 +200,12 @@ export class Editor {
     this.doc = doc;
     doc.activate();
     this.detach = doc.subscribe(() => {
+      // A layout that went away (undo, someone else) takes its tab with it.
+      if (this.layoutId && !this.drawing.layouts.has(this.layoutId)) {
+        this.viewport = null;
+        this.paperView = null;
+        this.layoutId = null;
+      }
       // Objects that went away (undo, erase) leave the selection.
       for (const id of this.selection) if (!this.doc.entities.has(id)) this.selection.delete(id);
       this.emit();
@@ -329,13 +347,14 @@ export class Editor {
   // --- the cursor ------------------------------------------------------------------------
 
   private currentPrompt(): Prompt | null {
+    if (this.typedWindow) return this.typedWindow.first ? { text: "Specify opposite corner", base: this.typedWindow.first } : { text: "Specify first corner" };
     if (this.hotGrip) return { text: "** STRETCH **\nSpecify stretch point", keywords: [{ key: "X", label: "eXit" }], base: this.hotGrip.grip.point };
     return this.command ? this.command.prompt() : null;
   }
 
   /** Whether a click now gives a point (rather than picking objects). */
   get wantsPoint() {
-    if (this.hotGrip) return true;
+    if (this.hotGrip || this.typedWindow) return true;
     if (!this.command || this.command.pans) return false;
     const prompt = this.command.prompt();
     return !prompt.selecting && !prompt.picking;
@@ -520,8 +539,8 @@ export class Editor {
     return { from, to, crossing: to.x < from.x };
   }
 
-  private finishWindow(to: Vec, shift: boolean) {
-    const w = this.windowFrom(this.windowStart!, to);
+  private finishWindow(to: Vec, shift: boolean, crossing?: boolean) {
+    const w = { ...this.windowFrom(this.windowStart!, to), ...(crossing === undefined ? {} : { crossing }) };
     this.windowStart = null;
     this.window = null;
     const box = { minX: Math.min(w.from.x, w.to.x), minY: Math.min(w.from.y, w.to.y), maxX: Math.max(w.from.x, w.to.x), maxY: Math.max(w.from.y, w.to.y) };
@@ -579,6 +598,18 @@ export class Editor {
   private givePoint(p: Vec) {
     this.dynLength = null;
     this.lastPoint = p;
+    if (this.typedWindow) {
+      // W or C typed at Select objects: two corners make the window.
+      if (!this.typedWindow.first) this.typedWindow.first = p;
+      else {
+        this.windowStart = this.typedWindow.first;
+        const crossing = this.typedWindow.crossing;
+        this.typedWindow = null;
+        this.finishWindow(p, false, crossing);
+        this.print(`${this.selection.size} found`, "info");
+      }
+      return this.afterInput();
+    }
     if (this.hotGrip) {
       const moved = this.stretchTo(p);
       this.doc.begin("GRIP_STRETCH");
@@ -923,6 +954,7 @@ export class Editor {
     this.command = null;
     this.doc.commit();
     if (command && "clearsSelection" in command) {
+      if (this.selection.size) this.previousSelection = [...this.selection];
       this.selection.clear();
       this.windows = [];
     }
@@ -931,6 +963,10 @@ export class Editor {
   }
 
   cancel(echo = true) {
+    if (this.typedWindow) {
+      this.typedWindow = null;
+      return this.afterInput();
+    }
     if (this.textEdit) return this.closeTextEditor(null);
     if (this.dialog) return this.closeDialog(null);
     if (this.hotGrip) {
@@ -979,11 +1015,36 @@ export class Editor {
       return this.afterInput();
     }
     if (prompt.selecting) {
-      if (upper === "ALL") {
-        this.selectAll();
-        return;
+      // Typed selection, as AutoCAD takes it: All, Last, Previous, a Window or Crossing
+      // window from two corners, or a point on an object.
+      const add = (ids: string[]) => {
+        for (const id of ids) {
+          const e = this.doc.entities.get(id);
+          if (e && this.doc.isEditable(e)) this.selection.add(id);
+        }
+        this.print(`${this.selection.size} found`, "info");
+      };
+      if (upper === "ALL") return this.selectAll();
+      if (upper === "L" || upper === "LAST") return add(this.doc.lastAdded ? [this.doc.lastAdded] : []);
+      if (upper === "P" || upper === "PREVIOUS") return add(this.previousSelection);
+      if (["W", "WINDOW", "C", "CROSSING"].includes(upper)) {
+        this.typedWindow = { crossing: upper.startsWith("C"), first: null };
+        return this.emit();
+      }
+      const at = parsePointInput(text, this.doc.units, null, false);
+      if (at?.kind === "point") {
+        const hit = this.pick(at.point);
+        return hit ? add([hit.id]) : this.print("0 found", "info");
       }
       return this.print("*Invalid selection*", "error");
+    }
+    if (prompt.picking) {
+      // A typed point picks the object there.
+      const at = parsePointInput(text, this.doc.units, null, false);
+      if (at?.kind === "point") {
+        this.command!.pick?.(this.pick(at.point), at.point, false);
+        return this.afterInput();
+      }
     }
     if (this.dynLength !== null && prompt.base) {
       const angle = parseAngle(text);

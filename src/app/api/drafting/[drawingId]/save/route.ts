@@ -24,12 +24,13 @@ export async function PATCH(request: NextRequest, ctx: RouteContext<"/api/drafti
   if (!key.startsWith(`drawings/${drawing.id}/`) || !Number.isInteger(revision)) return new Response("Invalid", { status: 400 });
   const { count: updated } = await db.drawing.updateMany({
     where: { id: drawing.id, revision },
-    data: { fileKey: key, revision: revision + 1, entityCount: count },
+    // A person's save ends the chance to undo an AI app's last edit (it would lose this).
+    data: { fileKey: key, revision: revision + 1, entityCount: count, backupKey: null },
   });
   if (!updated) {
     await deleteFiles([key]);
     return Response.json({ error: "This drawing was saved somewhere else meanwhile." }, { status: 409 });
   }
-  if (drawing.fileKey && drawing.fileKey !== key) await deleteFiles([drawing.fileKey]).catch(() => {});
+  await deleteFiles([drawing.fileKey !== key ? drawing.fileKey : null, drawing.backupKey]).catch(() => {});
   return Response.json({ revision: revision + 1 });
 }

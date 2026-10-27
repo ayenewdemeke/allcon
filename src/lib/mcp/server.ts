@@ -9,6 +9,8 @@ import { ToolError, type ToolContext } from "@/lib/tools/context";
 import { addCloud, addNote, boxSchema, flagIssue, listMarkups, listSheets, readSheet, renameSheet } from "@/lib/tools/drawings";
 import { LOD_LEVELS } from "@/lib/ifc/lod";
 import { buildModelPrompt, editModelPrompt } from "@/lib/mcp/model-prompts";
+import { draftPrompt, SCRIPT_GUIDE } from "@/lib/mcp/drafting-prompt";
+import { addObjects, createDrawing, editObjects, getDrawing, listDrawings, objectInput, publishLayouts, runCommands } from "@/lib/tools/drafting";
 import { searchManuals } from "@/lib/tools/library";
 import { createModel, editModel, getModel, ifcHelp, ifcQuery, listModels } from "@/lib/tools/models3d";
 import { listElementGroups, mapGroups } from "@/lib/tools/mapping";
@@ -29,6 +31,8 @@ To mark something on a sheet, use the [x0,y0,x1,y1] boxes from read_sheet: flag_
 To build a 3D model (IFC) from drawings, read the sheets, start the model with create_3d_model, then build it with ifc_edit using ifcopenshell.api operations; ifc_help explains each operation and ifc_query reads the model. ${APP_NAME} checks the model, keeps one backup for undo, shows it in 3D and exports the IFC. The build_3d_model prompt has the full procedure, and edit_3d_model the one for changing a model.
 
 To measure SOV / BoQ items from the models, use list_element_groups and map_groups (the map_to_boq prompt has the procedure).
+
+To draft 2D drawings (plans, details, sheets), use the drafting tools: list_drawings / create_drawing, get_drawing to read one (with a picture), run_commands to draw with AutoCAD command scripts, add_objects and edit_objects for direct edits, and publish_layouts to put its layouts into a project's Sheets. The draft_drawing prompt has the procedure.
 
 Models are built to a target level of development (LOD 100, 200, 300 or 350): check the drawings support it and ask the user before modelling what they don't. Keep a model's description current: ifc_edit takes a new description.`;
 
@@ -402,6 +406,121 @@ Edits in one request build one revision of the model; the user can undo the whol
     async ({ usecase }) => out(await run("ifc_help", `Looked up ${usecase}`, () => ifcHelp(usecase))),
   );
 
+  // --- drafting ------------------------------------------------------------------
+
+  /** A result with a picture after its JSON (get_drawing, run_commands). */
+  const withImage = (rest: unknown, image: string | null) => {
+    const result = json(rest);
+    if (image) result.content.push({ type: "image", data: image, mimeType: "image/jpeg" });
+    return result;
+  };
+
+  server.registerTool(
+    "list_drawings",
+    { title: "List drawings", description: "The user's 2D drafting drawings (CAD drawings made in conkit's AutoCAD-like editor), with their units and size.", annotations: readOnly },
+    async () => out(await run("list_drawings", "Listed drawings", () => listDrawings(ctx))),
+  );
+
+  server.registerTool(
+    "create_drawing",
+    {
+      title: "Create drawing",
+      description: "A new, empty 2D drawing. Units: architectural (inches, read as feet and inches) or mm.",
+      inputSchema: z.object({ name: z.string().min(1).max(200), units: z.enum(["architectural", "mm"]) }),
+      annotations: additive,
+    },
+    async (input) =>
+      out(await run("create_drawing", `Created drawing ${input.name}`, () => createDrawing(ctx, input), (v) => ({ undo: { type: "drawing_create", drawingId: v.id } }))),
+  );
+
+  server.registerTool(
+    "get_drawing",
+    {
+      title: "Read drawing",
+      description:
+        "A drawing's units, layers, styles, blocks, layouts and viewports, its extents and object counts, its objects (filtered by layer, type or region [x0,y0,x1,y1]; up to `limit`, default 200), and by default a picture: all of model space with its corner coordinates, or a layout as it plots.",
+      inputSchema: z.object({
+        drawing_id: uuid,
+        layout: z.string().optional().describe("A layout's name, to read its paper instead of model space"),
+        include_image: z.boolean().default(true),
+        layer: z.string().optional(),
+        type: z.string().optional().describe("line, polyline, circle, arc, text, mtext, dimension, leader, hatch, insert, viewport..."),
+        region: z.tuple([z.number(), z.number(), z.number(), z.number()]).optional(),
+        limit: z.number().int().min(0).max(1000).optional(),
+      }),
+      annotations: readOnly,
+    },
+    async ({ drawing_id, layout, include_image, layer, type, region, limit }) => {
+      const r = await run("get_drawing", "Read a drawing", () => getDrawing(ctx, drawing_id, { layout, includeImage: include_image, objects: { layer, type, region, limit } }), (v) => ({ summary: `Read drawing ${v.result.name}` }));
+      return isResult(r) ? r : withImage(r.result, r.image);
+    },
+  );
+
+  server.registerTool(
+    "run_commands",
+    {
+      title: "Draft with commands",
+      description: `Runs an AutoCAD-style command script on a drawing and saves it: the same commands, prompts and checks as the editor's command line. Returns the transcript (read it for errors), what was added, changed and erased, and optionally a picture.\n\n${SCRIPT_GUIDE}`,
+      inputSchema: z.object({
+        drawing_id: uuid,
+        script: z.string().min(1).max(200_000),
+        layout: z.string().optional().describe("Run on this layout's paper instead of model space"),
+        include_image: z.boolean().default(false),
+      }),
+      annotations: additive,
+    },
+    async ({ drawing_id, script, layout, include_image }) => {
+      const r = await run("run_commands", "Drafted with commands", () => runCommands(ctx, drawing_id, script, { layout, includeImage: include_image }), (v) => ({ summary: v.summary, undo: v.undo }));
+      return isResult(r) ? r : withImage(r.result, r.image);
+    },
+  );
+
+  server.registerTool(
+    "add_objects",
+    {
+      title: "Add objects",
+      description:
+        "Adds objects to a drawing directly, in drawing units (angles in radians): lines, polylines (bulges for arc segments), circles, arcs, ellipses, splines, text, mtext, dimensions, leaders, hatches (closed loops of points) and block references. Layers that don't exist are made. Quicker than run_commands for many plain objects.",
+      inputSchema: z.object({ drawing_id: uuid, layout: z.string().optional(), objects: z.array(objectInput).min(1).max(5000) }),
+      annotations: additive,
+    },
+    async ({ drawing_id, layout, objects }) => out(await run("add_objects", `Added ${objects.length} objects`, () => addObjects(ctx, drawing_id, objects, { layout }), (v) => ({ summary: v.summary, undo: v.undo }))),
+  );
+
+  server.registerTool(
+    "edit_objects",
+    {
+      title: "Edit objects",
+      description:
+        "Changes objects by id (any of their properties: geometry, layer, color, text, a viewport's scale or view, a block reference's attribs...) and erases objects by id. Ids come from get_drawing or the results of the drafting tools.",
+      inputSchema: z.object({
+        drawing_id: uuid,
+        layout: z.string().optional(),
+        update: z.array(z.object({ id: z.string(), changes: z.record(z.string(), z.unknown()) })).max(5000).optional(),
+        erase: z.array(z.string()).max(5000).optional(),
+      }),
+      annotations: { ...additive, destructiveHint: true },
+    },
+    async ({ drawing_id, layout, update, erase }) => out(await run("edit_objects", "Edited objects", () => editObjects(ctx, drawing_id, { layout, update, erase }), (v) => ({ summary: v.summary, undo: v.undo }))),
+  );
+
+  server.registerTool(
+    "publish_layouts",
+    {
+      title: "Publish layouts to Sheets",
+      description: "Plots a drawing's layouts (all, or those named) to a PDF and adds it to a project's Sheets as a drawing set: each layout a sheet, numbered and titled from its title block and scaled from its viewport.",
+      inputSchema: z.object({ drawing_id: uuid, project_id: uuid, layouts: z.array(z.string()).optional() }),
+      annotations: additive,
+    },
+    async ({ drawing_id, project_id, layouts }) =>
+      out(
+        await run("publish_layouts", "Published layouts", () => publishLayouts(ctx, drawing_id, project_id, layouts), (v) => ({
+          projectId: v.projectId,
+          summary: `Published ${v.sheets.length} sheet${v.sheets.length === 1 ? "" : "s"} to Sheets`,
+        })),
+      ),
+  );
+
   // --- skills (ready-made prompts) ------------------------------------------------
 
   const user = (text: string) => ({ messages: [{ role: "user" as const, content: { type: "text" as const, text } }] });
@@ -492,6 +611,19 @@ Edits in one request build one revision of the model; the user can undo the whol
       }),
     },
     (args) => user(editModelPrompt(args)),
+  );
+
+  server.registerPrompt(
+    "draft_drawing",
+    {
+      title: "Draft a 2D drawing",
+      description: "Drafts plans, details or sheets in conkit's AutoCAD-like editor: layers, geometry, text, dimensions, hatches, blocks and layouts, checked against a picture as it goes.",
+      argsSchema: z.object({
+        task: z.string().describe("What to draw, e.g. 'a 30 x 40 ft single-storey house plan with dimensions' or 'trace sheet A101 in Riverside'"),
+        drawing: z.string().optional().describe("An existing drawing's name or id (default: a new one)"),
+      }),
+    },
+    (args) => user(draftPrompt(args)),
   );
 
   return server;

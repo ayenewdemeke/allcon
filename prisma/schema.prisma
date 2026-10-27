@@ -23,31 +23,32 @@ model Organization {
 }
 
 model User {
-  id            String              @id @default(uuid()) @db.Uuid
-  orgId         String              @map("org_id") @db.Uuid
-  email         String              @unique
-  emailVerified Boolean             @default(false) @map("email_verified")
-  name          String?
-  image         String?
-  role          UserRole            @default(owner)
-  createdAt     DateTime            @default(now()) @map("created_at")
-  updatedAt     DateTime            @default(now()) @updatedAt @map("updated_at")
-  org           Organization        @relation(fields: [orgId], references: [id], onDelete: Cascade)
-  sessions      Session[]
-  accounts      Account[]
-  uploads       ModelVersion[]
-  drawingSets   DrawingSet[]
-  shareLinks    ShareLink[]
-  modelShares   ModelShareLink[]
-  markups       Markup[]
-  rules         MappingRule[]
-  references    Reference[]
-  reviews       Review[]
-  oauthClients  OauthClient[]
-  refreshTokens OauthRefreshToken[]
-  accessTokens  OauthAccessToken[]
-  oauthConsents OauthConsent[]
-  mcpActivity   McpActivity[]
+  id              String              @id @default(uuid()) @db.Uuid
+  orgId           String              @map("org_id") @db.Uuid
+  email           String              @unique
+  emailVerified   Boolean             @default(false) @map("email_verified")
+  name            String?
+  image           String?
+  role            UserRole            @default(owner)
+  createdAt       DateTime            @default(now()) @map("created_at")
+  updatedAt       DateTime            @default(now()) @updatedAt @map("updated_at")
+  org             Organization        @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  sessions        Session[]
+  accounts        Account[]
+  uploads         ModelVersion[]
+  drawingSets     DrawingSet[]
+  shareLinks      ShareLink[]
+  modelShares     ModelShareLink[]
+  markups         Markup[]
+  rules           MappingRule[]
+  references      Reference[]
+  reviews         Review[]
+  drawingPresence DrawingPresence[]
+  oauthClients    OauthClient[]
+  refreshTokens   OauthRefreshToken[]
+  accessTokens    OauthAccessToken[]
+  oauthConsents   OauthConsent[]
+  mcpActivity     McpActivity[]
 
   @@map("user")
 }
@@ -794,21 +795,42 @@ model ModelShareLink {
 // project). The drawing itself (entities, layers) is a JSON file in file storage; each save
 // writes a new file and bumps the revision.
 model Drawing {
-  id          String       @id @default(uuid()) @db.Uuid
-  orgId       String       @map("org_id") @db.Uuid
-  projectId   String?      @map("project_id") @db.Uuid
+  id          String            @id @default(uuid()) @db.Uuid
+  orgId       String            @map("org_id") @db.Uuid
+  projectId   String?           @map("project_id") @db.Uuid
   name        String
-  units       String       @default("architectural") // "architectural" (feet-inches) or "mm"
-  fileKey     String?      @map("file_key") // null until first saved
-  revision    Int          @default(0)
-  entityCount Int          @default(0) @map("entity_count")
-  createdById String?      @map("created_by") @db.Uuid
-  createdAt   DateTime     @default(now()) @map("created_at")
-  updatedAt   DateTime     @default(now()) @updatedAt @map("updated_at")
-  org         Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
-  project     Project?     @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  units       String            @default("architectural") // "architectural" (feet-inches) or "mm"
+  fileKey     String?           @map("file_key") // null until first saved
+  backupKey   String?           @map("backup_key") // the file before an AI app's last edit, for undo
+  revision    Int               @default(0)
+  entityCount Int               @default(0) @map("entity_count")
+  createdById String?           @map("created_by") @db.Uuid
+  createdAt   DateTime          @default(now()) @map("created_at")
+  updatedAt   DateTime          @default(now()) @updatedAt @map("updated_at")
+  org         Organization      @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  project     Project?          @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  presence    DrawingPresence[]
 
   @@index([orgId])
   @@index([projectId])
   @@map("drawing")
+}
+
+// Who has a drawing open (or is editing it through an AI app), for collaboration: seen in
+// the last few seconds, where their cursor is, and what they last did.
+model DrawingPresence {
+  id        String   @id @default(uuid()) @db.Uuid
+  drawingId String   @map("drawing_id") @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  clientId  String   @default("") @map("client_id") // an AI app acting for the user; "" for the person
+  name      String
+  space     String? // "model", or the layout's id
+  cursor    Json? // [x, y] in that space
+  activity  String? // e.g. "added 12 objects"
+  seenAt    DateTime @default(now()) @map("seen_at")
+  drawing   Drawing  @relation(fields: [drawingId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([drawingId, userId, clientId])
+  @@map("drawing_presence")
 }

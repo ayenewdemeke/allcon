@@ -58,6 +58,10 @@ export class DraftDocument {
   version = ++versions;
 
   private spaces = new Map<string, Space>();
+  /** What changed here since the last save (by key: e:space:id, l:layer, b:block...), and when. */
+  private dirty = new Map<string, number>();
+  /** Counts local edits; a save covers the edits up to the count it was made at. */
+  editSeq = 0;
   private undoStack: Transaction[] = [];
   private redoStack: Transaction[] = [];
   private open: Transaction | null = null;
@@ -158,6 +162,92 @@ export class DraftDocument {
   private changed() {
     this.version = ++versions;
     for (const l of this.listeners) l();
+  }
+
+  // --- collaboration ------------------------------------------------------------------------
+
+  private markDirty(change: Change) {
+    const seq = ++this.editSeq;
+    const key =
+      change.kind === "entity"
+        ? `e:${change.space}:${(change.after ?? change.before)!.id}`
+        : change.kind === "layout"
+          ? `L:${(change.after ?? change.before)!.id}`
+          : change.kind === "layer"
+            ? `l:${(change.after ?? change.before)!.name}`
+            : change.kind === "block"
+              ? `b:${(change.after ?? change.before)!.name}`
+              : change.kind === "textStyle"
+                ? `t:${(change.after ?? change.before)!.name}`
+                : change.kind === "dimStyle"
+                  ? `d:${(change.after ?? change.before)!.name}`
+                  : change.kind === "setting"
+                    ? `s:${change.key}`
+                    : "c";
+    this.dirty.set(key, seq);
+  }
+
+  /** Whether there are local changes not yet saved. */
+  get unsaved() {
+    return this.dirty.size > 0;
+  }
+
+  /** A save made at edit count `seq` succeeded: what changed up to then is saved. */
+  markSaved(seq: number) {
+    for (const [key, at] of this.dirty) if (at <= seq) this.dirty.delete(key);
+  }
+
+  /** Takes in a newer saved version of the drawing (someone else's or an AI app's), keeping the
+   * changes made here and not saved yet: those win, object by object. Not an undo step. */
+  applyRemote(remote: DrawingData) {
+    const mine = (key: string) => this.dirty.has(key);
+    const merge = <T>(local: Map<string, T>, incoming: T[], keyOf: (v: T) => string, prefix: string) => {
+      const out = new Map(incoming.map((v) => [keyOf(v), v] as [string, T]));
+      for (const key of [...out.keys()]) if (mine(prefix + key) && !local.has(key)) out.delete(key); // deleted here
+      for (const [key, v] of local) if (mine(prefix + key)) out.set(key, v); // changed or added here
+      return out;
+    };
+    this.layers = merge(this.layers, remote.layers, (l) => l.name, "l:");
+    if (!this.layers.has("0")) this.layers.set("0", { name: "0", color: 7, lineweight: -3, linetype: "Continuous", on: true, frozen: false, locked: false });
+    this.blocks = merge(this.blocks, remote.blocks ?? [], (b) => b.name, "b:");
+    const defaults = defaultStyles(this.units);
+    this.textStyles = merge(this.textStyles, remote.textStyles?.length ? remote.textStyles : defaults.textStyles, (t) => t.name, "t:");
+    this.dimStyles = merge(this.dimStyles, remote.dimStyles?.length ? remote.dimStyles : defaults.dimStyles, (d) => d.name, "d:");
+    const remoteLayouts = (remote.layouts ?? []).map(({ entities, ...info }) => {
+      void entities;
+      return info;
+    });
+    this.layouts = merge(this.layouts, remoteLayouts, (l) => l.id, "L:");
+    for (const key of ["currentTextStyle", "currentDimStyle", "annoScale"] as const) {
+      const value = remote[key];
+      if (!mine(`s:${key}`) && value !== undefined) (this as unknown as Record<string, unknown>)[key] = value;
+    }
+    if (!this.textStyles.has(this.currentTextStyle)) this.currentTextStyle = this.textStyles.keys().next().value!;
+    if (!this.dimStyles.has(this.currentDimStyle)) this.currentDimStyle = this.dimStyles.keys().next().value!;
+    this.activate();
+    // Objects, space by space.
+    const incoming = new Map<string, Entity[]>([[MODEL, remote.entities]]);
+    for (const l of remote.layouts ?? []) incoming.set(l.id, l.entities);
+    const spaceIds = new Set([...incoming.keys(), ...this.spaces.keys()]);
+    for (const spaceId of spaceIds) {
+      if (spaceId !== MODEL && !this.layouts.has(spaceId)) {
+        this.spaces.delete(spaceId);
+        continue;
+      }
+      const theirs = new Map((incoming.get(spaceId) ?? []).map((e) => [e.id, e]));
+      const space = this.spaceOf(spaceId);
+      for (const [id, e] of [...space.entities]) {
+        if (mine(`e:${spaceId}:${id}`)) continue;
+        const remoteVersion = theirs.get(id);
+        if (!remoteVersion) this.unplace(id, spaceId);
+        else if (JSON.stringify(remoteVersion) !== JSON.stringify(e)) this.place(remoteVersion, spaceId);
+      }
+      for (const [id, e] of theirs) if (!space.entities.has(id) && !mine(`e:${spaceId}:${id}`)) this.place(e, spaceId);
+      // Blocks and styles may have changed what objects look like: re-index those.
+      for (const e of space.entities.values()) if (e.type === "insert" || isAnnotation(e)) this.place(e, spaceId);
+    }
+    if (this.space !== MODEL && !this.layouts.has(this.space)) this.space = MODEL;
+    this.changed();
   }
 
   // --- the index ------------------------------------------------------------------------
@@ -264,6 +354,7 @@ export class DraftDocument {
 
   private apply(change: Change, backwards: boolean) {
     const target = backwards ? change.before : change.after;
+    this.markDirty(change);
     if (change.kind === "entity") {
       const id = (change.after ?? change.before)!.id;
       if (target) this.place(target as Entity, change.space);
@@ -345,7 +436,11 @@ export class DraftDocument {
 
   add(e: Entity) {
     this.record({ kind: "entity", space: this.space, before: null, after: e });
+    this.lastAdded = e.id;
   }
+
+  /** The object added last (AutoCAD's "Last" selection). */
+  lastAdded: string | null = null;
 
   update(e: Entity) {
     const before = this.entities.get(e.id) ?? null;
@@ -360,6 +455,7 @@ export class DraftDocument {
   /** Changes an entity without an undo step: a viewport's view as it's panned and zoomed. */
   patch(e: Entity, spaceId = this.space) {
     if (!this.spaceOf(spaceId).entities.has(e.id)) return;
+    this.dirty.set(`e:${spaceId}:${e.id}`, ++this.editSeq);
     this.place(e, spaceId);
     this.changed();
   }

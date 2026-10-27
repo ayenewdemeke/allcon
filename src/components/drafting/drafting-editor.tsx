@@ -13,6 +13,7 @@ import { attachFile } from "./attach";
 import { BlocksPalette } from "./blocks-palette";
 import { CommandLine } from "./command-line";
 import { DraftingDialog } from "./dialogs";
+import { People, personColor, type Person } from "./presence";
 import { DraftingCanvas } from "./drafting-canvas";
 import { LayerManager, PropertiesPalette, StylesPalette } from "./palettes";
 import { Ribbon } from "./ribbon";
@@ -97,7 +98,7 @@ export function DraftingEditor({ drawing, units, backHref, projects }: { drawing
 /** The save state, small at the end of the ribbon's tab row (Ctrl+S saves now). */
 function SaveStatus({ save, onRetry }: { save: SaveState; onRetry: () => void }) {
   if (save === "conflict")
-    return <span className="text-xs text-destructive">Saved elsewhere meanwhile: reopen the drawing</span>;
+    return <span className="text-xs text-destructive">Couldn&apos;t merge with others&apos; changes: reopen the drawing</span>;
   if (save === "error")
     return (
       <button type="button" onClick={onRetry} className="flex items-center gap-1 text-xs text-destructive hover:underline" title="Retry saving">
@@ -136,47 +137,72 @@ function Workspace({ editor, drawing, backHref, hadView, projects }: { editor: E
     } catch {}
   }, [state.settings]);
 
-  // --- saving -----------------------------------------------------------------------------
+  // --- saving, and others' changes --------------------------------------------------------------
+  // Several people (and AI apps through the connector) can work on a drawing at once. Each
+  // saves what they changed; when someone else saves, their version is pulled in here, object
+  // by object, keeping what's changed here and not saved yet.
   const revision = useRef(drawing.revision);
-  const savedVersion = useRef(editor.drawing.version);
   const saving = useRef(false);
+  const pulling = useRef(false);
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const [people, setPeople] = useState<Person[]>([]);
+
+  /** Takes in the latest saved version, if it's newer than the one here. */
+  const pull = useCallback(async () => {
+    if (pulling.current) return false;
+    pulling.current = true;
+    try {
+      const meta = (await (await fetch(`/api/drafting/${drawing.id}/file?meta=1`, { cache: "no-store" })).json()) as { revision: number; url: string | null };
+      if (meta.revision <= revision.current || !meta.url) return false;
+      const data = (await (await fetch(meta.url, { cache: "no-store" })).json()) as DrawingData;
+      editor.drawing.applyRemote(data);
+      revision.current = meta.revision;
+      return true;
+    } finally {
+      pulling.current = false;
+    }
+  }, [editor, drawing.id]);
 
   const saveNow = useCallback(async () => {
     clearTimeout(timer.current);
-    if (saving.current) return;
-    const version = editor.drawing.version;
-    if (version === savedVersion.current) return;
+    if (saving.current || !editor.drawing.unsaved) return;
     saving.current = true;
     setSave("saving");
     try {
-      const data = editor.drawing.toData({ ...editor.view });
-      const body = await gzip(JSON.stringify(data));
-      const link = await fetch(`/api/drafting/${drawing.id}/save`, { method: "POST" });
-      if (!link.ok) throw new Error();
-      const { key, upload } = (await link.json()) as { key: string; upload: { url: string; headers: Record<string, string> } };
-      const put = await fetch(upload.url, { method: "PUT", headers: upload.headers, body });
-      if (!put.ok) throw new Error();
-      const done = await fetch(`/api/drafting/${drawing.id}/save?key=${encodeURIComponent(key)}&revision=${revision.current}&count=${data.entities.length}`, { method: "PATCH" });
-      if (done.status === 409) {
-        setSave("conflict");
+      for (let attempt = 0; attempt < 3; attempt++) {
+        const seq = editor.drawing.editSeq;
+        const data = editor.drawing.toData({ ...editor.view });
+        const body = await gzip(JSON.stringify(data));
+        const link = await fetch(`/api/drafting/${drawing.id}/save`, { method: "POST" });
+        if (!link.ok) throw new Error();
+        const { key, upload } = (await link.json()) as { key: string; upload: { url: string; headers: Record<string, string> } };
+        const put = await fetch(upload.url, { method: "PUT", headers: upload.headers, body });
+        if (!put.ok) throw new Error();
+        const done = await fetch(`/api/drafting/${drawing.id}/save?key=${encodeURIComponent(key)}&revision=${revision.current}&count=${data.entities.length}`, { method: "PATCH" });
+        if (done.status === 409) {
+          // Saved by someone else meanwhile: take theirs in, then save on top of it.
+          await pull();
+          continue;
+        }
+        if (!done.ok) throw new Error();
+        revision.current = ((await done.json()) as { revision: number }).revision;
+        editor.drawing.markSaved(seq);
+        setSave(editor.drawing.unsaved ? "unsaved" : "saved");
         return;
       }
-      if (!done.ok) throw new Error();
-      revision.current = ((await done.json()) as { revision: number }).revision;
-      savedVersion.current = version;
-      setSave(editor.drawing.version === version ? "saved" : "unsaved");
+      setSave("conflict");
     } catch {
       setSave("error");
     } finally {
       saving.current = false;
-      if (editor.drawing.version !== savedVersion.current) timer.current = setTimeout(() => void saveNow(), 1500);
+      if (editor.drawing.unsaved) timer.current = setTimeout(() => void saveNow(), 1500);
     }
-  }, [editor, drawing.id]);
+  }, [editor, drawing.id, pull]);
 
   useEffect(
     () =>
       editor.drawing.subscribe(() => {
+        if (!editor.drawing.unsaved) return;
         setSave((s) => (s === "conflict" ? s : "unsaved"));
         clearTimeout(timer.current);
         timer.current = setTimeout(() => void saveNow(), 1500);
@@ -186,7 +212,7 @@ function Workspace({ editor, drawing, backHref, hadView, projects }: { editor: E
 
   useEffect(() => {
     const warn = (e: BeforeUnloadEvent) => {
-      if (editor.drawing.version !== savedVersion.current) e.preventDefault();
+      if (editor.drawing.unsaved) e.preventDefault();
     };
     window.addEventListener("beforeunload", warn);
     return () => {
@@ -194,6 +220,38 @@ function Workspace({ editor, drawing, backHref, hadView, projects }: { editor: E
       clearTimeout(timer.current);
     };
   }, [editor]);
+
+  // Checking in: where this person is (for others' presence), the latest revision, and who
+  // else is here. Every 2 seconds while the tab is visible.
+  useEffect(() => {
+    const url = `/api/drafting/${drawing.id}/state`;
+    const tick = async () => {
+      if (document.hidden) return;
+      const cursor = editor.cursorScreen ? [editor.cursor.x, editor.cursor.y] : null;
+      const res = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ space: editor.drawing.space, cursor }) }).catch(() => null);
+      if (!res?.ok) return;
+      const state = (await res.json()) as { revision: number; people: Person[] };
+      setPeople(state.people);
+      editor.setOthers(state.people.map((p) => ({ ...p, color: personColor(p.id) })));
+      if (state.revision > revision.current && !saving.current && (await pull().catch(() => false))) {
+        const apps = state.people.filter((p) => p.app && p.activity);
+        const names = state.people.filter((p) => !p.app).map((p) => p.name);
+        editor.print(
+          apps.length ? `Changes from ${apps.map((a) => `${a.name}: ${a.activity}`).join("; ")}.` : `Changes from ${names.join(", ") || "another window"} are in.`,
+          "info",
+        );
+      }
+    };
+    void tick();
+    const interval = setInterval(() => void tick(), 2000);
+    const leave = () => void fetch(url, { method: "DELETE", keepalive: true }).catch(() => {});
+    window.addEventListener("pagehide", leave);
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener("pagehide", leave);
+      leave();
+    };
+  }, [editor, drawing.id, pull]);
 
   // --- attaching and exporting -----------------------------------------------------------------
   const choosePage = useCallback((count: number) => new Promise<number | null>((resolve) => setPagePick({ count, resolve })), []);
@@ -289,7 +347,12 @@ function Workspace({ editor, drawing, backHref, hadView, projects }: { editor: E
             </button>
           </>
         }
-        status={<SaveStatus save={save} onRetry={() => void saveNow()} />}
+        status={
+          <span className="flex items-center gap-2">
+            <People people={people} />
+            <SaveStatus save={save} onRetry={() => void saveNow()} />
+          </span>
+        }
       />
       <div className="flex min-h-0 flex-1">
         <div className="relative min-w-0 flex-1">

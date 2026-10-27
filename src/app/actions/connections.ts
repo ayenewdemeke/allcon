@@ -5,6 +5,9 @@ import { z } from "zod";
 import { Prisma } from "@/generated/prisma/client";
 import { db } from "@/lib/db";
 import { getCurrentUser, isUuid } from "@/lib/auth/session";
+import { drawingExtraFiles } from "@/lib/drafting/server";
+import { deleteFiles } from "@/lib/storage";
+import { drawingUndo } from "@/lib/tools/drafting";
 import { removeModel, restoreModel } from "@/lib/tools/models3d";
 
 /** Disconnects an AI app: removes its permission and revokes its tokens. Takes effect at once. */
@@ -26,6 +29,34 @@ const modelUndo = z.discriminatedUnion("type", [
   z.object({ type: z.literal("ifc_model_restore"), modelId: z.uuid(), backupKey: z.string().min(1) }),
 ]);
 
+const drawingCreateUndo = z.object({ type: z.literal("drawing_create"), drawingId: z.uuid() });
+
+/** Drafting: a drawing the app made goes; an edited one goes back to before the app's request
+ * (unless someone has changed it since, which undoing would lose). */
+async function undoDrawing(orgId: string, undo: unknown) {
+  const created = drawingCreateUndo.safeParse(undo);
+  const edited = drawingUndo.safeParse(undo);
+  const drawingId = created.success ? created.data.drawingId : edited.success ? edited.data.drawingId : null;
+  if (!drawingId) return false;
+  const drawing = await db.drawing.findFirst({ where: { id: drawingId, orgId } });
+  if (!drawing) throw new Error("That drawing no longer exists");
+  if (created.success) {
+    const extra = await drawingExtraFiles(drawing.id, drawing.fileKey);
+    await db.drawing.delete({ where: { id: drawing.id } });
+    await deleteFiles([drawing.fileKey, drawing.backupKey, ...extra]).catch(() => {});
+    return true;
+  }
+  if (!edited.success) return false;
+  if (drawing.revision !== edited.data.revision) throw new Error("The drawing has changed since; open it and undo there instead");
+  const { count } = await db.drawing.updateMany({
+    where: { id: drawing.id, revision: drawing.revision },
+    data: { fileKey: edited.data.backupKey, backupKey: null, revision: drawing.revision + 1 },
+  });
+  if (!count) throw new Error("The drawing has changed since; open it and undo there instead");
+  if (drawing.fileKey && drawing.fileKey !== edited.data.backupKey) await deleteFiles([drawing.fileKey]).catch(() => {});
+  return true;
+}
+
 const mappingUndo = z.object({ type: z.literal("mapping_rules_create"), ruleIds: z.array(z.uuid()) });
 
 const renameUndo = z.object({
@@ -43,7 +74,8 @@ export async function undoActivity(activityId: string) {
   const rename = renameUndo.safeParse(row?.undo);
   const model = modelUndo.safeParse(row?.undo);
   const mapping = mappingUndo.safeParse(row?.undo);
-  if (!row || (!row.markupIds.length && !rename.success && !model.success && !mapping.success)) throw new Error("Nothing to undo");
+  const drawing = row ? await undoDrawing(user.orgId, row.undo) : false;
+  if (!row || (!row.markupIds.length && !rename.success && !model.success && !mapping.success && !drawing)) throw new Error("Nothing to undo");
   if (model.success) {
     // 3D models: delete one the app created, or put an edited one back as it was before.
     if (model.data.type === "ifc_model_create") await removeModel(user.orgId, model.data.modelId);

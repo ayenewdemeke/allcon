@@ -36,7 +36,8 @@ import {
   TextCommand,
   TextEditCommand,
 } from "./commands-annotate";
-import { AttachCommand, AttdefCommand, AttEditCommand, BeditCommand, BlockCommand, InsertCommand, InsertPaletteCommand } from "./commands-blocks";
+import { AttachCommand, AttdefCommand, AttEditCommand, BeditCommand, BlockCommand, BlockLineCommand, InsertCommand, InsertPaletteCommand } from "./commands-blocks";
+import { LayerLineCommand } from "./commands-layer";
 import { insertTitleBlock, LayoutCommand, lockViewports, MspaceCommand, MviewCommand } from "./commands-layout";
 import type { Editor } from "./editor";
 import type { Vec } from "./types";
@@ -148,6 +149,7 @@ export const COMMANDS: CommandInfo[] = [
   command("DIMSTYLE", ["D", "DST"], "Creates and modifies dimension styles", (ed) => new ImmediateCommand(ed, "DIMSTYLE", (e) => e.ui.openPalette("styles"))),
   // Blocks and references
   command("BLOCK", ["B", "BMAKE"], "Creates a block definition from selected objects", (ed) => new BlockCommand(ed)),
+  command("-BLOCK", ["-B"], "Creates a block definition at the command line", (ed) => new BlockLineCommand(ed)),
   command("INSERT", ["I", "CLASSICINSERT"], "Inserts a block from the Blocks palette", (ed) => new InsertPaletteCommand(ed)),
   command("-INSERT", ["-I"], "Inserts a block by name at the command line", (ed) => new InsertCommand(ed)),
   command("ATTDEF", ["ATT"], "Creates an attribute definition for storing data in a block", (ed) => new AttdefCommand(ed)),
@@ -177,6 +179,7 @@ export const COMMANDS: CommandInfo[] = [
   command("ZOOM", ["Z"], "Increases or decreases the magnification of the view", (ed) => new ZoomCommand(ed)),
   command("PAN", ["P"], "Moves the view", (ed) => new PanCommand(ed)),
   command("LAYER", ["LA"], "Manages layers and layer properties", (ed) => new ImmediateCommand(ed, "LAYER", (e) => e.ui.openPalette("layers"))),
+  command("-LAYER", ["-LA"], "Makes, sets and changes layers at the command line", (ed) => new LayerLineCommand(ed)),
   command("PROPERTIES", ["PR", "CH", "MO"], "Controls properties of existing objects", (ed) => new ImmediateCommand(ed, "PROPERTIES", (e) => e.ui.openPalette("properties"))),
   command("U", [], "Reverses the most recent operation", (ed) => new ImmediateCommand(ed, "U", (e) => e.undo())),
   command("UNDO", [], "Reverses the effect of commands", (ed) => new ImmediateCommand(ed, "UNDO", (e) => e.undo())),

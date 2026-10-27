@@ -67,39 +67,38 @@ export async function plotPdf(doc: DraftDocument, sheets: PlotSheet[], options: 
   pdf.setCreator("conkit drafting");
   pdf.setProducer("conkit");
   const k = pointsPerUnit(doc.units);
+  // Fonts and pictures are embedded first; then every sheet is drawn in one go, with nothing
+  // awaited, so the drawing's styles and blocks stay the ones in use (a server plots many).
   const fonts = new Map<string, { font: PDFFont; chars: Set<number> }>();
+  for (const name of [StandardFonts.Helvetica, StandardFonts.TimesRoman, StandardFonts.Courier]) {
+    const embedded = await pdf.embedFont(name);
+    fonts.set(name, { font: embedded, chars: new Set(embedded.getCharacterSet()) });
+  }
   const pictures = new Map<string, PDFImage | null>();
+  const keys = new Set<string>();
+  for (const space of [doc.entitiesIn("model"), ...[...doc.layouts.keys()].map((id) => doc.entitiesIn(id))]) for (const e of space.values()) if (e.type === "image") keys.add(e.key);
+  for (const key of keys) {
+    const bytes = await options.loadPicture?.(key).catch(() => null);
+    let image: PDFImage | null = null;
+    if (bytes && bytes[0] === 0x89 && bytes[1] === 0x50) image = await pdf.embedPng(bytes);
+    else if (bytes && bytes[0] === 0xff && bytes[1] === 0xd8) image = await pdf.embedJpg(bytes);
+    pictures.set(key, image);
+  }
+  const font = (name: string) => fonts.get(name)!;
+  const picture = (key: string) => pictures.get(key) ?? null;
 
-  const font = async (name: string) => {
-    let f = fonts.get(name);
-    if (!f) {
-      const embedded = await pdf.embedFont(name);
-      fonts.set(name, (f = { font: embedded, chars: new Set(embedded.getCharacterSet()) }));
-    }
-    return f;
-  };
-  const picture = async (key: string) => {
-    if (!pictures.has(key)) {
-      const bytes = await options.loadPicture?.(key).catch(() => null);
-      let image: PDFImage | null = null;
-      if (bytes && bytes[0] === 0x89 && bytes[1] === 0x50) image = await pdf.embedPng(bytes);
-      else if (bytes && bytes[0] === 0xff && bytes[1] === 0xd8) image = await pdf.embedJpg(bytes);
-      pictures.set(key, image);
-    }
-    return pictures.get(key) ?? null;
-  };
-
+  doc.activate();
   for (const sheet of sheets) {
     const page = pdf.addPage([sheet.paper.width * k, sheet.paper.height * k]);
     const ops: PDFOperator[] = [setLineCap(LineCapStyle.Round), setLineJoin(LineJoinStyle.Round)];
     const ctx = { doc, page, ops, sheet, font, picture, k, pdf };
-    await drawSpace(ctx, sheet.paperEntities, (p) => ({ x: p.x * k, y: p.y * k }), 1);
+    drawSpace(ctx, sheet.paperEntities, (p) => ({ x: p.x * k, y: p.y * k }), 1);
     for (const v of sheet.views) {
       const map = (p: Vec) => ({ x: (v.center.x + (p.x - v.view.x) * v.scale) * k, y: (v.center.y + (p.y - v.view.y) * v.scale) * k });
       const half = { x: v.width / 2 / v.scale, y: v.height / 2 / v.scale };
       const box = { minX: v.view.x - half.x, minY: v.view.y - half.y, maxX: v.view.x + half.x, maxY: v.view.y + half.y };
       ops.push(pushGraphicsState(), rectangle((v.center.x - v.width / 2) * k, (v.center.y - v.height / 2) * k, v.width * k, v.height * k), clip(), endPath());
-      await drawSpace(ctx, doc.query(box, "model"), map, v.scale);
+      drawSpace(ctx, doc.query(box, "model"), map, v.scale);
       ops.push(popGraphicsState());
     }
     page.pushOperators(...ops);
@@ -114,8 +113,8 @@ type Ctx = {
   sheet: PlotSheet;
   k: number;
   pdf: PDFDocument;
-  font: (name: string) => Promise<{ font: PDFFont; chars: Set<number> }>;
-  picture: (key: string) => Promise<PDFImage | null>;
+  font: (name: string) => { font: PDFFont; chars: Set<number> };
+  picture: (key: string) => PDFImage | null;
 };
 
 /** Whether an object plots: on a visible layer that plots (Defpoints never does). */
@@ -125,7 +124,7 @@ function plots(doc: DraftDocument, e: Entity) {
 }
 
 /** Draws a space's objects: pictures underneath, then each object's fills, lines and text. */
-async function drawSpace(ctx: Ctx, entities: Entity[], map: (p: Vec) => Vec, scale: number) {
+function drawSpace(ctx: Ctx, entities: Entity[], map: (p: Vec) => Vec, scale: number) {
   const { doc, ops, sheet, k } = ctx;
   const flat: Entity[] = [];
   for (const e of entities) {
@@ -133,7 +132,7 @@ async function drawSpace(ctx: Ctx, entities: Entity[], map: (p: Vec) => Vec, sca
     if (e.type !== "insert") flat.push(e);
     else for (const part of blockParts(e)) if (plots(doc, part)) flat.push(part);
   }
-  for (const e of flat) if (e.type === "image") await drawPicture(ctx, e, map);
+  for (const e of flat) if (e.type === "image") drawPicture(ctx, e, map);
   for (const e of flat) {
     if (e.type === "image") continue;
     const layer = doc.layerOf(e);
@@ -164,13 +163,13 @@ async function drawSpace(ctx: Ctx, entities: Entity[], map: (p: Vec) => Vec, sca
       }
       ops.push(stroke());
     }
-    for (const run of graphics.texts) await drawText(ctx, run, map, scale * k, [r, g, b]);
+    for (const run of graphics.texts) drawText(ctx, run, map, scale * k, [r, g, b]);
   }
 }
 
-async function drawText(ctx: Ctx, run: TextRun, map: (p: Vec) => Vec, pointsPerUnit: number, [r, g, b]: [number, number, number]) {
+function drawText(ctx: Ctx, run: TextRun, map: (p: Vec) => Vec, pointsPerUnit: number, [r, g, b]: [number, number, number]) {
   const name = fontFor(run.font);
-  const { font, chars } = await ctx.font(name);
+  const { font, chars } = ctx.font(name);
   const text = [...run.text].map((c) => (chars.has(c.codePointAt(0)!) ? c : "?")).join("");
   if (!text.trim()) return;
   const cap = run.height * pointsPerUnit; // capital height on the sheet, in points
@@ -193,8 +192,8 @@ async function drawText(ctx: Ctx, run: TextRun, map: (p: Vec) => Vec, pointsPerU
   );
 }
 
-async function drawPicture(ctx: Ctx, e: ImageEntity, map: (p: Vec) => Vec) {
-  const image = await ctx.picture(e.key);
+function drawPicture(ctx: Ctx, e: ImageEntity, map: (p: Vec) => Vec) {
+  const image = ctx.picture(e.key);
   if (!image) return;
   const [a, b, , d] = imageCorners(e).map(map);
   const name = ctx.page.node.newXObject("Image", image.ref);
