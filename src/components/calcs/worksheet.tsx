@@ -19,6 +19,11 @@ import { SectionRegionView } from "./section-region";
 type MathLive = Awaited<ReturnType<typeof loadMathLive>>;
 export type Cursor = { x: number; y: number };
 const PAGE_GAP = 24;
+/** How far below a region's top its first line's middle is (padding, then half a line). */
+const MATH_MIDDLE = 16;
+const TEXT_MIDDLE: Record<TextRegion["style"], number> = { normal: 12, heading: 16, subheading: 13, note: 10 };
+const lineMiddle = (r: Region) => (r.kind === "text" ? TEXT_MIDDLE[r.style] : MATH_MIDDLE);
+
 /** Regions made of several pieces (tables, plots, solve blocks, sections): edited until a click
  * elsewhere. */
 const composite = (r: Region | undefined) => r?.kind === "table" || r?.kind === "plot" || r?.kind === "solve" || r?.kind === "section";
@@ -125,7 +130,10 @@ export function Worksheet({
 
   // --- editing ----------------------------------------------------------------------------
 
-  const startRegion = (region: Region) => {
+  const startRegion = (start: Region) => {
+    // As in Mathcad, what's typed starts at the crosshair: math and text sit with their first line
+    // centred on it (boxes keep their corner there).
+    const region = start.kind === "math" || start.kind === "text" ? { ...start, y: Math.max(0, start.y - lineMiddle(start)) } : start;
     doc.put(region);
     setSelection(new Set([region.id]));
     setEditing(region.id);
@@ -146,7 +154,8 @@ export function Worksheet({
     if (then === "below") {
       const h = sizes.get(r.id)?.h ?? 24;
       setSelection(new Set());
-      setCursor({ x: r.x, y: below(r.y + h + 4) });
+      // The next line, on a gridline far enough down that the new line clears this one.
+      setCursor({ x: r.x, y: below(r.y + h + MATH_MIDDLE + 2) });
     }
   };
 
