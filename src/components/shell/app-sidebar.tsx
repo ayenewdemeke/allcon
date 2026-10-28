@@ -8,6 +8,7 @@ import {
   ClipboardCheck,
   Box,
   DraftingCompass,
+  Sigma,
   Check,
   ChevronsUpDown,
   FileSearch,
@@ -62,6 +63,8 @@ const mainNav: NavItem[] = [
   { name: "Map", href: "/map", icon: MapIcon },
   // 2D drafting, like AutoCAD (drawings open full screen).
   { name: "Drafting", href: "/drafting", icon: DraftingCompass },
+  // Engineering calculations with units, like Mathcad (worksheets open full screen).
+  { name: "Calcs", href: "/calcs", icon: Sigma },
   // Shared by all projects: manuals and standards that plan reviews check against.
   { name: "Library", href: "/library", icon: BookOpen },
   // AI apps (Claude, ChatGPT...) connected through MCP.

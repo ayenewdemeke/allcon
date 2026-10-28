@@ -18,6 +18,7 @@ model Organization {
   projects   Project[]
   references Reference[]
   drawings   Drawing[]
+  calcs      Calc[]
 
   @@map("organization")
 }
@@ -135,6 +136,7 @@ model Project {
   mcpActivity         McpActivity[]
   ifcModels           IfcModel[]
   drawings            Drawing[] // drawings filed under the project (optional)
+  calcs               Calc[] // calculation worksheets filed under the project (optional)
 
   @@index([orgId])
   @@map("project")
@@ -833,4 +835,25 @@ model DrawingPresence {
 
   @@unique([drawingId, userId, clientId])
   @@map("drawing_presence")
+}
+
+// A calculation worksheet (Calcs): math with units, text and results laid out on pages, as in
+// Mathcad. Stored as gzipped JSON in file storage; a new file per save.
+model Calc {
+  id          String       @id @default(uuid()) @db.Uuid
+  orgId       String       @map("org_id") @db.Uuid
+  projectId   String?      @map("project_id") @db.Uuid
+  name        String
+  fileKey     String?      @map("file_key") // null until first saved
+  revision    Int          @default(0)
+  regionCount Int          @default(0) @map("region_count")
+  createdById String?      @map("created_by") @db.Uuid
+  createdAt   DateTime     @default(now()) @map("created_at")
+  updatedAt   DateTime     @default(now()) @updatedAt @map("updated_at")
+  org         Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  project     Project?     @relation(fields: [projectId], references: [id], onDelete: SetNull)
+
+  @@index([orgId])
+  @@index([projectId])
+  @@map("calc")
 }

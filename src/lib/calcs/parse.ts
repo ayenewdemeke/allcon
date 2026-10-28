@@ -1,0 +1,496 @@
+// Math regions as MathLive writes them (LaTeX), read the way Mathcad reads math: letters typed
+// together are one name (kip, M_u, phi_b), a number next to a name multiplies (5ft), := defines,
+// a trailing = evaluates. The result is a small syntax tree the evaluator walks.
+
+export type Node =
+  | { k: "num"; v: number }
+  | { k: "str"; v: string }
+  | { k: "name"; name: string }
+  | { k: "neg"; a: Node }
+  | { k: "op"; op: "+" | "-" | "*" | "/" | "^" | "<" | ">" | "<=" | ">=" | "!=" | "=="; a: Node; b: Node }
+  | { k: "call"; name: string; args: Node[] }
+  /** A name next to parentheses: a function call if it's a function, else multiplication. */
+  | { k: "apply"; name: string; args: Node[] }
+  | { k: "abs"; a: Node }
+  | { k: "root"; a: Node; n: Node | null }
+  | { k: "unit"; name: string };
+
+export type Statement =
+  | { k: "define"; name: string; params: string[] | null; body: Node; show: boolean }
+  | { k: "evaluate"; expr: Node }
+  | { k: "expression"; expr: Node }
+  | { k: "empty" };
+
+export class ParseError extends Error {
+  constructor(
+    message: string,
+    /** The math isn't finished yet (an empty placeholder): not worth showing as an error. */
+    readonly incomplete = false,
+  ) {
+    super(message);
+  }
+}
+
+const GREEK = new Set(
+  "alpha beta gamma delta epsilon varepsilon zeta eta theta vartheta iota kappa lambda mu nu xi omicron pi varpi rho varrho sigma varsigma tau upsilon phi varphi chi psi omega Gamma Delta Theta Lambda Xi Pi Sigma Upsilon Phi Psi Omega".split(" "),
+);
+const FUNCTIONS = new Set("sin cos tan cot sec csc arcsin arccos arctan sinh cosh tanh ln log exp max min lg".split(" "));
+const SPACES = new Set([",", ";", ":", " ", "!", "quad", "qquad", "enspace", "thinspace", "medspace", "thickspace"]);
+const OPERATORS: Record<string, "*" | "/" | "<=" | ">=" | "!="> = { cdot: "*", times: "*", ast: "*", div: "/", le: "<=", leq: "<=", leqslant: "<=", ge: ">=", geq: ">=", geqslant: ">=", ne: "!=", neq: "!=" };
+
+type Token = { t: "num"; v: string } | { t: "letter"; v: string } | { t: "cmd"; v: string } | { t: "sym"; v: string };
+
+function tokenize(latex: string): Token[] {
+  const out: Token[] = [];
+  let i = 0;
+  const s = latex.replace(/\{,\}/g, "").replace(/\\placeholder(\[[^\]]*\])?\{\}/g, "\\placeholder ");
+  while (i < s.length) {
+    const c = s[i];
+    if (/\s/.test(c)) {
+      i++;
+      continue;
+    }
+    if (/[0-9.]/.test(c)) {
+      let j = i;
+      while (j < s.length && /[0-9.]/.test(s[j])) j++;
+      out.push({ t: "num", v: s.slice(i, j) });
+      i = j;
+      continue;
+    }
+    if (/[a-zA-Z]/.test(c)) {
+      out.push({ t: "letter", v: c });
+      i++;
+      continue;
+    }
+    if (c === "\\") {
+      let j = i + 1;
+      if (/[a-zA-Z]/.test(s[j] ?? "")) while (j < s.length && /[a-zA-Z]/.test(s[j])) j++;
+      else j++;
+      out.push({ t: "cmd", v: s.slice(i + 1, j) });
+      i = j;
+      continue;
+    }
+    out.push({ t: "sym", v: c });
+    i++;
+  }
+  return out;
+}
+
+class Parser {
+  private i = 0;
+  constructor(private tokens: Token[]) {}
+
+  private peek(offset = 0): Token | undefined {
+    return this.tokens[this.i + offset];
+  }
+  private next() {
+    return this.tokens[this.i++];
+  }
+  private isSym(v: string, offset = 0) {
+    const t = this.peek(offset);
+    return t?.t === "sym" && t.v === v;
+  }
+  private isCmd(v: string | string[], offset = 0) {
+    const t = this.peek(offset);
+    return t?.t === "cmd" && (Array.isArray(v) ? v.includes(t.v) : t.v === v);
+  }
+  private expectSym(v: string) {
+    if (!this.isSym(v)) throw new ParseError(`Expected "${v}"`);
+    this.i++;
+  }
+  /** Skips spacing commands; returns whether any were there. */
+  private spaces() {
+    let any = false;
+    while (this.peek()?.t === "cmd" && SPACES.has((this.peek() as Token).v)) {
+      this.i++;
+      any = true;
+    }
+    while (this.isSym("~")) {
+      this.i++;
+      any = true;
+    }
+    return any;
+  }
+  get done() {
+    this.spaces();
+    return this.i >= this.tokens.length;
+  }
+
+  /** A braced group's contents as an expression, or a single token (x^2, \frac12). */
+  private group(): Node {
+    this.spaces();
+    if (this.isSym("{")) {
+      this.i++;
+      const e = this.expression();
+      this.spaces();
+      this.expectSym("}");
+      return e;
+    }
+    const t = this.next();
+    if (!t) throw new ParseError("Something's missing", true);
+    if (t.t === "num") return { k: "num", v: Number(t.v[0]) }; // \frac12: one digit
+    if (t.t === "letter") return { k: "name", name: t.v };
+    if (t.t === "cmd" && t.v === "placeholder") throw new ParseError("Fill in the placeholder", true);
+    this.i--;
+    return this.primary();
+  }
+
+  /** Raw text inside braces (names in \mathrm{}, strings in \text{}). */
+  private rawGroup(): string {
+    this.spaces();
+    if (!this.isSym("{")) {
+      const t = this.next();
+      return t ? t.v : "";
+    }
+    this.i++;
+    let depth = 1;
+    let text = "";
+    while (this.i < this.tokens.length) {
+      const t = this.next();
+      if (t.t === "sym" && t.v === "{") depth++;
+      if (t.t === "sym" && t.v === "}" && --depth === 0) break;
+      text += t.t === "cmd" ? (t.v.length === 1 ? t.v : "") : t.v;
+    }
+    return text;
+  }
+
+  /** A subscript, as part of a name: M_u, M_{u,max}, f'_c. */
+  private subscript(): string {
+    this.i++; // _
+    this.spaces();
+    if (this.isSym("{")) return this.rawGroup().replace(/\s+/g, "");
+    const t = this.next();
+    if (!t) throw new ParseError("Something's missing after _", true);
+    return t.t === "cmd" ? t.v : t.v;
+  }
+
+  /** A name: a run of letters (and digits after them), a Greek letter, \mathrm{...}, then an
+   * optional subscript and primes. */
+  private name(): string | null {
+    const t = this.peek();
+    let name = "";
+    if (t?.t === "letter") {
+      while (this.peek()?.t === "letter" || (name && this.peek()?.t === "num" && /^\d+$/.test(this.peek()!.v))) name += this.next().v;
+    } else if (t?.t === "cmd" && (GREEK.has(t.v) || FUNCTIONS.has(t.v))) {
+      this.i++;
+      name = t.v.replace(/^var/, "") === "epsilon" ? "epsilon" : t.v;
+    } else if (t?.t === "cmd" && ["mathrm", "operatorname", "mathit", "mathbf", "mathsf"].includes(t.v)) {
+      this.i++;
+      name = this.rawGroup().replace(/\s+/g, "");
+    } else return null;
+    name += this.primes();
+    if (this.isSym("_")) name += `_${this.subscript()}`;
+    name += this.primes();
+    return name;
+  }
+
+  /** Primes after a name: f', f^\prime, f^{\prime\prime}. */
+  private primes(): string {
+    let out = "";
+    for (;;) {
+      if (this.isSym("'")) {
+        this.i++;
+        out += "'";
+      } else if (this.isSym("^") && this.isCmd(["prime", "doubleprime"], 1)) {
+        out += this.peek(1)!.v === "doubleprime" ? "''" : "'";
+        this.i += 2;
+      } else if (this.isSym("^") && this.isSym("{", 1) && this.isCmd(["prime", "doubleprime"], 2)) {
+        this.i += 2;
+        while (this.isCmd(["prime", "doubleprime"])) out += this.next().v === "doubleprime" ? "''" : "'";
+        this.expectSym("}");
+      } else return out;
+    }
+  }
+
+  /** Arguments in parentheses: (a, b, c). The opening bracket has been read. */
+  private args(close: string): Node[] {
+    const args: Node[] = [];
+    this.spaces();
+    if (this.closes(close)) return args;
+    for (;;) {
+      args.push(this.expression());
+      this.spaces();
+      if (this.isSym(",")) {
+        this.i++;
+        continue;
+      }
+      if (!this.closes(close)) throw new ParseError(`Expected "${close}"`);
+      return args;
+    }
+  }
+  /** Reads a closing bracket (plain or \right). */
+  private closes(close: string) {
+    if (this.isCmd("right") && (this.peek(1)?.v === close || (close === ")" && this.peek(1)?.v === "rparen"))) {
+      this.i += 2;
+      return true;
+    }
+    if (this.isSym(close)) {
+      this.i++;
+      return true;
+    }
+    return false;
+  }
+  private opens(): string | null {
+    if (this.isCmd("left") && (this.peek(1)?.v === "(" || this.peek(1)?.v === "[" || this.peek(1)?.v === "lparen" || this.peek(1)?.v === "lbrack")) {
+      const v = this.peek(1)!.v;
+      this.i += 2;
+      return v === "(" || v === "lparen" ? ")" : "]";
+    }
+    if (this.isSym("(") || this.isSym("[")) return this.next().v === "(" ? ")" : "]";
+    return null;
+  }
+
+  private primary(): Node {
+    this.spaces();
+    const t = this.peek();
+    if (!t) throw new ParseError("Something's missing", true);
+    if (t.t === "cmd" && t.v === "placeholder") throw new ParseError("Fill in the placeholder", true);
+    if (t.t === "num") {
+      this.i++;
+      const v = Number(t.v);
+      if (!Number.isFinite(v)) throw new ParseError(`"${t.v}" isn't a number`);
+      return { k: "num", v };
+    }
+    const close = this.opens();
+    if (close) {
+      const args = this.args(close);
+      if (args.length !== 1) throw new ParseError("Too many values in parentheses");
+      return args[0];
+    }
+    if (t.t === "cmd") {
+      if (t.v === "frac" || t.v === "dfrac" || t.v === "tfrac") {
+        this.i++;
+        const a = this.group();
+        const b = this.group();
+        return { k: "op", op: "/", a, b };
+      }
+      if (t.v === "sqrt") {
+        this.i++;
+        let n: Node | null = null;
+        if (this.isSym("[")) {
+          this.i++;
+          n = this.expression();
+          this.expectSym("]");
+        }
+        return { k: "root", a: this.group(), n };
+      }
+      if (t.v === "text" || t.v === "textrm" || t.v === "mbox") {
+        this.i++;
+        return { k: "str", v: this.rawGroup() };
+      }
+      if (t.v === "left" && (this.peek(1)?.v === "|" || this.peek(1)?.v === "vert")) {
+        this.i += 2;
+        const a = this.expression();
+        this.spaces();
+        if (!(this.isCmd("right") && (this.peek(1)?.v === "|" || this.peek(1)?.v === "vert"))) throw new ParseError('Expected "|"');
+        this.i += 2;
+        return { k: "abs", a };
+      }
+      if (t.v === "infty") {
+        this.i++;
+        return { k: "num", v: Infinity };
+      }
+      if (t.v === "%") {
+        this.i++;
+        return { k: "unit", name: "percent" };
+      }
+      if (t.v === "degree") {
+        this.i++;
+        return { k: "unit", name: "deg" };
+      }
+      if (t.v === "operatorname" || t.v === "mathrm" || GREEK.has(t.v) || FUNCTIONS.has(t.v) || ["mathit", "mathbf", "mathsf"].includes(t.v)) return this.named();
+      throw new ParseError(`\\${t.v} isn't supported yet`);
+    }
+    if (t.t === "sym" && t.v === "|") {
+      this.i++;
+      const a = this.expression();
+      this.spaces();
+      this.expectSym("|");
+      return { k: "abs", a };
+    }
+    if (t.t === "letter") return this.named();
+    if (t.t === "sym" && t.v === '"') throw new ParseError("Strings go in \\text{}");
+    throw new ParseError(`Unexpected "${t.v}"`);
+  }
+
+  /** A name, and its arguments if it's followed by parentheses. Functions written as commands
+   * (\sin x) take what follows without parentheses, as in maths. */
+  private named(): Node {
+    const wasCommand = this.peek()?.t === "cmd" && FUNCTIONS.has(this.peek()!.v);
+    const name = this.name()!;
+    this.spaces();
+    const close = this.opens();
+    if (close) return { k: wasCommand ? "call" : "apply", name: normalize(name), args: this.args(close) };
+    if (wasCommand) return { k: "call", name: normalize(name), args: [this.power()] };
+    return { k: "name", name };
+  }
+
+  /** x^y binds tightest; degree signs and primes too. */
+  private power(): Node {
+    let base = this.primary();
+    for (;;) {
+      if (this.isSym("^")) {
+        this.i++;
+        this.spaces();
+        if (this.isSym("{") && this.isCmd("circ", 1) && this.isSym("}", 2)) {
+          this.i += 3;
+          base = { k: "op", op: "*", a: base, b: { k: "unit", name: "deg" } };
+          continue;
+        }
+        if (this.isCmd("circ")) {
+          this.i++;
+          base = { k: "op", op: "*", a: base, b: { k: "unit", name: "deg" } };
+          continue;
+        }
+        base = { k: "op", op: "^", a: base, b: this.group() };
+        continue;
+      }
+      if (this.isCmd("%")) {
+        this.i++;
+        base = { k: "op", op: "*", a: base, b: { k: "unit", name: "percent" } };
+        continue;
+      }
+      return base;
+    }
+  }
+
+  /** Whether what's next starts a value (for multiplication by juxtaposition: 5ft, 2\pi r). */
+  private startsValue() {
+    const t = this.peek();
+    if (!t) return false;
+    if (t.t === "num" || t.t === "letter") return true;
+    if (t.t === "sym") return t.v === "(" || t.v === "[" || t.v === "|";
+    return ["frac", "dfrac", "tfrac", "sqrt", "left", "operatorname", "mathrm", "infty", "text", "placeholder"].includes(t.v) || GREEK.has(t.v) || FUNCTIONS.has(t.v);
+  }
+
+  private unary(): Node {
+    this.spaces();
+    if (this.isSym("-")) {
+      this.i++;
+      return { k: "neg", a: this.unary() };
+    }
+    if (this.isSym("+")) {
+      this.i++;
+      return this.unary();
+    }
+    return this.power();
+  }
+
+  private term(): Node {
+    let a = this.unary();
+    for (;;) {
+      this.spaces();
+      if (this.isSym("*") || this.isCmd(["cdot", "times", "ast"])) {
+        this.i++;
+        a = { k: "op", op: "*", a, b: this.unary() };
+      } else if (this.isSym("/") || this.isCmd("div")) {
+        this.i++;
+        a = { k: "op", op: "/", a, b: this.unary() };
+      } else if (this.startsValue()) {
+        a = { k: "op", op: "*", a, b: this.power() };
+      } else return a;
+    }
+  }
+
+  private sum(): Node {
+    let a = this.term();
+    for (;;) {
+      this.spaces();
+      if (this.isSym("+") || this.isSym("-")) {
+        const op = this.next().v as "+" | "-";
+        a = { k: "op", op, a, b: this.term() };
+      } else return a;
+    }
+  }
+
+  expression(): Node {
+    let a = this.sum();
+    for (;;) {
+      this.spaces();
+      const t = this.peek();
+      let op: "<" | ">" | "<=" | ">=" | "!=" | null = null;
+      if (t?.t === "sym" && (t.v === "<" || t.v === ">")) op = t.v;
+      else if (t?.t === "cmd" && ["le", "leq", "leqslant", "ge", "geq", "geqslant", "ne", "neq", "lt", "gt"].includes(t.v)) op = t.v === "lt" ? "<" : t.v === "gt" ? ">" : (OPERATORS[t.v] as "<=" | ">=" | "!=");
+      if (!op) return a;
+      this.i++;
+      a = { k: "op", op, a, b: this.sum() };
+    }
+  }
+
+  /** The left side of a definition: a name, or a function's name and parameters. */
+  target(): { name: string; params: string[] | null } {
+    this.spaces();
+    const name = this.name();
+    if (!name) throw new ParseError("Define a name: x := ...");
+    this.spaces();
+    const close = this.opens();
+    if (!close) return { name, params: null };
+    const params: string[] = [];
+    this.spaces();
+    if (!this.closes(close)) {
+      for (;;) {
+        this.spaces();
+        const p = this.name();
+        if (!p) throw new ParseError("A function's parameters are names: f(x, y) := ...");
+        params.push(p);
+        this.spaces();
+        if (this.isSym(",")) {
+          this.i++;
+          continue;
+        }
+        if (!this.closes(close)) throw new ParseError(`Expected "${close}"`);
+        break;
+      }
+    }
+    return { name, params };
+  }
+}
+
+/** Functions written different ways (\arcsin, asin) by one name. */
+function normalize(name: string) {
+  return ({ arcsin: "asin", arccos: "acos", arctan: "atan", lg: "log" } as Record<string, string>)[name] ?? name;
+}
+
+const DEFINE = /\\coloneq(q)?|:=|\\colonequals|\\mathrel\{:\}=|:\\!=/;
+
+/** A math region's statement: a definition (x := ..., f(x) := ...), an evaluation (... =), or
+ * an expression shown as it is. */
+export function parseStatement(latex: string): Statement {
+  const text = latex.trim();
+  if (!text) return { k: "empty" };
+  const define = text.match(DEFINE);
+  if (define && define.index !== undefined) {
+    const lhs = new Parser(tokenize(text.slice(0, define.index)));
+    const target = lhs.target();
+    if (!lhs.done) throw new ParseError("Only a name (or a function) can be defined: x := ...");
+    let rhs = text.slice(define.index + define[0].length).trim();
+    const show = /=\s*$/.test(rhs) && !/(\\[lg]eq?|\\ne|[<>!])\s*=\s*$/.test(rhs);
+    if (show) rhs = rhs.replace(/=\s*$/, "");
+    if (!rhs.trim()) throw new ParseError("Define it as something: x := ...", true);
+    const p = new Parser(tokenize(rhs));
+    const body = p.expression();
+    if (!p.done) throw new ParseError("There's more here than one expression");
+    return { k: "define", name: target.name, params: target.params, body, show };
+  }
+  const evaluate = /=\s*$/.test(text);
+  const body = evaluate ? text.replace(/=\s*$/, "") : text;
+  if (!body.trim()) return { k: "empty" };
+  const p = new Parser(tokenize(body));
+  const expr = p.expression();
+  if (!p.done) {
+    if (/(^|[^:\\])=/.test(body)) throw new ParseError("Use := to define, and = at the end to evaluate");
+    throw new ParseError("There's more here than one expression");
+  }
+  return evaluate ? { k: "evaluate", expr } : { k: "expression", expr };
+}
+
+const GREEK_NAMES = "alpha|beta|gamma|delta|epsilon|zeta|eta|theta|iota|kappa|lambda|mu|nu|xi|pi|rho|sigma|tau|upsilon|phi|chi|psi|omega|Gamma|Delta|Theta|Lambda|Xi|Pi|Sigma|Upsilon|Phi|Psi|Omega";
+
+/** Greek letters spelled out (phi, beta_1) written as symbols (\\phi, \\beta_1), as they read
+ * the same; text in \\text{} is left alone. */
+export function greekify(latex: string): string {
+  return latex
+    .split(/(\\text\{[^}]*\})/)
+    .map((part, i) => (i % 2 ? part : part.replace(new RegExp(`(?<![\\\\a-zA-Z])(${GREEK_NAMES})(?![a-zA-Z])`, "g"), (_, name: string) => `\\${name === "epsilon" ? "varepsilon" : name} `).replace(/ ([_^{}\\]|$)/g, "$1")))
+    .join("");
+}
