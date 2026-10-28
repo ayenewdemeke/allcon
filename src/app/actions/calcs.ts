@@ -91,3 +91,24 @@ export async function createImportedCalc(fileName: string, projectId: string | n
   revalidatePath("/calcs");
   return { id: calc.id };
 }
+
+/** The worksheets to switch between, from inside the editor (most recently changed first). */
+export async function listCalcsForSwitcher() {
+  const user = await requireUser();
+  const calcs = await db.calc.findMany({
+    where: { orgId: user.orgId },
+    orderBy: { updatedAt: "desc" },
+    take: 300,
+    select: { id: true, name: true, updatedAt: true, project: { select: { name: true } } },
+  });
+  return calcs.map((c) => ({ id: c.id, name: c.name, project: c.project?.name ?? null, updated: c.updatedAt.toISOString() }));
+}
+
+/** A new, blank worksheet from inside the editor (filed with the one open, if any). */
+export async function createBlankCalc(projectId: string | null): Promise<{ id: string }> {
+  const user = await requireUser();
+  const project = projectId ? await orgProject(user.orgId, projectId) : null;
+  const calc = await db.calc.create({ data: { orgId: user.orgId, projectId: project?.id ?? null, name: "Untitled worksheet", createdById: user.id } });
+  revalidatePath("/calcs");
+  return { id: calc.id };
+}

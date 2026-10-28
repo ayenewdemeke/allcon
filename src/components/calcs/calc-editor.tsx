@@ -14,7 +14,9 @@ import { loadShapes } from "@/lib/calcs/library/shapes";
 import { findTemplate, layout } from "@/lib/calcs/library/templates";
 import { emptyCalc, PAGES, readingOrder, type CalcData } from "@/lib/calcs/types";
 import { People, personColor } from "@/components/drafting/presence";
+import { useRouter } from "next/navigation";
 import { CalcRibbon } from "./ribbon";
+import { CalcSwitcher } from "./switcher";
 import { Worksheet, type Other, type WorksheetHandle } from "./worksheet";
 
 // Calcs: engineering calculation worksheets that work the way Mathcad does. This component
@@ -317,15 +319,19 @@ function Workspace({ doc, calc, projects, backHref }: { doc: CalcDocument; calc:
       toast.error("Could not file the worksheet under that project");
     });
   };
+  /** Saves (or waits for the save under way); throws if it can't. */
+  const saveFirst = async () => {
+    for (let i = 0; i < 20 && doc.unsaved; i++) {
+      await saveNow();
+      if (doc.unsaved) await new Promise((r) => setTimeout(r, 300));
+    }
+    if (doc.unsaved) throw new Error("Not saved");
+  };
+  const router = useRouter();
   const publish = async () => {
     setPublishing(true);
     try {
-      // What's published is the saved worksheet: save (or wait for the save under way) first.
-      for (let i = 0; i < 20 && doc.unsaved; i++) {
-        await saveNow();
-        if (doc.unsaved) await new Promise((r) => setTimeout(r, 300));
-      }
-      if (doc.unsaved) throw new Error("Not saved");
+      await saveFirst(); // what's published is the saved worksheet
       const result = await publishCalcToSheets(calc.id);
       if ("error" in result) toast.error(result.error);
       else toast.success(`Published to Sheets: ${result.sheets} sheet${result.sheets === 1 ? "" : "s"}`, { action: { label: "Open", onClick: () => window.open(result.link, "_blank") } });
@@ -377,6 +383,18 @@ function Workspace({ doc, calc, projects, backHref }: { doc: CalcDocument; calc:
         project={{ projects, projectId, onProject: chooseProject, onPublish: () => void publish(), publishing }}
         status={
           <span className="flex items-center gap-2">
+            <CalcSwitcher
+              calc={calc}
+              projectId={projectId}
+              system={doc.settings.system}
+              beforeLeave={() =>
+                saveFirst().catch((err) => {
+                  toast.error("Couldn't save this worksheet, so it's still open");
+                  throw err;
+                })
+              }
+              onGo={(href) => router.push(href)}
+            />
             <People people={people} noun="worksheet" />
             <SaveStatus save={save} onRetry={() => void saveNow()} />
           </span>
