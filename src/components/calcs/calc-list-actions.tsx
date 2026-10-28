@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { TEMPLATES } from "@/lib/calcs/library/templates";
 
 export function NewCalcDialog({ label = "New worksheet" }: { label?: string }) {
   const [state, action, pending] = useActionState<CalcFormState, FormData>(createCalc, {});
@@ -27,6 +28,17 @@ export function NewCalcDialog({ label = "New worksheet" }: { label?: string }) {
           <div className="grid gap-1.5">
             <Label htmlFor="calc-name">Name</Label>
             <Input id="calc-name" name="name" required autoFocus placeholder="e.g. Beam B2 design, Footing F1" />
+          </div>
+          <div className="grid gap-1.5">
+            <Label htmlFor="calc-template">Start from</Label>
+            <select id="calc-template" name="template" defaultValue="" className="h-8 rounded-lg border border-input bg-transparent px-2.5 text-sm">
+              <option value="">A blank worksheet</option>
+              {TEMPLATES.map((t) => (
+                <option key={t.id} value={t.id} title={t.description}>
+                  {t.name}
+                </option>
+              ))}
+            </select>
           </div>
           <div className="grid gap-1.5">
             <Label htmlFor="calc-system">Units</Label>

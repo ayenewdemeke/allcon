@@ -1,8 +1,10 @@
 "use client";
 
 import { useState } from "react";
-import { Calculator, ChartSpline, FileText, Grid3x3, Heading1, Heading2, Printer, Ruler, Sigma, SquareFunction, StickyNote, Table2, Type } from "lucide-react";
+import { Calculator, ChartSpline, FileText, Grid3x3, Heading1, Heading2, LayoutTemplate, Printer, Ruler, Sigma, SquareFunction, StickyNote, Table2, Type } from "lucide-react";
 import type { CalcDocument } from "@/lib/calcs/document";
+import { materials } from "@/lib/calcs/library/materials";
+import { layout, snippetLines, TEMPLATES } from "@/lib/calcs/library/templates";
 import { PAGES, type Paper } from "@/lib/calcs/types";
 import { cn } from "@/lib/utils";
 import type { WorksheetHandle } from "./worksheet";
@@ -11,7 +13,7 @@ import type { WorksheetHandle } from "./worksheet";
 // (functions, programming, solving), Matrices/Tables, Plots, Calculation (unit system, result
 // format) and Document (paper, the calc paper's header, print).
 
-type Tab = "math" | "functions" | "matrices" | "plots" | "calculation" | "document";
+type Tab = "math" | "functions" | "matrices" | "plots" | "library" | "calculation" | "document";
 
 function Panel({ title, children }: { title: string; children: React.ReactNode }) {
   return (
@@ -167,6 +169,7 @@ export function CalcRibbon({ doc, worksheet, quickAccess, status }: { doc: CalcD
             ["functions", "Functions"],
             ["matrices", "Matrices/Tables"],
             ["plots", "Plots"],
+            ["library", "Library"],
             ["calculation", "Calculation"],
             ["document", "Document"],
           ] as const
@@ -278,6 +281,59 @@ export function CalcRibbon({ doc, worksheet, quickAccess, status }: { doc: CalcD
             <p className="max-w-64 pt-1 text-[11px] leading-snug text-muted-foreground">Plot y against x: functions, ranges or vectors (table columns too). A function of an undefined x plots from −10 to 10 (QuickPlot).</p>
           </Panel>
         )}
+        {tab === "library" && (
+          <>
+            <Panel title="Steel">
+              <Big icon={IBeam} label="Section" title="A steel shape from the AISC tables: defines A, I_x, Z_x... (also section(&quot;W14X22&quot;, &quot;Zx&quot;))" onClick={() => worksheet.current?.addSection()} />
+            </Panel>
+            <Panel title="Materials and parts">
+              <div className="grid grid-flow-col grid-rows-2 gap-x-2 gap-y-1 pt-0.5">
+                {materials(doc.settings.system).map((group) => (
+                  <select
+                    key={group.id}
+                    value=""
+                    title={`Insert ${group.title.toLowerCase()} properties at the crosshair`}
+                    onChange={(e) => {
+                      const item = group.items[Number(e.target.value)];
+                      if (item) worksheet.current?.insertRegions(layout(snippetLines(item), { x: 0, y: 0 }));
+                    }}
+                    className="h-6 w-32 rounded border bg-background px-1 text-[11px]"
+                  >
+                    <option value="">{group.title}</option>
+                    {group.items.map((item, i) => (
+                      <option key={item.label} value={i}>
+                        {item.label}
+                      </option>
+                    ))}
+                  </select>
+                ))}
+              </div>
+            </Panel>
+            <Panel title="Templates">
+              <div className="flex flex-col gap-1 pt-1 text-[11px]">
+                <label className="flex items-center gap-2">
+                  <LayoutTemplate className="size-4" />
+                  <select
+                    value=""
+                    onChange={(e) => {
+                      const t = TEMPLATES.find((x) => x.id === e.target.value);
+                      if (t) worksheet.current?.insertRegions(layout(t.lines, { x: 0, y: 0 }, doc.paper));
+                    }}
+                    className="h-6 w-56 rounded border bg-background px-1"
+                  >
+                    <option value="">Insert a calc…</option>
+                    {TEMPLATES.map((t) => (
+                      <option key={t.id} value={t.id} title={t.description}>
+                        {t.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <span className="max-w-64 text-muted-foreground">AISC 360-22 and ACI 318-19, LRFD: edit the inputs and the checks follow.</span>
+              </div>
+            </Panel>
+          </>
+        )}
         {tab === "calculation" && (
           <>
             <Panel title="Units">
@@ -363,5 +419,14 @@ function HeaderFields({ doc }: { doc: CalcDocument }) {
         />
       ))}
     </div>
+  );
+}
+
+/** A wide-flange section, for the Section button. */
+function IBeam({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinejoin="round" className={className}>
+      <path d="M5 4h14v3h-5.5v10H19v3H5v-3h5.5V7H5z" />
+    </svg>
   );
 }

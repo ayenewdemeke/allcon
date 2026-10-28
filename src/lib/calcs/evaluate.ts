@@ -1,4 +1,5 @@
 import { all, create, type Complex, type Matrix, type Unit } from "mathjs";
+import { findShape, property, shapeProperty, shapesLoaded, SI_UNITS } from "./library/shapes";
 import { parseConstraint, parseStatement, ParseError, type Node } from "./parse";
 
 // Worksheets evaluated as Mathcad does: regions in reading order (top to bottom, then left to
@@ -392,6 +393,12 @@ function call(node: Extract<Node, { k: "call" | "apply" }>, scope: Scope): Value
   }
   if (f === undefined) {
     // Functions that take their arguments unevaluated.
+    if (node.name === "section") {
+      // section("W14X22", "Zx"): a property of a steel shape, from the AISC tables.
+      const [shape, prop] = node.args.map((a) => evaluate(a, scope));
+      if (node.args.length !== 2 || typeof shape !== "string" || typeof prop !== "string") throw new CalcError('section takes a shape and a property: section("W14X22", "Zx")');
+      return sectionProperty(shape, prop);
+    }
     if (node.name === "if") {
       // Mathcad's if(condition, then, otherwise): only the branch taken is worked out.
       if (node.args.length !== 3) throw new CalcError("if takes a condition, a value if true, and one if false");
@@ -777,7 +784,8 @@ export type SheetItem =
   | { id: string; kind: "math"; latex: string; displayUnit?: string }
   | { id: string; kind: "table"; columns: { name: string; unit: string }[]; rows: string[][] }
   | { id: string; kind: "plot"; traces: { x: string; y: string }[]; xUnit?: string; yUnit?: string }
-  | { id: string; kind: "solve"; guesses: string[]; constraints: string[]; solver: string; displayUnit?: string };
+  | { id: string; kind: "solve"; guesses: string[]; constraints: string[]; solver: string; displayUnit?: string }
+  | { id: string; kind: "section"; shape: string; suffix?: string };
 
 export type Trace = { xs: number[]; ys: number[]; error?: string };
 
@@ -785,7 +793,8 @@ export type Result =
   | { kind: "ok"; result?: string; defines?: string; units?: string[] }
   | { kind: "error"; message: string; incomplete?: boolean }
   | { kind: "plot"; traces: Trace[]; xUnit: string; yUnit: string }
-  | { kind: "solve"; guesses: Result[]; constraints: Result[]; solver: Result };
+  | { kind: "solve"; guesses: Result[]; constraints: Result[]; solver: Result }
+  | { kind: "section"; label: string; metric: string; type: string; rows: { name: string; value: string; what: string }[] };
 
 function failure(err: unknown): Result {
   if (err instanceof ParseError) return { kind: "error", message: err.message, incomplete: err.incomplete };
@@ -966,6 +975,37 @@ function parseNameLatex(latex: string): string {
 
 /** Works out a worksheet's regions, in the order given (reading order), each seeing what's
  * defined above it. */
+const shapeUnit = (unit: string) => unit.replace(/\bin\b/g, "inch");
+
+function sectionProperty(label: string, prop: string): Value {
+  if (!shapesLoaded()) throw new CalcError("The section tables are still loading");
+  const shape = findShape(label);
+  if (!shape) throw new CalcError(`There's no ${label} in the AISC tables`);
+  const p = shapeProperty(shape, prop);
+  if (!p) throw new CalcError(`${shape.label} has no ${prop}`);
+  return p.unit ? (math.unit(p.value, shapeUnit(p.unit)) as unknown as Value) : p.value;
+}
+
+/** A section region: the shape's properties, defined and listed. */
+function sectionRegion(item: Extract<SheetItem, { kind: "section" }>, scope: Scope, settings: Settings): Result {
+  if (!item.shape.trim()) return { kind: "error", message: "Choose a shape", incomplete: true };
+  if (!shapesLoaded()) return { kind: "error", message: "Loading the section tables…", incomplete: true };
+  const shape = findShape(item.shape);
+  if (!shape) return { kind: "error", message: `There's no ${item.shape} in the AISC tables` };
+  const suffix = item.suffix?.trim().replace(/[^A-Za-z0-9]/g, "");
+  const rows: { name: string; value: string; what: string }[] = [];
+  for (const [prop, n] of Object.entries(shape.values)) {
+    const p = property(shape.type, prop);
+    if (!p) continue;
+    const name = !suffix ? p.name : p.name.includes("_") ? `${p.name},${suffix}` : `${p.name}_${suffix}`;
+    const value: Value = p.unit ? (math.unit(n, shapeUnit(p.unit)) as unknown as Value) : n;
+    scope.set(name, value);
+    const shown = p.unit ? shapeUnit(settings.system === "SI" ? SI_UNITS[p.unit] : p.unit) : undefined;
+    rows.push({ name: display(name), value: formatValue(value, settings, shown), what: p.what });
+  }
+  return { kind: "section", label: shape.label, metric: shape.metric, type: shape.type, rows };
+}
+
 export function evaluateSheet(items: SheetItem[], settings: Settings): Map<string, Result> {
   math.Unit.setUnitSystem(settings.system === "SI" ? "si" : "us");
   const scope: Scope = new Map();
@@ -974,6 +1014,7 @@ export function evaluateSheet(items: SheetItem[], settings: Settings): Map<strin
     if (item.kind === "math") results.set(item.id, mathRegion(item.latex, scope, settings, item.displayUnit));
     else if (item.kind === "table") results.set(item.id, tableRegion(item, scope));
     else if (item.kind === "plot") results.set(item.id, plotRegion(item, scope));
+    else if (item.kind === "section") results.set(item.id, sectionRegion(item, scope, settings));
     else results.set(item.id, solveRegion(item, scope, settings));
   }
   return results;

@@ -7,6 +7,8 @@ import { AlertCircle, ArrowLeft, Check, Cloud, Loader2, Minus, Plus, Redo2, Undo
 import { LinkButton } from "@/components/ui/link-button";
 import { CalcDocument } from "@/lib/calcs/document";
 import { evaluateSheet, type SheetItem, type UnitSystem } from "@/lib/calcs/evaluate";
+import { loadShapes } from "@/lib/calcs/library/shapes";
+import { findTemplate, layout } from "@/lib/calcs/library/templates";
 import { emptyCalc, PAGES, readingOrder, type CalcData } from "@/lib/calcs/types";
 import { CalcRibbon } from "./ribbon";
 import { Worksheet, type WorksheetHandle } from "./worksheet";
@@ -22,31 +24,38 @@ async function gzip(text: string) {
   return new Uint8Array(await new Response(stream).arrayBuffer());
 }
 
-async function loadCalc(calcId: string, system: UnitSystem): Promise<CalcData> {
+/** A worksheet's file, or for a new one, an empty worksheet or the template it starts from. */
+async function loadCalc(calcId: string, system: UnitSystem, template?: string): Promise<CalcData & { fromTemplate?: boolean }> {
   const res = await fetch(`/api/calcs/${calcId}/file`, { cache: "no-store" });
-  if (res.status === 204) return emptyCalc(system);
+  if (res.status === 204) {
+    const t = findTemplate(template);
+    const data = emptyCalc(t?.system ?? system);
+    return t ? { ...data, header: { ...data.header, title: t.name }, regions: layout(t.lines, { x: 0, y: 0 }, data.paper), fromTemplate: true } : data;
+  }
   if (!res.ok) throw new Error(`Could not open the worksheet (${res.status})`);
   const data = (await res.json()) as CalcData;
   if (data?.format !== "conkit-calc") throw new Error("This file isn't a worksheet");
   return data;
 }
 
-export function CalcEditor({ calc, system, backHref }: { calc: { id: string; name: string; revision: number }; system: UnitSystem; backHref: string }) {
+export function CalcEditor({ calc, system, template, backHref }: { calc: { id: string; name: string; revision: number }; system: UnitSystem; template?: string; backHref: string }) {
   const [doc, setDoc] = useState<CalcDocument | null>(null);
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
     let cancelled = false;
-    loadCalc(calc.id, system)
-      .then((data) => {
+    loadCalc(calc.id, system, template)
+      .then(({ fromTemplate, ...data }) => {
         if (cancelled) return;
-        if (!data.header.title && !data.regions.length) data.header = { ...data.header, title: calc.name };
-        setDoc(new CalcDocument(data));
+        if (fromTemplate || (!data.header.title && !data.regions.length)) data.header = { ...data.header, title: calc.name };
+        const doc = new CalcDocument(data);
+        if (fromTemplate) doc.markUnsaved();
+        setDoc(doc);
       })
       .catch((err) => !cancelled && setError(err instanceof Error ? err.message : "Could not open the worksheet"));
     return () => {
       cancelled = true;
     };
-  }, [calc.id, calc.name, system]);
+  }, [calc.id, calc.name, system, template]);
 
   if (error)
     return (
@@ -93,17 +102,27 @@ function Workspace({ doc, calc, backHref }: { doc: CalcDocument; calc: { id: str
   const [zoom, setZoom] = useState(1);
   const [save, setSave] = useState<SaveState>("saved");
   const worksheet = useRef<WorksheetHandle | null>(null);
+  // The steel shapes table, loaded alongside (sections work out once it's here).
+  const [shapes, setShapes] = useState(false);
+  useEffect(() => {
+    let live = true;
+    void loadShapes().then(() => live && setShapes(true));
+    return () => {
+      live = false;
+    };
+  }, []);
 
   // The math, worked out in reading order with what's being typed (live, as in Mathcad).
   const results = useMemo(() => {
     void version;
+    void shapes;
     const items = readingOrder([...doc.regions.values()]).flatMap((r): SheetItem[] => {
       if (r.kind === "math") return [{ id: r.id, kind: "math", latex: drafts.get(r.id) ?? r.latex, displayUnit: r.displayUnit }];
       if (r.kind === "text") return [];
       return [r];
     });
     return evaluateSheet(items, doc.settings);
-  }, [doc, version, drafts]);
+  }, [doc, version, drafts, shapes]);
   const errors = [...results.values()].filter((r) => r.kind === "error" && !r.incomplete).length;
 
   // --- saving ---------------------------------------------------------------------------------
@@ -147,6 +166,10 @@ function Workspace({ doc, calc, backHref }: { doc: CalcDocument; calc: { id: str
       }),
     [doc, saveNow],
   );
+  // A worksheet started from a template saves straight away.
+  useEffect(() => {
+    if (doc.unsaved) timer.current = setTimeout(() => void saveNow(), 500);
+  }, [doc, saveNow]);
   useEffect(() => {
     const warn = (e: BeforeUnloadEvent) => {
       if (doc.unsaved) e.preventDefault();
@@ -184,6 +207,7 @@ function Workspace({ doc, calc, backHref }: { doc: CalcDocument; calc: { id: str
           .calc-pages > div { width: ${page.width}px !important; height: auto !important; }
           .calc-pages > div > div { transform: none !important; }
           .calc-page { box-shadow: none !important; margin: 0 !important; break-after: page; }
+          .calc-page:last-child { break-after: auto; }
         }
       `}</style>
       <CalcRibbon

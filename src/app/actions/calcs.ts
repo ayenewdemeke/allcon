@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { z } from "zod";
 import { getCurrentUser, isUuid, requireUser } from "@/lib/auth/session";
+import { findTemplate } from "@/lib/calcs/library/templates";
 import { db } from "@/lib/db";
 import { deleteFiles } from "@/lib/storage";
 
@@ -19,7 +20,8 @@ export async function createCalc(_prev: CalcFormState, formData: FormData): Prom
   if (!parsed.success) return { error: parsed.error.issues[0]?.message };
   const calc = await db.calc.create({ data: { orgId: user.orgId, name: parsed.data, createdById: user.id } });
   revalidatePath("/calcs");
-  redirect(`/calcs/${calc.id}?system=${system.parse(formData.get("system"))}`);
+  const template = findTemplate(String(formData.get("template") ?? ""));
+  redirect(`/calcs/${calc.id}?system=${system.parse(formData.get("system"))}${template ? `&template=${template.id}` : ""}`);
 }
 
 async function ownCalc(calcId: string) {

@@ -54,3 +54,4 @@ __pycache__/
 
 # Local stand-in for R2 file storage (development)
 /.local-storage/
+aisc-shapes-database-*.xlsx

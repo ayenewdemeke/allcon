@@ -51,6 +51,10 @@ export class CalcDocument {
   get unsaved() {
     return this.editSeq > this.savedSeq;
   }
+  /** A worksheet made here (from a template) that isn't saved yet. */
+  markUnsaved() {
+    this.editSeq++;
+  }
   markSaved(seq: number) {
     this.savedSeq = Math.max(this.savedSeq, seq);
   }

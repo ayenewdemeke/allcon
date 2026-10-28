@@ -15,9 +15,11 @@ export async function generateMetadata({ params }: PageProps<"/calcs/[calcId]">)
 /** A worksheet open in the Calcs editor, full screen. */
 export default async function CalcPage({ params, searchParams }: PageProps<"/calcs/[calcId]">) {
   const { calcId } = await params;
-  const system = (await searchParams).system === "SI" ? "SI" : "USCS";
+  const query = await searchParams;
+  const system = query.system === "SI" ? "SI" : "USCS";
+  const template = typeof query.template === "string" ? query.template : undefined;
   const user = await requireUser();
   const calc = isUuid(calcId) ? await db.calc.findFirst({ where: { id: calcId, orgId: user.orgId }, select: { id: true, name: true, revision: true } }) : null;
   if (!calc) notFound();
-  return <CalcEditor key={calc.id} calc={calc} system={system} backHref="/calcs" />;
+  return <CalcEditor key={calc.id} calc={calc} system={system} template={template} backHref="/calcs" />;
 }

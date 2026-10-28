@@ -13,7 +13,10 @@ export type TableRegion = { id: string; kind: "table"; x: number; y: number; col
 export type PlotRegion = { id: string; kind: "plot"; x: number; y: number; width: number; height: number; traces: { x: string; y: string }[]; xUnit?: string; yUnit?: string };
 /** A solve block (Mathcad's): guess values, constraints, and the solver line (find). */
 export type SolveRegion = { id: string; kind: "solve"; x: number; y: number; guesses: string[]; constraints: string[]; solver: string; displayUnit?: string };
-export type Region = MathRegion | TextRegion | TableRegion | PlotRegion | SolveRegion;
+/** A steel shape from the AISC tables: defines its properties (A, I_x, Z_x...), with an optional
+ * subscript added to each name (A_b, I_{x,b}) to tell several apart. */
+export type SectionRegion = { id: string; kind: "section"; x: number; y: number; shape: string; suffix?: string; compact?: boolean };
+export type Region = MathRegion | TextRegion | TableRegion | PlotRegion | SolveRegion | SectionRegion;
 
 /** The calc paper's header: what each printed page carries. */
 export type Header = { project: string; title: string; by: string; checked: string; date: string; number: string };

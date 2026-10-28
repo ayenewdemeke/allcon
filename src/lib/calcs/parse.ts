@@ -51,7 +51,8 @@ const FUNCTIONS = new Set("sin cos tan cot sec csc arcsin arccos arctan sinh cos
 const SPACES = new Set([",", ";", ":", " ", "!", "quad", "qquad", "enspace", "thinspace", "medspace", "thickspace"]);
 const OPERATORS: Record<string, "*" | "/" | "<=" | ">=" | "!="> = { cdot: "*", times: "*", ast: "*", div: "/", le: "<=", leq: "<=", leqslant: "<=", ge: ">=", geq: ">=", geqslant: ">=", ne: "!=", neq: "!=" };
 
-type Token = { t: "num"; v: string } | { t: "letter"; v: string } | { t: "cmd"; v: string } | { t: "sym"; v: string };
+/** "raw" is the text of \text{...} as written, spaces and all. */
+type Token = { t: "num"; v: string } | { t: "letter"; v: string } | { t: "cmd"; v: string } | { t: "sym"; v: string } | { t: "raw"; v: string };
 
 function tokenize(latex: string): Token[] {
   const out: Token[] = [];
@@ -91,8 +92,22 @@ function tokenize(latex: string): Token[] {
       let j = i + 1;
       if (/[a-zA-Z]/.test(s[j] ?? "")) while (j < s.length && /[a-zA-Z]/.test(s[j])) j++;
       else j++;
-      out.push({ t: "cmd", v: s.slice(i + 1, j) });
+      const cmd = s.slice(i + 1, j);
+      out.push({ t: "cmd", v: cmd });
       i = j;
+      if (["text", "textrm", "mbox"].includes(cmd) && s[i] === "{") {
+        let depth = 0;
+        let k = i;
+        for (; k < s.length; k++) {
+          if (s[k] === "{") depth++;
+          else if (s[k] === "}" && --depth === 0) break;
+        }
+        if (k < s.length) {
+          // Escaped braces and spaces as themselves; other commands (\textbf...) left out.
+          out.push({ t: "raw", v: s.slice(i + 1, k).replace(/\\([{} ])/g, "$1").replace(/\\[a-zA-Z]+\s*/g, "").replace(/\\/g, "") });
+          i = k + 1;
+        }
+      }
       continue;
     }
     out.push({ t: "sym", v: c });
@@ -163,6 +178,7 @@ class Parser {
   /** Raw text inside braces (names in \mathrm{}, strings in \text{}). */
   private rawGroup(): string {
     this.spaces();
+    if (this.peek()?.t === "raw") return this.next().v;
     if (!this.isSym("{")) {
       const t = this.next();
       return t ? t.v : "";
