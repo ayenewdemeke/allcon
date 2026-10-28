@@ -23,10 +23,19 @@ export type Header = { project: string; title: string; by: string; checked: stri
 
 export type Paper = "letter" | "a4";
 
+/** The grid regions snap to, as Mathcad's: shown (and printed) or not, Standard or Fine. */
+export type Grid = { show: boolean; size: "standard" | "fine" };
+export const DEFAULT_GRID: Grid = { show: true, size: "standard" };
+
+/** Grid spacing in CSS pixels: 0.2 in (Fine 0.1 in) on US paper, 5 mm (Fine 2.5 mm) on A4. */
+export const gridStep = (paper: Paper, grid: Grid) => (paper === "a4" ? 96 / 25.4 : 96) * (paper === "a4" ? 5 : 0.2) * (grid.size === "fine" ? 0.5 : 1);
+
 export type CalcData = {
   format: "conkit-calc";
   version: 1;
   paper: Paper;
+  /** Missing in worksheets made before there was a choice: the default. */
+  grid?: Grid;
   settings: Settings;
   header: Header;
   regions: Region[];
@@ -50,6 +59,7 @@ export const emptyCalc = (system: Settings["system"] = "USCS"): CalcData => ({
   format: "conkit-calc",
   version: 1,
   paper: system === "SI" ? "a4" : "letter",
+  grid: DEFAULT_GRID,
   settings: { ...DEFAULT_SETTINGS, system },
   header: { project: "", title: "", by: "", checked: "", date: new Date().toLocaleDateString("en-US"), number: "" },
   regions: [],

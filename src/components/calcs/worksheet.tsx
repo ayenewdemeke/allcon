@@ -4,7 +4,7 @@ import { useCallback, useEffect, useImperativeHandle, useRef, useState } from "r
 import { newId, type CalcDocument } from "@/lib/calcs/document";
 import type { Result } from "@/lib/calcs/evaluate";
 import { greekify } from "@/lib/calcs/parse";
-import { contentSize, GRID, PAGES, type Header, type MathRegion, type PlotRegion, type Region, type SectionRegion, type SolveRegion, type TableRegion, type TextRegion } from "@/lib/calcs/types";
+import { contentSize, gridStep, PAGES, type Header, type MathRegion, type PlotRegion, type Region, type SectionRegion, type SolveRegion, type TableRegion, type TextRegion } from "@/lib/calcs/types";
 import { cn } from "@/lib/utils";
 import { loadMathLive, type MathfieldElement } from "./mathlive";
 import { MathRegionView, TextRegionView } from "./regions";
@@ -19,7 +19,6 @@ import { SectionRegionView } from "./section-region";
 type MathLive = Awaited<ReturnType<typeof loadMathLive>>;
 export type Cursor = { x: number; y: number };
 const PAGE_GAP = 24;
-const snap = (v: number) => Math.max(0, Math.round(v / GRID) * GRID);
 /** Regions made of several pieces (tables, plots, solve blocks, sections): edited until a click
  * elsewhere. */
 const composite = (r: Region | undefined) => r?.kind === "table" || r?.kind === "plot" || r?.kind === "solve" || r?.kind === "section";
@@ -50,7 +49,6 @@ export function Worksheet({
   setDrafts,
   handle,
   others = [],
-  grid = false,
 }: {
   doc: CalcDocument;
   version: number;
@@ -60,8 +58,6 @@ export function Worksheet({
   setDrafts: (update: (d: Map<string, string>) => Map<string, string>) => void;
   handle: React.RefObject<WorksheetHandle | null>;
   others?: Other[];
-  /** Show the grid regions snap to (on screen only), as Mathcad's Show Grid. */
-  grid?: boolean;
 }) {
   void version;
   const [ml, setMl] = useState<MathLive | null>(null);
@@ -103,6 +99,10 @@ export function Worksheet({
 
   const page = PAGES[doc.paper];
   const content = contentSize(doc.paper);
+  // Regions snap to the worksheet's grid, shown or not (as in Mathcad).
+  const step = gridStep(doc.paper, doc.grid);
+  const snap = (v: number) => Math.max(0, Math.round(v / step) * step);
+  const below = (v: number) => Math.ceil(v / step) * step;
   const regions = [...doc.regions.values()];
   const bottom = Math.max(cursor ? cursor.y + 40 : 0, ...regions.map((r) => r.y + (sizes.get(r.id)?.h ?? 24)));
   const pageCount = Math.max(1, Math.floor(bottom / content.height) + 1);
@@ -146,7 +146,7 @@ export function Worksheet({
     if (then === "below") {
       const h = sizes.get(r.id)?.h ?? 24;
       setSelection(new Set());
-      setCursor({ x: r.x, y: snap(r.y + h + GRID * 2) });
+      setCursor({ x: r.x, y: below(r.y + h + 4) });
     }
   };
 
@@ -219,12 +219,12 @@ export function Worksheet({
         field.focus();
         field.blur();
       } else if (editingNow.current) endEditing();
-      const at = cursor ?? { x: 0, y: regions.length ? snap(bottom + GRID * 3) : 0 };
+      const at = cursor ?? { x: 0, y: regions.length ? below(bottom + step) : 0 };
       const placed = items.map((r) => ({ ...r, x: r.x + at.x, y: r.y + at.y }));
       doc.transact(() => placed.forEach((r) => doc.put(r)));
       setSelection(new Set(placed.map((r) => r.id)));
       const end = Math.max(...placed.map((r) => r.y));
-      setCursor({ x: at.x, y: snap(end + GRID * 5) });
+      setCursor({ x: at.x, y: below(end + 40) });
     },
   }));
 
@@ -292,7 +292,7 @@ export function Worksheet({
         const items = clipboard.current;
         const minX = Math.min(...items.map((r) => r.x));
         const minY = Math.min(...items.map((r) => r.y));
-        const at = cursor ?? { x: minX + GRID * 2, y: minY + GRID * 2 };
+        const at = cursor ?? { x: minX + step, y: minY + step };
         const pasted = items.map((r) => ({ ...r, id: newId(), x: snap(at.x + r.x - minX), y: snap(at.y + r.y - minY) }));
         doc.transact(() => pasted.forEach((r) => doc.put(r)));
         setSelection(new Set(pasted.map((r) => r.id)));
@@ -320,7 +320,7 @@ export function Worksheet({
         return;
       }
       if (e.key.startsWith("Arrow")) {
-        const d = { ArrowLeft: [-GRID, 0], ArrowRight: [GRID, 0], ArrowUp: [0, -GRID], ArrowDown: [0, GRID] }[e.key]!;
+        const d = { ArrowLeft: [-step, 0], ArrowRight: [step, 0], ArrowUp: [0, -step], ArrowDown: [0, step] }[e.key]!;
         e.preventDefault();
         if (selection.size) {
           doc.transact(() => selection.forEach((id) => {
@@ -409,7 +409,7 @@ export function Worksheet({
     const move = (ev: PointerEvent) => {
       if (!moved && Math.hypot(ev.clientX - start.x, ev.clientY - start.y) < 4) return;
       moved = true;
-      last = { dx: Math.round((ev.clientX - start.x) / zoom / GRID) * GRID, dy: Math.round((ev.clientY - start.y) / zoom / GRID) * GRID };
+      last = { dx: Math.round((ev.clientX - start.x) / zoom / step) * step, dy: Math.round((ev.clientY - start.y) / zoom / step) * step };
       setDrag(last);
     };
     const up = () => {
@@ -451,7 +451,17 @@ export function Worksheet({
               <div className="absolute" style={{ left: page.left, top: page.top, width: content.width, height: content.height }}>
                 {/* the margins' edge, faint, as Mathcad shows it */}
                 <div className="no-print pointer-events-none absolute inset-0 border border-dashed border-neutral-200" />
-                {grid && <div className="no-print pointer-events-none absolute inset-0" style={{ backgroundImage: "radial-gradient(circle, #a1a1aa 0.6px, transparent 0.9px)", backgroundSize: `${GRID}px ${GRID}px`, backgroundPosition: `-${GRID / 2}px -${GRID / 2}px` }} />}
+                {doc.grid.show && (
+                  // Mathcad's gridlines: on screen and in print.
+                  <svg className="pointer-events-none absolute inset-0" width={content.width} height={content.height} aria-hidden>
+                    <defs>
+                      <pattern id={`calc-grid-${p}`} width={step} height={step} patternUnits="userSpaceOnUse">
+                        <path d={`M ${step} 0 L 0 0 0 ${step}`} fill="none" stroke="#dbe2ea" strokeWidth="0.75" />
+                      </pattern>
+                    </defs>
+                    <rect width="100%" height="100%" fill={`url(#calc-grid-${p})`} />
+                  </svg>
+                )}
                 {regions
                   .filter((r) => {
                     const y = selection.has(r.id) && drag ? r.y + drag.dy : r.y;

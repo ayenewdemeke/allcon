@@ -171,16 +171,12 @@ export function CalcRibbon({
   quickAccess,
   status,
   project,
-  grid,
-  onGrid,
 }: {
   doc: CalcDocument;
   worksheet: React.RefObject<WorksheetHandle | null>;
   quickAccess: React.ReactNode;
   status: React.ReactNode;
   project: ProjectLink;
-  grid: boolean;
-  onGrid: (show: boolean) => void;
 }) {
   const [tab, setTab] = useState<Tab>("math");
   const insert = (latex: string) => worksheet.current?.insertMath(latex);
@@ -407,8 +403,18 @@ export function CalcRibbon({
                 </label>
               </div>
             </Panel>
-            <Panel title="Show">
-              <Big icon={Grid2x2} label="Grid" title="Show the grid regions line up on (it isn't printed)" onClick={() => onGrid(!grid)} active={grid} />
+            <Panel title="Grid">
+              <Big icon={Grid2x2} label="Show Grid" title="Show and print the gridlines regions line up on" onClick={() => doc.setMeta({ grid: { ...doc.grid, show: !doc.grid.show } })} active={doc.grid.show} />
+              <div className="flex flex-col gap-1 pt-1 text-[11px]">
+                <label className="flex items-center gap-2">
+                  Grid Size
+                  <select value={doc.grid.size} onChange={(e) => doc.setMeta({ grid: { ...doc.grid, size: e.target.value as "standard" | "fine" } })} className="h-6 rounded border bg-background px-1">
+                    <option value="standard">Standard</option>
+                    <option value="fine">Fine</option>
+                  </select>
+                </label>
+                <span className="max-w-40 text-muted-foreground">Regions snap to the grid, shown or not.</span>
+              </div>
             </Panel>
             <Panel title="Header">
               <HeaderFields doc={doc} />

@@ -10,7 +10,7 @@ import { axes, PLOT_COLORS, tickLabel } from "./axes";
 import { uprightUnits, type Result } from "./evaluate";
 import { SHAPES_SOURCE } from "./library/shapes";
 import { regionHeight } from "./library/templates";
-import { contentSize, PAGES, type CalcData, type Region, type TextRegion } from "./types";
+import { contentSize, DEFAULT_GRID, gridStep, PAGES, type CalcData, type Region, type TextRegion } from "./types";
 
 // A worksheet as a PDF, laid out as it prints from the editor: the calc paper's header on each
 // page and the regions where they're placed. Math is set by MathJax and drawn as vector outlines,
@@ -305,6 +305,13 @@ export async function calcPdf(data: CalcData, results: Map<string, Result>, opti
   const sheets = Array.from({ length: pages }, (_, i) => {
     const sheet = new Sheet(pdf.addPage([p.width * K, p.height * K]), fonts, p.height);
     drawHeader(sheet, data, i + 1, pages);
+    const grid = data.grid ?? DEFAULT_GRID;
+    if (grid.show) {
+      // Mathcad's gridlines print when they're shown.
+      const step = gridStep(data.paper, grid);
+      for (let x = 0; x <= content.width + 0.01; x += step) sheet.line(p.left + x, p.top, p.left + x, p.top + content.height, "#dbe2ea", 0.5);
+      for (let y = 0; y <= content.height + 0.01; y += step) sheet.line(p.left, p.top + y, p.left + content.width, p.top + y, "#dbe2ea", 0.5);
+    }
     return sheet;
   });
   for (const r of data.regions) {

@@ -1,11 +1,11 @@
 import type { Settings } from "./evaluate";
-import type { CalcData, Header, Paper, Region } from "./types";
+import { DEFAULT_GRID, type CalcData, type Grid, type Header, type Paper, type Region } from "./types";
 
 // The open worksheet: its regions and settings, undo (one step per edit), and what's changed
 // since the last save, region by region, so others' saved changes can be merged in without
 // losing what's changed here. Listeners hear about every change.
 
-type Meta = { paper: Paper; settings: Settings; header: Header };
+type Meta = { paper: Paper; grid: Grid; settings: Settings; header: Header };
 type Change = { kind: "region"; before: Region | null; after: Region | null } | { kind: "meta"; before: Meta; after: Meta };
 
 let versions = 0;
@@ -15,6 +15,7 @@ export const newId = () => crypto.randomUUID().replace(/-/g, "").slice(0, 16);
 export class CalcDocument {
   regions = new Map<string, Region>();
   paper: Paper;
+  grid: Grid;
   settings: Settings;
   header: Header;
   version = ++versions;
@@ -30,13 +31,14 @@ export class CalcDocument {
 
   constructor(data: CalcData) {
     this.paper = data.paper;
+    this.grid = data.grid ?? DEFAULT_GRID;
     this.settings = data.settings;
     this.header = data.header;
     for (const r of data.regions) this.regions.set(r.id, r);
   }
 
   toData(): CalcData {
-    return { format: "conkit-calc", version: 1, paper: this.paper, settings: this.settings, header: this.header, regions: [...this.regions.values()] };
+    return { format: "conkit-calc", version: 1, paper: this.paper, grid: this.grid, settings: this.settings, header: this.header, regions: [...this.regions.values()] };
   }
 
   subscribe(listener: () => void) {
@@ -72,6 +74,7 @@ export class CalcDocument {
     for (const [id, r] of incoming) if (!mine(`r:${id}`)) this.regions.set(id, r);
     if (!mine("meta")) {
       this.paper = remote.paper;
+      this.grid = remote.grid ?? DEFAULT_GRID;
       this.settings = remote.settings;
       this.header = remote.header;
     }
@@ -119,6 +122,7 @@ export class CalcDocument {
       const m = backwards ? change.before : change.after;
       this.dirty.set("meta", this.editSeq);
       this.paper = m.paper;
+      this.grid = m.grid;
       this.settings = m.settings;
       this.header = m.header;
     }
@@ -135,7 +139,7 @@ export class CalcDocument {
   }
 
   setMeta(patch: Partial<Meta>) {
-    const before = { paper: this.paper, settings: this.settings, header: this.header };
+    const before = { paper: this.paper, grid: this.grid, settings: this.settings, header: this.header };
     this.record({ kind: "meta", before, after: { ...before, ...patch } });
   }
 
