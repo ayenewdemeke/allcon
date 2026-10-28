@@ -4,10 +4,11 @@ import { useCallback, useEffect, useImperativeHandle, useRef, useState } from "r
 import { newId, type CalcDocument } from "@/lib/calcs/document";
 import type { Result } from "@/lib/calcs/evaluate";
 import { greekify } from "@/lib/calcs/parse";
-import { contentSize, GRID, PAGES, type Header, type MathRegion, type Region, type TextRegion } from "@/lib/calcs/types";
+import { contentSize, GRID, PAGES, type Header, type MathRegion, type PlotRegion, type Region, type SolveRegion, type TableRegion, type TextRegion } from "@/lib/calcs/types";
 import { cn } from "@/lib/utils";
 import { loadMathLive, type MathfieldElement } from "./mathlive";
 import { MathRegionView, TextRegionView } from "./regions";
+import { PlotRegionView, SolveRegionView, TableRegionView } from "./regions-more";
 
 // The worksheet, as Mathcad's: pages with the calc paper's header, regions placed anywhere on
 // them. Click empty space for the crosshair and type to start math there (" starts text);
@@ -18,11 +19,16 @@ type MathLive = Awaited<ReturnType<typeof loadMathLive>>;
 export type Cursor = { x: number; y: number };
 const PAGE_GAP = 24;
 const snap = (v: number) => Math.max(0, Math.round(v / GRID) * GRID);
+/** Regions made of several pieces (tables, plots, solve blocks): edited until a click elsewhere. */
+const composite = (r: Region | undefined) => r?.kind === "table" || r?.kind === "plot" || r?.kind === "solve";
 
 export type WorksheetHandle = {
   /** Inserts math into the field being edited, or starts a region with it at the crosshair. */
   insertMath: (latex: string) => void;
   addText: (style: TextRegion["style"]) => void;
+  addTable: () => void;
+  addPlot: () => void;
+  addSolve: () => void;
 };
 
 export function Worksheet({
@@ -66,6 +72,8 @@ export function Worksheet({
   const fieldRef = useRef<MathfieldElement | null>(null);
   /** Keys typed while a new region's field is still being made, typed into it once it's ready. */
   const pendingKeys = useRef("");
+  /** Math from the ribbon for a new region, inserted once its field is ready. */
+  const pendingInsert = useRef("");
   const typerRef = useRef<((keys: string) => void) | null>(null);
   const clipboard = useRef<Region[]>([]);
   const column = useRef<HTMLDivElement>(null);
@@ -152,19 +160,43 @@ export function Worksheet({
 
   useImperativeHandle(handle, () => ({
     insertMath: (latex: string) => {
-      if (fieldRef.current) {
-        fieldRef.current.executeCommand(["insert", latex]);
-        fieldRef.current.focus();
+      // Into the math being typed: a region's, or a piece of a table, plot or solve block.
+      const active = document.activeElement;
+      const field = fieldRef.current ?? (active?.tagName === "MATH-FIELD" && active.closest("[data-region]") ? (active as MathfieldElement) : null);
+      if (field) {
+        field.executeCommand(["insert", latex]);
+        field.focus();
         return;
       }
       const at = cursor ?? { x: 0, y: snap(bottom) };
-      startRegion({ id: newId(), kind: "math", x: at.x, y: at.y, latex });
+      pendingInsert.current = latex;
+      startRegion({ id: newId(), kind: "math", x: at.x, y: at.y, latex: "" });
     },
     addText: (style: TextRegion["style"]) => {
       const at = cursor ?? { x: 0, y: snap(bottom) };
       startRegion({ id: newId(), kind: "text", x: at.x, y: at.y, text: "", style, width: style === "normal" || style === "note" ? 480 : 600 });
     },
+    addTable: () => {
+      const at = cursor ?? { x: 0, y: snap(bottom) };
+      startRegion({ id: newId(), kind: "table", x: at.x, y: at.y, columns: [{ name: "", unit: "" }, { name: "", unit: "" }], rows: [["", ""], ["", ""], ["", ""]] });
+    },
+    addPlot: () => {
+      const at = cursor ?? { x: 0, y: snap(bottom) };
+      startRegion({ id: newId(), kind: "plot", x: at.x, y: at.y, width: 360, height: 240, traces: [{ x: "", y: "" }] });
+    },
+    addSolve: () => {
+      const at = cursor ?? { x: 0, y: snap(bottom) };
+      startRegion({ id: newId(), kind: "solve", x: at.x, y: at.y, guesses: [""], constraints: [""], solver: "" });
+    },
   }));
+
+  /** A change to a region, made to its latest version. */
+  const change =
+    <T extends Region>(id: string) =>
+    (update: (r: T) => T) => {
+      const current = doc.regions.get(id);
+      if (current) doc.put(update(current as T));
+    };
 
   // --- the keyboard (outside a region being edited) ----------------------------------------
 
@@ -177,7 +209,8 @@ export function Worksheet({
       const cursor = cursorNow.current;
       // Keys for the math being edited that reached the page: before its field is ready they
       // wait; after, they go into it.
-      if (editingNow.current && !ctrl && !e.altKey && (e.key.length === 1 || e.key === "Enter")) {
+      const editingComposite = composite(doc.regions.get(editingNow.current ?? ""));
+      if (editingNow.current && !editingComposite && !ctrl && !e.altKey && (e.key.length === 1 || e.key === "Enter")) {
         const key = e.key === "Enter" ? "\n" : e.key;
         if (!fieldRef.current) {
           e.preventDefault();
@@ -226,6 +259,11 @@ export function Worksheet({
         handle.current?.addText("normal");
         return;
       }
+      if (editingComposite) {
+        // Escape ends editing a table, plot or solve block; other keys are its own.
+        if (e.key === "Escape") setEditing(null);
+        return;
+      }
       if ((e.key === "Delete" || e.key === "Backspace") && selection.size) {
         e.preventDefault();
         doc.transact(() => selection.forEach((id) => doc.remove(id)));
@@ -268,6 +306,13 @@ export function Worksheet({
     if (e.button !== 0) return;
     const at = toSheet(e.clientX, e.clientY);
     if (!at) return;
+    if (composite(doc.regions.get(editingNow.current ?? ""))) setEditing(null);
+    // Math whose field lost the focus to the ribbon: ends now.
+    const field = fieldRef.current;
+    if (field && !field.hasFocus()) {
+      field.focus();
+      field.blur();
+    }
     const start = { x: e.clientX, y: e.clientY };
     let moved = false;
     const move = (ev: PointerEvent) => {
@@ -303,6 +348,7 @@ export function Worksheet({
   const onRegionDown = (e: React.PointerEvent, r: Region) => {
     e.stopPropagation(); // not a click on the page
     if (e.button !== 0 || editing === r.id) return;
+    if (editing && composite(doc.regions.get(editing))) setEditing(null);
     const start = { x: e.clientX, y: e.clientY };
     const selected = selection.has(r.id) ? selection : new Set([r.id]);
     if (e.shiftKey) {
@@ -392,6 +438,11 @@ export function Worksheet({
                               pendingKeys.current = "";
                               return keys;
                             }}
+                            takeInsert={() => {
+                              const latex = pendingInsert.current;
+                              pendingInsert.current = "";
+                              return latex;
+                            }}
                             returnPending={(keys) => queueMicrotask(() => replay(keys))}
                             onDraft={(latex) => setDrafts((d) => new Map(d).set(r.id, latex))}
                             onCommit={(latex) => commitMath(r, latex)}
@@ -401,8 +452,14 @@ export function Worksheet({
                               if (current?.kind === "math") doc.put({ ...current, displayUnit: unit || undefined });
                             }}
                           />
-                        ) : (
+                        ) : r.kind === "text" ? (
                           <TextRegionView region={r} editing={editing === r.id} selected={selection.has(r.id)} maxWidth={content.width - r.x} onCommit={(text) => commitText(r, text)} />
+                        ) : r.kind === "table" ? (
+                          <TableRegionView ml={ml} region={r} result={results.get(r.id)} editing={editing === r.id} selected={selection.has(r.id)} onChange={change<TableRegion>(r.id)} />
+                        ) : r.kind === "plot" ? (
+                          <PlotRegionView ml={ml} region={r} result={results.get(r.id)} editing={editing === r.id} selected={selection.has(r.id)} onChange={change<PlotRegion>(r.id)} />
+                        ) : (
+                          <SolveRegionView ml={ml} region={r} result={results.get(r.id)} editing={editing === r.id} selected={selection.has(r.id)} onChange={change<SolveRegion>(r.id)} />
                         )}
                       </div>
                     );

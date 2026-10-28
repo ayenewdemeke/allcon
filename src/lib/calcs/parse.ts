@@ -13,7 +13,20 @@ export type Node =
   | { k: "apply"; name: string; args: Node[] }
   | { k: "abs"; a: Node }
   | { k: "root"; a: Node; n: Node | null }
-  | { k: "unit"; name: string };
+  | { k: "unit"; name: string }
+  /** A matrix or vector written out (vectors are columns, as in Mathcad). */
+  | { k: "matrix"; rows: Node[][] }
+  /** An element (or elements) of a vector or matrix: v[i], M[i,j]. */
+  | { k: "index"; target: Node; args: Node[] }
+  | { k: "transpose"; a: Node }
+  /** A range: first..last, or first, second..last (the step is second − first). */
+  | { k: "range"; first: Node; second: Node | null; last: Node }
+  /** Σ or Π over a variable from..to (or over a range variable's values). */
+  | { k: "bigop"; op: "sum" | "prod"; v: string; from: Node | null; to: Node | null; body: Node }
+  | { k: "integral"; v: string; from: Node; to: Node; body: Node }
+  | { k: "derivative"; v: string; order: number; body: Node }
+  /** Piecewise (if / otherwise): the first row whose condition holds; null is "otherwise". */
+  | { k: "cases"; rows: { value: Node; cond: Node | null }[] };
 
 export type Statement =
   | { k: "define"; name: string; params: string[] | null; body: Node; show: boolean }
@@ -50,9 +63,21 @@ function tokenize(latex: string): Token[] {
       i++;
       continue;
     }
+    if (c === "." && s[i + 1] === ".") {
+      // The range operator (Mathcad's ..), however many dots.
+      let j = i;
+      while (s[j] === ".") j++;
+      out.push({ t: "sym", v: ".." });
+      i = j;
+      continue;
+    }
     if (/[0-9.]/.test(c)) {
       let j = i;
-      while (j < s.length && /[0-9.]/.test(s[j])) j++;
+      let dot = false;
+      while (j < s.length && (/[0-9]/.test(s[j]) || (s[j] === "." && !dot && s[j + 1] !== "."))) {
+        if (s[j] === ".") dot = true;
+        j++;
+      }
       out.push({ t: "num", v: s.slice(i, j) });
       i = j;
       continue;
@@ -260,10 +285,25 @@ class Parser {
     if (t.t === "cmd") {
       if (t.v === "frac" || t.v === "dfrac" || t.v === "tfrac") {
         this.i++;
+        const derivative = this.derivative();
+        if (derivative) return derivative;
         const a = this.group();
         const b = this.group();
         return { k: "op", op: "/", a, b };
       }
+      if (t.v === "begin") {
+        this.i++;
+        return this.environment(this.rawGroup());
+      }
+      if (t.v === "sum" || t.v === "prod") {
+        this.i++;
+        return this.bigop(t.v);
+      }
+      if (t.v === "int") {
+        this.i++;
+        return this.integral();
+      }
+      if (t.v === "ldots" || t.v === "dots") throw new ParseError("Use .. for a range (type ;)");
       if (t.v === "sqrt") {
         this.i++;
         let n: Node | null = null;
@@ -320,6 +360,7 @@ class Parser {
     const name = this.name()!;
     this.spaces();
     const close = this.opens();
+    if (close === "]") return { k: "index", target: { k: "name", name }, args: this.args(close) };
     if (close) return { k: wasCommand ? "call" : "apply", name: normalize(name), args: this.args(close) };
     if (wasCommand) return { k: "call", name: normalize(name), args: [this.power()] };
     return { k: "name", name };
@@ -340,6 +381,12 @@ class Parser {
         if (this.isCmd("circ")) {
           this.i++;
           base = { k: "op", op: "*", a: base, b: { k: "unit", name: "deg" } };
+          continue;
+        }
+        // M^T is the transpose.
+        if ((this.isSym("{") && this.peek(1)?.t === "letter" && this.peek(1)!.v === "T" && this.isSym("}", 2)) || (this.peek()?.t === "letter" && this.peek()!.v === "T")) {
+          this.i += this.isSym("{") ? 3 : 1;
+          base = { k: "transpose", a: base };
           continue;
         }
         base = { k: "op", op: "^", a: base, b: this.group() };
@@ -417,6 +464,143 @@ class Parser {
     }
   }
 
+  /** A range (first..last, or first, second..last) or an expression. */
+  rangeOrExpression(): Node {
+    const first = this.expression();
+    this.spaces();
+    if (this.isSym("..")) {
+      this.i++;
+      return { k: "range", first, second: null, last: this.expression() };
+    }
+    if (this.isSym(",")) {
+      const at = this.i;
+      this.i++;
+      const second = this.expression();
+      this.spaces();
+      if (this.isSym("..")) {
+        this.i++;
+        return { k: "range", first, second, last: this.expression() };
+      }
+      this.i = at;
+    }
+    return first;
+  }
+
+  /** \begin{...}: matrices (pmatrix, bmatrix...) and cases (if / otherwise). */
+  private environment(env: string): Node {
+    const rows: Node[][] = [[]];
+    const cases = env === "cases" || env === "dcases";
+    for (;;) {
+      this.spaces();
+      if (this.isCmd("end")) {
+        this.i++;
+        this.rawGroup();
+        break;
+      }
+      if (this.i >= this.tokens.length) throw new ParseError(`\\begin{${env}} isn't closed`);
+      if (this.isSym("&")) {
+        this.i++;
+        continue;
+      }
+      if (this.isCmd("\\") || this.isCmd("cr")) {
+        this.i++;
+        rows.push([]);
+        continue;
+      }
+      if (cases && rows.at(-1)!.length === 1) {
+        // A condition: "otherwise" (or nothing) is the default row; "if" in front is left out.
+        const t = this.peek();
+        if (t?.t === "cmd" && (t.v === "text" || t.v === "mathrm" || t.v === "operatorname")) {
+          const save = this.i;
+          this.i++;
+          const word = this.rawGroup().trim().toLowerCase();
+          if (word === "otherwise" || word === "else" || word === "") {
+            rows.at(-1)!.push({ k: "str", v: "otherwise" });
+            continue;
+          }
+          if (word !== "if") this.i = save;
+        }
+      }
+      rows.at(-1)!.push(this.expression());
+    }
+    const filled = rows.filter((r) => r.length);
+    if (cases) {
+      return {
+        k: "cases",
+        rows: filled.map((r) => ({ value: r[0], cond: !r[1] || (r[1].k === "str" && r[1].v === "otherwise") ? null : r[1] })),
+      };
+    }
+    if (!["pmatrix", "bmatrix", "matrix", "Bmatrix", "vmatrix", "smallmatrix"].includes(env)) throw new ParseError(`\\begin{${env}} isn't supported`);
+    const width = Math.max(...filled.map((r) => r.length));
+    if (filled.some((r) => r.length !== width)) throw new ParseError("Every row of a matrix needs the same number of values");
+    const m: Node = { k: "matrix", rows: filled };
+    return env === "vmatrix" ? { k: "abs", a: m } : m;
+  }
+
+  /** Σ_{i=a}^{b} body, Π likewise; Σ_{i} body sums over a range variable's values. */
+  private bigop(op: "sum" | "prod"): Node {
+    let v = "";
+    let from: Node | null = null;
+    let to: Node | null = null;
+    this.spaces();
+    if (this.isSym("_")) {
+      this.i++;
+      this.spaces();
+      const braced = this.isSym("{");
+      if (braced) this.i++;
+      v = this.name() ?? "";
+      this.spaces();
+      if (this.isSym("=")) {
+        this.i++;
+        from = this.expression();
+      }
+      this.spaces();
+      if (braced) this.expectSym("}");
+    }
+    this.spaces();
+    if (this.isSym("^")) {
+      this.i++;
+      to = this.group();
+    }
+    if (!v) throw new ParseError(`Give the ${op === "sum" ? "sum" : "product"} its variable: i = 0 below it`, true);
+    if ((from === null) !== (to === null)) throw new ParseError("Give both limits, or neither for a range variable", true);
+    return { k: "bigop", op, v, from, to, body: this.term() };
+  }
+
+  /** ∫_a^b body dx: the variable is the d-name at the end. */
+  private integral(): Node {
+    this.spaces();
+    if (!this.isSym("_")) throw new ParseError("Give the integral its limits", true);
+    this.i++;
+    const from = this.group();
+    this.spaces();
+    if (!this.isSym("^")) throw new ParseError("Give the integral its upper limit", true);
+    this.i++;
+    const to = this.group();
+    const body = this.term();
+    const { body: integrand, v } = splitDifferential(body);
+    if (!v) throw new ParseError("End the integral with d and its variable (dx)", true);
+    return { k: "integral", v, from, to, body: integrand };
+  }
+
+  /** \frac{d}{dx} body, \frac{d^2}{dx^2} body: a derivative (else null, an ordinary fraction). */
+  private derivative(): Node | null {
+    const save = this.i;
+    const top = this.rawGroup().replace(/\s+/g, "");
+    const m = top.match(/^(?:d|differentialD|mathrm\{?d\}?)(?:\^\{?(\d)\}?)?$/);
+    if (!m) {
+      this.i = save;
+      return null;
+    }
+    const bottom = this.rawGroup().replace(/\s+/g, "");
+    const b = bottom.match(/^(?:d|differentialD)([a-zA-Z][a-zA-Z0-9_']*)(?:\^\{?(\d)\}?)?$/);
+    if (!b) {
+      this.i = save;
+      return null;
+    }
+    return { k: "derivative", v: b[1], order: Number(m[1] ?? 1), body: this.power() };
+  }
+
   /** The left side of a definition: a name, or a function's name and parameters. */
   target(): { name: string; params: string[] | null } {
     this.spaces();
@@ -468,7 +652,7 @@ export function parseStatement(latex: string): Statement {
     if (show) rhs = rhs.replace(/=\s*$/, "");
     if (!rhs.trim()) throw new ParseError("Define it as something: x := ...", true);
     const p = new Parser(tokenize(rhs));
-    const body = p.expression();
+    const body = p.rangeOrExpression();
     if (!p.done) throw new ParseError("There's more here than one expression");
     return { k: "define", name: target.name, params: target.params, body, show };
   }
@@ -476,7 +660,7 @@ export function parseStatement(latex: string): Statement {
   const body = evaluate ? text.replace(/=\s*$/, "") : text;
   if (!body.trim()) return { k: "empty" };
   const p = new Parser(tokenize(body));
-  const expr = p.expression();
+  const expr = p.rangeOrExpression();
   if (!p.done) {
     if (/(^|[^:\\])=/.test(body)) throw new ParseError("Use := to define, and = at the end to evaluate");
     throw new ParseError("There's more here than one expression");
@@ -493,4 +677,43 @@ export function greekify(latex: string): string {
     .split(/(\\text\{[^}]*\})/)
     .map((part, i) => (i % 2 ? part : part.replace(new RegExp(`(?<![\\\\a-zA-Z])(${GREEK_NAMES})(?![a-zA-Z])`, "g"), (_, name: string) => `\\${name === "epsilon" ? "varepsilon" : name} `).replace(/ ([_^{}\\]|$)/g, "$1")))
     .join("");
+}
+
+/** An integrand and its variable: the trailing d-name (dx) of a product. */
+function splitDifferential(body: Node): { body: Node; v: string | null } {
+  if (body.k === "name" && /^d[a-zA-Z]/.test(body.name)) return { body: { k: "num", v: 1 }, v: body.name.slice(1) };
+  if (body.k === "op" && body.op === "*") {
+    const right = splitDifferential(body.b);
+    if (right.v) return { body: right.body.k === "num" && right.body.v === 1 ? body.a : { ...body, b: right.body }, v: right.v };
+  }
+  return { body, v: null };
+}
+
+/** An expression, or a relation between two (for solve blocks' constraints and plot axes):
+ * lhs = rhs, lhs ≤ rhs... */
+export function parseConstraint(latex: string): { lhs: Node; rhs: Node | null; rel: string } {
+  const text = latex.trim();
+  if (!text) throw new ParseError("Something's missing", true);
+  // An equation: the top-level "=" (not inside braces).
+  let depth = 0;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (c === "{") depth++;
+    else if (c === "}") depth--;
+    else if (c === "=" && depth === 0 && text[i - 1] !== "\\" && !/[<>!:]$/.test(text.slice(0, i))) {
+      return { lhs: expressionOf(text.slice(0, i)), rhs: expressionOf(text.slice(i + 1)), rel: "=" };
+    }
+  }
+  const p = new Parser(tokenize(text));
+  const e = p.expression();
+  if (!p.done) throw new ParseError("There's more here than one expression");
+  if (e.k === "op" && ["<", ">", "<=", ">="].includes(e.op)) return { lhs: e.a, rhs: e.b, rel: e.op };
+  return { lhs: e, rhs: null, rel: "" };
+}
+
+function expressionOf(latex: string): Node {
+  const p = new Parser(tokenize(latex));
+  const e = p.rangeOrExpression();
+  if (!p.done) throw new ParseError("There's more here than one expression");
+  return e;
 }

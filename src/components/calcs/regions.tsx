@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import type { Result } from "@/lib/calcs/evaluate";
+import { uprightUnits, type Result } from "@/lib/calcs/evaluate";
 import type { MathRegion, TextRegion } from "@/lib/calcs/types";
 import { cn } from "@/lib/utils";
 import { loadMathLive, makeField, type MathfieldElement } from "./mathlive";
@@ -14,8 +14,9 @@ type MathLive = Awaited<ReturnType<typeof loadMathLive>>;
 
 /** Mathcad's keys in a math field: ":" defines and "=" evaluates the whole expression (so they
  * go at the end, even from inside a subscript or a fraction), "*" is the multiplication dot,
- * and " starts a string (another " ends it). Returns whether it handled the key. */
-function mathcadKey(mf: MathfieldElement, key: string, previous: string) {
+ * " starts a string (another " ends it), and ";" is the range operator (..). Returns whether
+ * it handled the key. */
+export function mathcadKey(mf: MathfieldElement, key: string, previous: string) {
   const insert = (latex: string, atEnd: boolean) => {
     if (atEnd) mf.executeCommand("moveToMathfieldEnd");
     mf.executeCommand(["insert", latex]);
@@ -26,6 +27,7 @@ function mathcadKey(mf: MathfieldElement, key: string, previous: string) {
   if (key === ":") return insert("\\coloneq", true);
   if (key === "=" && !["<", ">", "!"].includes(previous)) return insert("=", true);
   if (key === "*") return insert("\\cdot", false);
+  if (key === ";") return insert("..", false); // the range operator
   return false;
 }
 
@@ -48,6 +50,7 @@ export function MathRegionView({
   fieldRef,
   typerRef,
   takePending,
+  takeInsert,
   returnPending,
 }: {
   ml: MathLive | null;
@@ -63,13 +66,15 @@ export function MathRegionView({
   /** Types keys into the field being edited (for keys that reached the page instead). */
   typerRef: React.RefObject<((keys: string) => void) | null>;
   takePending?: () => string;
+  /** Math from the ribbon that started the region (a template: its first slot gets the caret). */
+  takeInsert?: () => string;
   /** Keys typed after an Enter, before the field was ready: for the next region. */
   returnPending?: (keys: string) => void;
 }) {
   const host = useRef<HTMLSpanElement>(null);
-  const handlers = useRef({ onDraft, onCommit, onEnter, takePending, returnPending });
+  const handlers = useRef({ onDraft, onCommit, onEnter, takePending, takeInsert, returnPending });
   useEffect(() => {
-    handlers.current = { onDraft, onCommit, onEnter, takePending, returnPending };
+    handlers.current = { onDraft, onCommit, onEnter, takePending, takeInsert, returnPending };
   });
 
   // Editing: a MathLive field in place of the rendered math.
@@ -109,7 +114,11 @@ export function MathRegionView({
       },
       { capture: true },
     );
-    mf.addEventListener("focusout", () => setTimeout(() => !done && !mf.hasFocus() && finish("commit"), 0));
+    mf.addEventListener("focusout", (e) => {
+      // A ribbon list (units, matrix size) takes the focus for a moment: still editing.
+      if (e.relatedTarget instanceof HTMLSelectElement && e.relatedTarget.closest("[data-ribbon]")) return;
+      setTimeout(() => !done && !mf.hasFocus() && finish("commit"), 0);
+    });
     /** Types keys into the field ("\n" is Enter): what was typed while it was being made, or
      * keys that reached the page before it had the focus. After an Enter, the rest is the next
      * region's. */
@@ -135,6 +144,11 @@ export function MathRegionView({
         typerRef.current = typeKeys;
         mf.focus();
         mf.executeCommand("moveToMathfieldEnd");
+        const template = handlers.current.takeInsert?.();
+        if (template) {
+          mf.executeCommand(["insert", template]);
+          handlers.current.onDraft(mf.value);
+        }
         requestAnimationFrame(() => !done && !mf.hasFocus() && mf.focus());
         typeKeys(handlers.current.takePending?.() ?? "");
       },
@@ -154,7 +168,11 @@ export function MathRegionView({
   const shown = result?.kind === "ok" ? result.result : undefined;
   return (
     <span className={cn("inline-flex items-baseline gap-1 rounded-sm px-1 py-0.5 text-[16px] leading-tight", error && "bg-red-50 ring-1 ring-red-500", selected && !editing && "ring-1 ring-primary")}>
-      {editing ? <span ref={host} className="calc-field inline-block min-w-8" /> : <StaticMath ml={ml} latex={region.latex || "\\placeholder{}"} />}
+      {editing ? (
+        <span ref={host} className="calc-field inline-block min-w-8" />
+      ) : (
+        <StaticMath ml={ml} latex={region.latex ? uprightUnits(region.latex, result?.kind === "ok" ? (result.units ?? []) : []) : "\\placeholder{}"} />
+      )}
       {shown && <StaticMath ml={ml} latex={shown} />}
       {shown && (selected || editing || region.displayUnit) && shown.includes("\\mathrm") && (
         <UnitBox value={region.displayUnit ?? ""} onCommit={onUnit} visible={selected || editing} />

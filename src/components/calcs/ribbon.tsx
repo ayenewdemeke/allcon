@@ -1,16 +1,17 @@
 "use client";
 
 import { useState } from "react";
-import { Calculator, FileText, Heading1, Heading2, Printer, Ruler, Sigma, StickyNote, Type } from "lucide-react";
+import { Calculator, ChartSpline, FileText, Grid3x3, Heading1, Heading2, Printer, Ruler, Sigma, SquareFunction, StickyNote, Table2, Type } from "lucide-react";
 import type { CalcDocument } from "@/lib/calcs/document";
 import { PAGES, type Paper } from "@/lib/calcs/types";
 import { cn } from "@/lib/utils";
 import type { WorksheetHandle } from "./worksheet";
 
-// The ribbon, as Mathcad Prime's: Math (regions, operators, Greek, functions, units),
-// Calculation (unit system, result format) and Document (paper, the calc paper's header, print).
+// The ribbon, as Mathcad Prime's: Math (regions, operators, calculus, Greek, units), Functions
+// (functions, programming, solving), Matrices/Tables, Plots, Calculation (unit system, result
+// format) and Document (paper, the calc paper's header, print).
 
-type Tab = "math" | "calculation" | "document";
+type Tab = "math" | "functions" | "matrices" | "plots" | "calculation" | "document";
 
 function Panel({ title, children }: { title: string; children: React.ReactNode }) {
   return (
@@ -76,6 +77,59 @@ const FUNCTIONS: [string, string, string][] = [
   ["floor", "\\operatorname{floor}\\left(#0\\right)", "Round down"],
 ];
 
+const CALCULUS: [string, string, string][] = [
+  ["Σ", "\\sum_{#0=#?}^{#?}#?", "Summation over i = a to b"],
+  ["Σᵢ", "\\sum_{#0}#?", "Summation over a range variable's values"],
+  ["Π", "\\prod_{#0=#?}^{#?}#?", "Product over i = a to b"],
+  ["∫", "\\int_{#0}^{#?}#?\\,d#?", "Definite integral"],
+  ["d/dx", "\\frac{d}{d#0}#?", "Derivative, at the variable's value"],
+  ["d²/dx²", "\\frac{d^2}{d#0^2}#?", "Second derivative"],
+  ["a..b", "#0..#?", "Range: first..last (;)"],
+  ["a,b..c", "#0,#?..#?", "Range with a step: first, second..last"],
+];
+
+const PROGRAMMING: [string, string, string][] = [
+  ["if … otherwise", "\\begin{cases}#0 & #?\\\\ #? & \\text{otherwise}\\end{cases}", "Piecewise: the value whose condition holds, else the otherwise value"],
+  ["if ×3", "\\begin{cases}#0 & #?\\\\ #? & #?\\\\ #? & \\text{otherwise}\\end{cases}", "Piecewise with two conditions"],
+  ["if( )", "\\operatorname{if}\\left(#0,#?,#?\\right)", "if(condition, value if true, value if false)"],
+];
+
+const SOLVING: [string, string, string][] = [
+  ["root", "\\operatorname{root}\\left(#0,#?\\right)", "root(f(x), x): where f(x) = 0, from x's value as a guess; root(f(x), x, a, b) within a..b"],
+  ["find", "\\operatorname{find}\\left(#0\\right)", "find(x, y): the solve block's answer, for its solver line"],
+  ["minimize", "\\operatorname{minimize}\\left(#0,#?\\right)", "minimize(f, x): the x where f is least, from x's value"],
+  ["maximize", "\\operatorname{maximize}\\left(#0,#?\\right)", "maximize(f, x): the x where f is greatest, from x's value"],
+  ["polyroots", "\\operatorname{polyroots}\\left(#0\\right)", "polyroots(v): a polynomial's roots, from its coefficients (constant first)"],
+];
+
+const MATRIX_OPERATORS: [string, string, string][] = [
+  ["Mᵀ", "^{T}", "Transpose"],
+  ["M⁻¹", "^{-1}", "Inverse"],
+  ["|M|", "\\left|#0\\right|", "Determinant (of a vector, its length)"],
+  ["M[i]", "\\left[#0\\right]", "Element: v[i], M[i, j] (from 0, ORIGIN)"],
+  ["·", "\\cdot", "Matrix product (*)"],
+  ["a..b", "#0..#?", "Range (;)"],
+];
+
+const MATRIX_FUNCTIONS: [string, string][] = [
+  ["rows", "Number of rows"],
+  ["cols", "Number of columns"],
+  ["length", "Number of elements"],
+  ["last", "Index of the last element"],
+  ["identity", "identity(n): the n × n identity matrix"],
+  ["augment", "augment(A, B): side by side"],
+  ["stack", "stack(A, B): one above the other"],
+  ["sort", "Sorted, smallest first"],
+  ["sum", "Sum of the elements"],
+  ["mean", "Mean of the elements"],
+  ["median", "Median of the elements"],
+  ["stdev", "Standard deviation"],
+];
+
+/** An empty rows × cols matrix to fill in. */
+const matrixLatex = (rows: number, cols: number) =>
+  `\\begin{pmatrix}${Array.from({ length: rows }, (_, r) => Array.from({ length: cols }, (_, c) => (r === 0 && c === 0 ? "#0" : "#?")).join("&")).join("\\\\")}\\end{pmatrix}`;
+
 const UNITS: [string, string[]][] = [
   ["Force", ["kip", "lbf", "kN", "N", "tonf"]],
   ["Length", ["ft", "in", "m", "mm", "cm"]],
@@ -95,18 +149,29 @@ const unitLatex = (u: string) => {
 export function CalcRibbon({ doc, worksheet, quickAccess, status }: { doc: CalcDocument; worksheet: React.RefObject<WorksheetHandle | null>; quickAccess: React.ReactNode; status: React.ReactNode }) {
   const [tab, setTab] = useState<Tab>("math");
   const insert = (latex: string) => worksheet.current?.insertMath(latex);
+  const [size, setSize] = useState({ rows: 2, cols: 2 });
+  const keys = (items: [string, string, string][], columns: string) => (
+    <div className={cn("grid gap-0.5 pt-0.5", columns)}>
+      {items.map(([label, latex, title]) => (
+        <Key key={title} label={label} title={title} onClick={() => insert(latex)} wide={label.length > 2} />
+      ))}
+    </div>
+  );
   return (
-    <div className="no-print border-b bg-muted/40">
+    <div data-ribbon className="no-print border-b bg-muted/40">
       <div className="flex items-end gap-0.5 px-2 pt-1 text-xs">
         <div className="mr-2 flex items-center gap-0.5 self-center pb-0.5">{quickAccess}</div>
         {(
           [
             ["math", "Math"],
+            ["functions", "Functions"],
+            ["matrices", "Matrices/Tables"],
+            ["plots", "Plots"],
             ["calculation", "Calculation"],
             ["document", "Document"],
           ] as const
         ).map(([t, label]) => (
-          <button key={t} type="button" onClick={() => setTab(t)} className={cn("rounded-t px-3 py-1", tab === t ? "bg-background font-medium text-foreground shadow-[0_-1px_0_0] shadow-border" : "text-muted-foreground hover:text-foreground")}>
+          <button key={t} type="button" onMouseDown={(e) => e.preventDefault()} onClick={() => setTab(t)} className={cn("rounded-t px-3 py-1", tab === t ? "bg-background font-medium text-foreground shadow-[0_-1px_0_0] shadow-border" : "text-muted-foreground hover:text-foreground")}>
             {label}
           </button>
         ))}
@@ -123,6 +188,7 @@ export function CalcRibbon({ doc, worksheet, quickAccess, status }: { doc: CalcD
                 <SmallButton icon={Heading2} label="Subheading" onClick={() => worksheet.current?.addText("subheading")} />
                 <SmallButton icon={StickyNote} label="Note" onClick={() => worksheet.current?.addText("note")} />
               </div>
+              <Big icon={SquareFunction} label="Solve block" title="A solve block: guess values, constraints and a solver (find)" onClick={() => worksheet.current?.addSolve()} />
             </Panel>
             <Panel title="Operators">
               <div className="grid grid-cols-6 gap-0.5 pt-0.5">
@@ -131,17 +197,11 @@ export function CalcRibbon({ doc, worksheet, quickAccess, status }: { doc: CalcD
                 ))}
               </div>
             </Panel>
+            <Panel title="Calculus">{keys(CALCULUS, "grid-cols-4")}</Panel>
             <Panel title="Greek">
               <div className="grid grid-cols-10 gap-0.5 pt-0.5">
                 {GREEK.slice(0, 20).map((g) => (
                   <Key key={g} label={GREEK_CHARS[g]} title={`${g.replace("var", "")} (type ${g.replace("var", "")})`} onClick={() => insert(`\\${g}`)} />
-                ))}
-              </div>
-            </Panel>
-            <Panel title="Functions">
-              <div className="grid grid-cols-5 gap-0.5 pt-0.5">
-                {FUNCTIONS.slice(0, 10).map(([label, latex, title]) => (
-                  <Key key={label} label={<span className="font-sans text-[11px]">{label}</span>} title={title} wide onClick={() => insert(latex)} />
                 ))}
               </div>
             </Panel>
@@ -167,6 +227,56 @@ export function CalcRibbon({ doc, worksheet, quickAccess, status }: { doc: CalcD
               </div>
             </Panel>
           </>
+        )}
+        {tab === "functions" && (
+          <>
+            <Panel title="Functions">
+              <div className="grid grid-cols-7 gap-0.5 pt-0.5">
+                {FUNCTIONS.map(([label, latex, title]) => (
+                  <Key key={label} label={<span className="font-sans text-[11px]">{label}</span>} title={title} wide onClick={() => insert(latex)} />
+                ))}
+              </div>
+            </Panel>
+            <Panel title="Programming">{keys(PROGRAMMING, "grid-cols-1")}</Panel>
+            <Panel title="Solving">
+              <Big icon={SquareFunction} label="Solve block" title="A solve block: guess values, constraints and a solver (find)" onClick={() => worksheet.current?.addSolve()} />
+              {keys(SOLVING, "grid-cols-3")}
+            </Panel>
+          </>
+        )}
+        {tab === "matrices" && (
+          <>
+            <Panel title="Insert">
+              <Big icon={Grid3x3} label="Matrix" title={`A ${size.rows} × ${size.cols} matrix`} onClick={() => insert(matrixLatex(size.rows, size.cols))} />
+              <div className="flex flex-col gap-1 pt-1 text-[11px]">
+                {(["rows", "cols"] as const).map((k) => (
+                  <label key={k} className="flex items-center justify-between gap-1">
+                    {k === "rows" ? "Rows" : "Columns"}
+                    <select value={size[k]} onChange={(e) => setSize({ ...size, [k]: Number(e.target.value) })} className="h-6 rounded border bg-background px-1">
+                      {[1, 2, 3, 4, 5, 6].map((n) => (
+                        <option key={n}>{n}</option>
+                      ))}
+                    </select>
+                  </label>
+                ))}
+              </div>
+              <Big icon={Table2} label="Table" title="A table: each column a vector, named and in its unit" onClick={() => worksheet.current?.addTable()} />
+            </Panel>
+            <Panel title="Operators">{keys(MATRIX_OPERATORS, "grid-cols-3")}</Panel>
+            <Panel title="Functions">
+              <div className="grid grid-cols-6 gap-0.5 pt-0.5">
+                {MATRIX_FUNCTIONS.map(([name, title]) => (
+                  <Key key={name} label={<span className="font-sans text-[11px]">{name}</span>} title={title} wide onClick={() => insert(`\\operatorname{${name}}\\left(#0\\right)`)} />
+                ))}
+              </div>
+            </Panel>
+          </>
+        )}
+        {tab === "plots" && (
+          <Panel title="Plots">
+            <Big icon={ChartSpline} label="XY plot" title="An X-Y plot of expressions or vectors" onClick={() => worksheet.current?.addPlot()} />
+            <p className="max-w-64 pt-1 text-[11px] leading-snug text-muted-foreground">Plot y against x: functions, ranges or vectors (table columns too). A function of an undefined x plots from −10 to 10 (QuickPlot).</p>
+          </Panel>
         )}
         {tab === "calculation" && (
           <>

@@ -7,7 +7,13 @@ import { DEFAULT_SETTINGS, type Settings } from "./evaluate";
 export type MathRegion = { id: string; kind: "math"; x: number; y: number; latex: string; displayUnit?: string };
 export type TextStyle = "normal" | "heading" | "subheading" | "note";
 export type TextRegion = { id: string; kind: "text"; x: number; y: number; text: string; style: TextStyle; width: number };
-export type Region = MathRegion | TextRegion;
+/** A table (Mathcad's): each column a vector, named by its header, in its unit. */
+export type TableRegion = { id: string; kind: "table"; x: number; y: number; columns: { name: string; unit: string }[]; rows: string[][] };
+/** An X-Y plot: traces of y against x (expressions, usually in a range variable or vectors). */
+export type PlotRegion = { id: string; kind: "plot"; x: number; y: number; width: number; height: number; traces: { x: string; y: string }[]; xUnit?: string; yUnit?: string };
+/** A solve block (Mathcad's): guess values, constraints, and the solver line (find). */
+export type SolveRegion = { id: string; kind: "solve"; x: number; y: number; guesses: string[]; constraints: string[]; solver: string; displayUnit?: string };
+export type Region = MathRegion | TextRegion | TableRegion | PlotRegion | SolveRegion;
 
 /** The calc paper's header: what each printed page carries. */
 export type Header = { project: string; title: string; by: string; checked: string; date: string; number: string };

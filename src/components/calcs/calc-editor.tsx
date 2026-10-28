@@ -6,8 +6,8 @@ import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore
 import { AlertCircle, ArrowLeft, Check, Cloud, Loader2, Minus, Plus, Redo2, Undo2 } from "lucide-react";
 import { LinkButton } from "@/components/ui/link-button";
 import { CalcDocument } from "@/lib/calcs/document";
-import { evaluateSheet, type UnitSystem } from "@/lib/calcs/evaluate";
-import { emptyCalc, PAGES, readingOrder, type CalcData, type MathRegion } from "@/lib/calcs/types";
+import { evaluateSheet, type SheetItem, type UnitSystem } from "@/lib/calcs/evaluate";
+import { emptyCalc, PAGES, readingOrder, type CalcData } from "@/lib/calcs/types";
 import { CalcRibbon } from "./ribbon";
 import { Worksheet, type WorksheetHandle } from "./worksheet";
 
@@ -97,8 +97,12 @@ function Workspace({ doc, calc, backHref }: { doc: CalcDocument; calc: { id: str
   // The math, worked out in reading order with what's being typed (live, as in Mathcad).
   const results = useMemo(() => {
     void version;
-    const math = readingOrder([...doc.regions.values()]).filter((r): r is MathRegion => r.kind === "math");
-    return evaluateSheet(math.map((r) => ({ id: r.id, latex: drafts.get(r.id) ?? r.latex, displayUnit: r.displayUnit })), doc.settings);
+    const items = readingOrder([...doc.regions.values()]).flatMap((r): SheetItem[] => {
+      if (r.kind === "math") return [{ id: r.id, kind: "math", latex: drafts.get(r.id) ?? r.latex, displayUnit: r.displayUnit }];
+      if (r.kind === "text") return [];
+      return [r];
+    });
+    return evaluateSheet(items, doc.settings);
   }, [doc, version, drafts]);
   const errors = [...results.values()].filter((r) => r.kind === "error" && !r.incomplete).length;
 

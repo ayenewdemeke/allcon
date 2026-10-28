@@ -5,10 +5,10 @@ import { greekify, parseStatement } from "./parse";
 // Worksheets as Mathcad evaluates them, with math as MathLive writes it.
 
 const run = (latex: string[], settings = DEFAULT_SETTINGS, units: Record<number, string> = {}) => {
-  const results = evaluateSheet(latex.map((l, i) => ({ id: String(i), latex: l, displayUnit: units[i] })), settings);
+  const results = evaluateSheet(latex.map((l, i) => ({ id: String(i), kind: "math" as const, latex: l, displayUnit: units[i] })), settings);
   return latex.map((_, i) => results.get(String(i))!);
 };
-const shown = (r: ReturnType<typeof run>[number]) => (r.kind === "ok" ? r.result : `ERROR: ${r.message}`);
+const shown = (r: ReturnType<typeof run>[number]) => (r.kind === "ok" ? r.result : r.kind === "error" ? `ERROR: ${r.message}` : r.kind);
 
 describe("reading math", () => {
   it("names, subscripts, primes, juxtaposition and definitions", () => {
