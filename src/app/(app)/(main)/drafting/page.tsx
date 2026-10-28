@@ -7,6 +7,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { requireUser } from "@/lib/auth/session";
 import { db } from "@/lib/db";
+import { LocalTime } from "@/components/local-time";
 
 export const metadata: Metadata = { title: "Drafting" };
 
@@ -60,7 +61,7 @@ export default async function DraftingPage() {
                   </TableCell>
                   <TableCell className="text-muted-foreground">{d.units === "mm" ? "Millimeters" : "Architectural"}</TableCell>
                   <TableCell className="text-right tabular-nums">{d.entityCount.toLocaleString()}</TableCell>
-                  <TableCell className="text-muted-foreground">{d.updatedAt.toLocaleString("en-US", { dateStyle: "medium", timeStyle: "short" })}</TableCell>
+                  <TableCell className="text-muted-foreground"><LocalTime date={d.updatedAt} /></TableCell>
                   <TableCell>
                     <DrawingRowActions id={d.id} name={d.name} />
                   </TableCell>

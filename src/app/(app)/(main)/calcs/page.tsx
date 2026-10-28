@@ -7,6 +7,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { requireUser } from "@/lib/auth/session";
 import { db } from "@/lib/db";
+import { LocalTime } from "@/components/local-time";
 
 export const metadata: Metadata = { title: "Calcs" };
 
@@ -70,7 +71,7 @@ export default async function CalcsPage() {
                     )}
                   </TableCell>
                   <TableCell className="text-right tabular-nums">{c.regionCount.toLocaleString()}</TableCell>
-                  <TableCell className="text-muted-foreground">{c.updatedAt.toLocaleString("en-US", { dateStyle: "medium", timeStyle: "short" })}</TableCell>
+                  <TableCell className="text-muted-foreground"><LocalTime date={c.updatedAt} /></TableCell>
                   <TableCell>
                     <CalcRowActions id={c.id} name={c.name} />
                   </TableCell>

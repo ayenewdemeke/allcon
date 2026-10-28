@@ -10,6 +10,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { db } from "@/lib/db";
 import { requireProject } from "@/lib/auth/session";
+import { LocalTime } from "@/components/local-time";
 
 function formatSize(bytes: bigint | null) {
   if (bytes === null) return "—";
@@ -17,7 +18,6 @@ function formatSize(bytes: bigint | null) {
   return mb >= 1 ? `${mb.toFixed(1)} MB` : `${(Number(bytes) / 1024).toFixed(0)} KB`;
 }
 
-const day = (d: Date) => d.toLocaleDateString("en-US", { dateStyle: "medium" });
 
 /** Every model in the project, uploaded or built from the drawings by an AI app, newest first. */
 export default async function ModelsPage({ params }: PageProps<"/projects/[projectId]/models">) {
@@ -94,7 +94,7 @@ export default async function ModelsPage({ params }: PageProps<"/projects/[proje
                     <TableCell className="tabular-nums">{row.m.elementCount?.toLocaleString() ?? "—"}</TableCell>
                     <TableCell className="text-muted-foreground">{formatSize(row.m.fileSize)}</TableCell>
                     <TableCell className="text-muted-foreground">
-                      {day(row.m.uploadedAt)} · {row.m.uploadedBy?.name || row.m.uploadedBy?.email || "Former member"}
+                      <LocalTime date={row.m.uploadedAt} format="date" /> · {row.m.uploadedBy?.name || row.m.uploadedBy?.email || "Former member"}
                     </TableCell>
                     <TableCell>
                       <ModelStatus key={row.m.status} modelId={row.m.id} initialStatus={row.m.status} initialProgress={row.m.translationProgress} />
@@ -120,7 +120,7 @@ export default async function ModelsPage({ params }: PageProps<"/projects/[proje
                     <TableCell className="text-muted-foreground">{row.m.clientId ? "Built by AI from drawings" : "Uploaded · IFC"}</TableCell>
                     <TableCell className="tabular-nums">{row.m.elementCount.toLocaleString()}</TableCell>
                     <TableCell className="text-muted-foreground">Revision {row.m.revision}</TableCell>
-                    <TableCell className="text-muted-foreground">{day(row.m.updatedAt)}</TableCell>
+                    <TableCell className="text-muted-foreground"><LocalTime date={row.m.updatedAt} format="date" /></TableCell>
                     <TableCell>
                       <Badge variant="success">Ready</Badge>
                     </TableCell>

@@ -32,7 +32,7 @@ export default async function SharedModelPage({ params }: PageProps<"/share/mode
           name: model.name,
           description: model.description,
           revision: model.revision,
-          updated: model.updatedAt.toLocaleString("en-US", { dateStyle: "medium", timeStyle: "short" }),
+          updated: model.updatedAt.toISOString(),
           uploaded: !model.clientId,
         }}
         summary={modelSummary(model)}

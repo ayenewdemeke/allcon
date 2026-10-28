@@ -9,6 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { db } from "@/lib/db";
 import { requireProject } from "@/lib/auth/session";
+import { LocalTime } from "@/components/local-time";
 
 // "Fix sheet numbers" re-reads every page's title block on the server.
 export const maxDuration = 120;
@@ -60,7 +61,7 @@ export default async function SheetsPage({ params }: PageProps<"/projects/[proje
               <h2 className="font-semibold">{set.fileName}</h2>
               <p className="text-xs text-muted-foreground">
                 {set.pageCount ? `${set.pageCount} sheets · ` : ""}
-                {formatSize(set.fileSize)} · {set.uploadedAt.toLocaleDateString("en-US", { dateStyle: "medium" })}
+                {formatSize(set.fileSize)} · <LocalTime date={set.uploadedAt} format="date" />
               </p>
               {set.status !== "ready" && (
                 <Badge variant={set.status === "failed" ? "destructive" : "info"}>

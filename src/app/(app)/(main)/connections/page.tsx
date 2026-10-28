@@ -10,6 +10,7 @@ import { mcpResource } from "@/lib/auth/server";
 import { requireUser } from "@/lib/auth/session";
 import { db } from "@/lib/db";
 import { env } from "@/lib/env";
+import { LocalTime } from "@/components/local-time";
 
 export const metadata: Metadata = { title: "Connections" };
 
@@ -20,7 +21,6 @@ const SKILLS = [
   { name: "Build a 3D model from drawings", text: "Structural or architectural: reads a drawing set and builds a 3D IFC model you can view, check and download." },
 ];
 
-const when = (d: Date) => d.toLocaleString("en-US", { dateStyle: "medium", timeStyle: "short" });
 
 export default async function ConnectionsPage() {
   const user = await requireUser();
@@ -120,7 +120,7 @@ export default async function ConnectionsPage() {
                 <Plug className="size-4 text-muted-foreground" />
                 <div className="min-w-0 flex-1">
                   <p className="font-medium">{names.get(c.clientId)}</p>
-                  <p className="text-xs text-muted-foreground">Connected {c.createdAt ? when(c.createdAt) : ""}</p>
+                  <p className="text-xs text-muted-foreground">Connected {c.createdAt ? <LocalTime date={c.createdAt} /> : ""}</p>
                 </div>
                 <DisconnectButton clientId={c.clientId} name={names.get(c.clientId) ?? "the app"} />
               </li>
@@ -145,7 +145,7 @@ export default async function ConnectionsPage() {
                     {a.summary}
                   </p>
                   <p className="text-xs text-muted-foreground">
-                    {when(a.createdAt)} · {(a.clientId && names.get(a.clientId)) || "AI app"}
+                    <LocalTime date={a.createdAt} /> · {(a.clientId && names.get(a.clientId)) || "AI app"}
                     {a.project && (
                       <>
                         {" · "}

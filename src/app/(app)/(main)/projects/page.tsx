@@ -6,6 +6,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { db } from "@/lib/db";
 import { requireUser } from "@/lib/auth/session";
 import { mapsConfig } from "@/lib/maps/config";
+import { LocalTime } from "@/components/local-time";
 
 export default async function ProjectsPage() {
   const user = await requireUser();
@@ -60,7 +61,7 @@ export default async function ProjectsPage() {
                       <Box className="ml-2 size-3.5" />
                       {p._count.modelVersions + p._count.ifcModels} model{p._count.modelVersions + p._count.ifcModels === 1 ? "" : "s"}
                       <span className="ml-auto">
-                        {p.createdAt.toLocaleDateString("en-US", { dateStyle: "medium" })}
+                        <LocalTime date={p.createdAt} format="date" />
                       </span>
                     </p>
                   </div>

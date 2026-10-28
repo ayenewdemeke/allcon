@@ -5,12 +5,12 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { db } from "@/lib/db";
 import { requireProject } from "@/lib/auth/session";
 import { BOQ } from "@/lib/line-items/terms";
+import { LocalTime } from "@/components/local-time";
 
 // Connector calls that changed something in the project (reads aren't activity).
 const EDIT_TOOLS = ["flag_issue", "add_cloud", "add_note", "rename_sheet", "create_3d_model", "ifc_edit", "map_groups"];
 
 const plural = (n: number, one: string, many = `${one}s`) => `${n.toLocaleString()} ${n === 1 ? one : many}`;
-const day = (d: Date) => d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
 
 function Section({ href, icon: Icon, title, value, hint }: { href: string; icon: LucideIcon; title: string; value: string; hint: string }) {
   return (
@@ -120,7 +120,7 @@ export default async function ProjectOverviewPage({ params }: PageProps<"/projec
                   ) : (
                     <span className="min-w-0 flex-1 truncate">{r.text}</span>
                   )}
-                  <span className="shrink-0 text-xs text-muted-foreground">{day(r.at)}</span>
+                  <span className="shrink-0 text-xs text-muted-foreground"><LocalTime date={r.at} format="day" /></span>
                 </li>
               ))}
             </ul>

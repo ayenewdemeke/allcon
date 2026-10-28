@@ -6,6 +6,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { db } from "@/lib/db";
 import { planReviewEnabled } from "@/lib/env";
 import { requireProject } from "@/lib/auth/session";
+import { LocalTime } from "@/components/local-time";
 
 export default async function ReviewsPage({ params }: PageProps<"/projects/[projectId]/reviews">) {
   const { user, project } = await requireProject((await params).projectId);
@@ -69,7 +70,7 @@ export default async function ReviewsPage({ params }: PageProps<"/projects/[proj
                   </p>
                   <p className="mt-1 text-xs text-muted-foreground">
                     {reviewed} sheet{reviewed === 1 ? "" : "s"} reviewed · {open} to look at · {kept} kept ·{" "}
-                    {r.createdAt.toLocaleDateString("en-US", { dateStyle: "medium" })}
+                    <LocalTime date={r.createdAt} format="date" />
                   </p>
                 </Link>
               </li>

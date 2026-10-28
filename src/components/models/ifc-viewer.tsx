@@ -17,6 +17,7 @@ import type { ElementDetails, Row } from "@/lib/ifc/element-properties";
 import type { MapsConfig } from "@/lib/maps/config";
 import type { Placement } from "@/lib/maps/placement";
 import { cn } from "@/lib/utils";
+import { useLocalTime } from "@/components/local-time";
 
 // A model built from drawings, in 3D: a header with the model's actions, the model filling
 // the page, and floating tools over it (view cube, toolbar, browser, properties, details).
@@ -97,6 +98,7 @@ export function IfcViewer({
   /** Viewed through a share link: read-only, no notes about editing. */
   shared?: boolean;
 }) {
+  const updated = useLocalTime(model.updated);
   const frame = useRef<HTMLDivElement>(null);
   const canvas = useRef<ModelCanvasHandle>(null);
   const cube = useRef<OrientationCubeHandle>(null);
@@ -207,7 +209,7 @@ export function IfcViewer({
             <div className="flex min-w-0 items-center gap-2">
               <h1 className="truncate text-base font-semibold">{model.name}</h1>
               <Badge variant="outline">IFC</Badge>
-              <Badge variant="secondary" title={`Updated ${model.updated}`}>
+              <Badge variant="secondary" title={`Updated ${updated}`}>
                 r{model.revision}
               </Badge>
               {summary.lod?.target && (
@@ -429,9 +431,10 @@ function ModelDetails({
   shared: boolean;
   onClose: () => void;
 }) {
+  const updated = useLocalTime(model.updated);
   const size = summary.extents?.size.map((n) => num(n)).join(" × ");
   const overview: Row[] = [
-    { label: "Revision", value: `${model.revision} · ${model.updated}` },
+    { label: "Revision", value: `${model.revision} · ${updated}` },
     { label: "Elements", value: num(summary.elements, 0) },
   ];
   if (summary.totalVolumeM3) overview.push({ label: "Total volume", value: `${num(summary.totalVolumeM3)} m³` });

@@ -6,6 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { db } from "@/lib/db";
 import { requireUser } from "@/lib/auth/session";
+import { LocalTime } from "@/components/local-time";
 
 export default async function LibraryPage() {
   const user = await requireUser();
@@ -49,7 +50,7 @@ export default async function LibraryPage() {
                     <p className="truncate font-medium group-hover:text-primary">{r.title}</p>
                     <p className="text-xs text-muted-foreground">
                       {r.pageCount ? `${r.pageCount} pages · ${r._count.sections} sections · ` : ""}
-                      added {r.uploadedAt.toLocaleDateString("en-US", { dateStyle: "medium" })}
+                      added <LocalTime date={r.uploadedAt} format="date" />
                     </p>
                     {r.status !== "ready" && (
                       <Badge variant={r.status === "failed" ? "destructive" : "info"}>

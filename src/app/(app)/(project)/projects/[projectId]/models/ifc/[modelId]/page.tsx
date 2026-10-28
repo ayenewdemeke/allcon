@@ -40,7 +40,7 @@ export default async function IfcModelPage({ params }: PageProps<"/projects/[pro
     name: model.name,
     description: model.description,
     revision: model.revision,
-    updated: model.updatedAt.toLocaleString("en-US", { dateStyle: "medium", timeStyle: "short" }),
+    updated: model.updatedAt.toISOString(),
     uploaded: !model.clientId,
   };
   const api = `/api/ifc-models/${model.id}`;
