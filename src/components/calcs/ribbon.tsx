@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Calculator, ChartSpline, FileText, FolderKanban, Grid3x3, Heading1, Heading2, LayoutTemplate, Loader2, Printer, Ruler, Send, Sigma, SquareFunction, StickyNote, Table2, Type } from "lucide-react";
+import { Calculator, ChartSpline, FileText, FolderKanban, Grid2x2, Grid3x3, Heading1, Heading2, LayoutTemplate, Loader2, Printer, Ruler, Send, Sigma, SquareFunction, StickyNote, Table2, Type } from "lucide-react";
 import type { CalcDocument } from "@/lib/calcs/document";
 import { materials } from "@/lib/calcs/library/materials";
 import { layout, snippetLines, TEMPLATES } from "@/lib/calcs/library/templates";
@@ -165,7 +165,23 @@ const unitLatex = (u: string) => {
 /** The worksheet's project (it can be filed under one), and publishing it to that project's Sheets. */
 export type ProjectLink = { projects: { id: string; name: string }[]; projectId: string | null; onProject: (id: string | null) => void; onPublish: () => void; publishing: boolean };
 
-export function CalcRibbon({ doc, worksheet, quickAccess, status, project }: { doc: CalcDocument; worksheet: React.RefObject<WorksheetHandle | null>; quickAccess: React.ReactNode; status: React.ReactNode; project: ProjectLink }) {
+export function CalcRibbon({
+  doc,
+  worksheet,
+  quickAccess,
+  status,
+  project,
+  grid,
+  onGrid,
+}: {
+  doc: CalcDocument;
+  worksheet: React.RefObject<WorksheetHandle | null>;
+  quickAccess: React.ReactNode;
+  status: React.ReactNode;
+  project: ProjectLink;
+  grid: boolean;
+  onGrid: (show: boolean) => void;
+}) {
   const [tab, setTab] = useState<Tab>("math");
   const insert = (latex: string) => worksheet.current?.insertMath(latex);
   const [size, setSize] = useState({ rows: 2, cols: 2 });
@@ -390,6 +406,9 @@ export function CalcRibbon({ doc, worksheet, quickAccess, status, project }: { d
                   </select>
                 </label>
               </div>
+            </Panel>
+            <Panel title="Show">
+              <Big icon={Grid2x2} label="Grid" title="Show the grid regions line up on (it isn't printed)" onClick={() => onGrid(!grid)} active={grid} />
             </Panel>
             <Panel title="Header">
               <HeaderFields doc={doc} />

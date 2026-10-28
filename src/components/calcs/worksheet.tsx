@@ -50,6 +50,7 @@ export function Worksheet({
   setDrafts,
   handle,
   others = [],
+  grid = false,
 }: {
   doc: CalcDocument;
   version: number;
@@ -59,6 +60,8 @@ export function Worksheet({
   setDrafts: (update: (d: Map<string, string>) => Map<string, string>) => void;
   handle: React.RefObject<WorksheetHandle | null>;
   others?: Other[];
+  /** Show the grid regions snap to (on screen only), as Mathcad's Show Grid. */
+  grid?: boolean;
 }) {
   void version;
   const [ml, setMl] = useState<MathLive | null>(null);
@@ -448,6 +451,7 @@ export function Worksheet({
               <div className="absolute" style={{ left: page.left, top: page.top, width: content.width, height: content.height }}>
                 {/* the margins' edge, faint, as Mathcad shows it */}
                 <div className="no-print pointer-events-none absolute inset-0 border border-dashed border-neutral-200" />
+                {grid && <div className="no-print pointer-events-none absolute inset-0" style={{ backgroundImage: "radial-gradient(circle, #a1a1aa 0.6px, transparent 0.9px)", backgroundSize: `${GRID}px ${GRID}px`, backgroundPosition: `-${GRID / 2}px -${GRID / 2}px` }} />}
                 {regions
                   .filter((r) => {
                     const y = selection.has(r.id) && drag ? r.y + drag.dy : r.y;

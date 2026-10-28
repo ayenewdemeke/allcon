@@ -306,6 +306,23 @@ function Workspace({ doc, calc, projects, backHref }: { doc: CalcDocument; calc:
     }
   }, [calc.id]);
 
+  // The grid, shown or not (remembered in this browser).
+  const [grid, setGrid] = useState(() => {
+    try {
+      return localStorage.getItem("calcs.grid") === "1";
+    } catch {
+      return false;
+    }
+  });
+  const showGrid = (show: boolean) => {
+    setGrid(show);
+    try {
+      localStorage.setItem("calcs.grid", show ? "1" : "0");
+    } catch {
+      // Just for now, then.
+    }
+  };
+
   // --- the project it's filed under, and publishing to its Sheets ------------------------------
   const [projectId, setProjectId] = useState(calc.projectId);
   const [publishing, setPublishing] = useState(false);
@@ -375,6 +392,8 @@ function Workspace({ doc, calc, projects, backHref }: { doc: CalcDocument; calc:
           </>
         }
         project={{ projects, projectId, onProject: chooseProject, onPublish: () => void publish(), publishing }}
+        grid={grid}
+        onGrid={showGrid}
         status={
           <span className="flex items-center gap-2">
             <People people={people} noun="worksheet" />
@@ -384,7 +403,7 @@ function Workspace({ doc, calc, projects, backHref }: { doc: CalcDocument; calc:
       />
       {imported && <ImportSummary report={imported} errors={errors} onClose={() => setImported(null)} />}
       <div className="calc-scroll min-h-0 flex-1 overflow-auto bg-neutral-200 dark:bg-neutral-800">
-        <Worksheet doc={doc} version={version} results={results} zoom={zoom} drafts={drafts} setDrafts={setDrafts} handle={worksheet} others={others} />
+        <Worksheet doc={doc} version={version} results={results} zoom={zoom} drafts={drafts} setDrafts={setDrafts} handle={worksheet} others={others} grid={grid} />
       </div>
       <div className="no-print flex h-8 items-center gap-3 border-t bg-muted/40 px-3 text-xs text-muted-foreground">
         <span>{doc.regions.size} regions</span>

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { uprightUnits, type Result } from "@/lib/calcs/evaluate";
 import type { MathRegion, TextRegion } from "@/lib/calcs/types";
 import { cn } from "@/lib/utils";
@@ -219,6 +219,8 @@ const TEXT_STYLES: Record<TextRegion["style"], string> = {
   note: "text-[12px] italic text-neutral-600",
 };
 
+let measurer: CanvasRenderingContext2D | null = null;
+
 export function TextRegionView({
   region,
   editing,
@@ -240,13 +242,22 @@ export function TextRegionView({
     el.focus();
     el.setSelectionRange(el.value.length, el.value.length);
   }, [editing]);
-  useEffect(() => {
-    // Grow with the text.
-    if (ref.current) {
-      ref.current.style.height = "0px";
-      ref.current.style.height = `${ref.current.scrollHeight}px`;
+  useLayoutEffect(() => {
+    // Grow with the text, as Mathcad's text regions do: as wide as its longest line (so a click
+    // beside it is on the page, not in it), wrapping at the page's margin; then as tall as it needs.
+    const el = ref.current;
+    if (!el) return;
+    const css = getComputedStyle(el);
+    measurer ??= document.createElement("canvas").getContext("2d");
+    let longest = 0;
+    if (measurer) {
+      measurer.font = `${css.fontStyle} ${css.fontWeight} ${css.fontSize} ${css.fontFamily}`;
+      for (const line of text.split("\n")) longest = Math.max(longest, measurer.measureText(line).width);
     }
-  }, [text, editing]);
+    el.style.width = `${Math.min(maxWidth, Math.max(24, Math.ceil(longest) + 14))}px`;
+    el.style.height = "0px";
+    el.style.height = `${el.scrollHeight}px`;
+  }, [text, editing, maxWidth]);
   const style = TEXT_STYLES[region.style];
   if (editing)
     return (
@@ -261,7 +272,7 @@ export function TextRegionView({
             (e.target as HTMLTextAreaElement).blur();
           }
         }}
-        style={{ width: Math.min(Math.max(region.width || 320, 160), maxWidth) }}
+        rows={1}
         className={cn("block resize-none overflow-hidden rounded-sm bg-white px-1 py-0.5 leading-snug outline-none ring-1 ring-primary", style)}
       />
     );
