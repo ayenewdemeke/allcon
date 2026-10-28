@@ -79,3 +79,15 @@ export async function publishCalcToSheets(calcId: string): Promise<{ link: strin
     throw err;
   }
 }
+
+/** A worksheet for an imported file (Mathcad Prime, SMath Studio): the browser reads the file and
+ * saves its regions into it. */
+export async function createImportedCalc(fileName: string, projectId: string | null): Promise<{ id: string }> {
+  const user = await requireUser();
+  const parsed = name.safeParse(fileName.replace(/\.(mcdx|sm)$/i, "") || "Imported worksheet");
+  if (!parsed.success) throw new Error(parsed.error.issues[0]?.message);
+  const project = projectId ? await orgProject(user.orgId, projectId) : null;
+  const calc = await db.calc.create({ data: { orgId: user.orgId, projectId: project?.id ?? null, name: parsed.data, createdById: user.id } });
+  revalidatePath("/calcs");
+  return { id: calc.id };
+}

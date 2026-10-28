@@ -7,7 +7,7 @@ export type Node =
   | { k: "str"; v: string }
   | { k: "name"; name: string }
   | { k: "neg"; a: Node }
-  | { k: "op"; op: "+" | "-" | "*" | "/" | "^" | "<" | ">" | "<=" | ">=" | "!=" | "=="; a: Node; b: Node }
+  | { k: "op"; op: "+" | "-" | "*" | "/" | "^" | "<" | ">" | "<=" | ">=" | "!=" | "==" | "and" | "or"; a: Node; b: Node }
   | { k: "call"; name: string; args: Node[] }
   /** A name next to parentheses: a function call if it's a function, else multiplication. */
   | { k: "apply"; name: string; args: Node[] }
@@ -23,15 +23,20 @@ export type Node =
   | { k: "range"; first: Node; second: Node | null; last: Node }
   /** Σ or Π over a variable from..to (or over a range variable's values). */
   | { k: "bigop"; op: "sum" | "prod"; v: string; from: Node | null; to: Node | null; body: Node }
-  | { k: "integral"; v: string; from: Node; to: Node; body: Node }
+  /** Without limits (from and to null) it's indefinite: symbolic only. */
+  | { k: "integral"; v: string; from: Node | null; to: Node | null; body: Node }
   | { k: "derivative"; v: string; order: number; body: Node }
   /** Piecewise (if / otherwise): the first row whose condition holds; null is "otherwise". */
   | { k: "cases"; rows: { value: Node; cond: Node | null }[] };
 
 export type Statement =
-  | { k: "define"; name: string; params: string[] | null; body: Node; show: boolean }
+  /** name := ..., f(x) := ..., v[i] := ... (an element, or one per value of a range), or
+   * (a, b) := ... (several names from a vector's elements). */
+  | { k: "define"; name: string; params: string[] | null; index?: Node[]; names?: string[]; body: Node; show: boolean }
   | { k: "evaluate"; expr: Node }
   | { k: "expression"; expr: Node }
+  /** expression → : worked out symbolically (Mathcad's symbolic evaluation). */
+  | { k: "symbolic"; expr: Node }
   | { k: "empty" };
 
 export class ParseError extends Error {
@@ -354,6 +359,11 @@ class Parser {
         this.i++;
         return { k: "unit", name: "deg" };
       }
+      if (t.v === "mathrm") {
+        // Upright letters are a unit: \mathrm{g} is grams, whatever else g is.
+        this.i++;
+        return { k: "unit", name: this.rawGroup().replace(/\s+/g, "") };
+      }
       if (t.v === "operatorname" || t.v === "mathrm" || GREEK.has(t.v) || FUNCTIONS.has(t.v) || ["mathit", "mathbf", "mathsf"].includes(t.v)) return this.named();
       throw new ParseError(`\\${t.v} isn't supported yet`);
     }
@@ -466,13 +476,28 @@ class Parser {
     }
   }
 
+  /** Comparisons joined by and (\land, \wedge) and or (\lor, \vee). */
   expression(): Node {
+    let a = this.comparison();
+    for (;;) {
+      this.spaces();
+      const t = this.peek();
+      const op = t?.t === "cmd" && ["land", "wedge"].includes(t.v) ? "and" : t?.t === "cmd" && ["lor", "vee"].includes(t.v) ? "or" : null;
+      if (!op) return a;
+      this.i++;
+      a = { k: "op", op, a, b: this.comparison() };
+    }
+  }
+
+  private comparison(): Node {
     let a = this.sum();
     for (;;) {
       this.spaces();
       const t = this.peek();
-      let op: "<" | ">" | "<=" | ">=" | "!=" | null = null;
+      let op: "<" | ">" | "<=" | ">=" | "!=" | "==" | null = null;
       if (t?.t === "sym" && (t.v === "<" || t.v === ">")) op = t.v;
+      // An equation (solve(e = 0, x), subs(e, x = 2), if(a = b, ...)); at the top level it's caught.
+      else if (t?.t === "sym" && t.v === "=") op = "==";
       else if (t?.t === "cmd" && ["le", "leq", "leqslant", "ge", "geq", "geqslant", "ne", "neq", "lt", "gt"].includes(t.v)) op = t.v === "lt" ? "<" : t.v === "gt" ? ">" : (OPERATORS[t.v] as "<=" | ">=" | "!=");
       if (!op) return a;
       this.i++;
@@ -586,13 +611,16 @@ class Parser {
   /** ∫_a^b body dx: the variable is the d-name at the end. */
   private integral(): Node {
     this.spaces();
-    if (!this.isSym("_")) throw new ParseError("Give the integral its limits", true);
-    this.i++;
-    const from = this.group();
-    this.spaces();
-    if (!this.isSym("^")) throw new ParseError("Give the integral its upper limit", true);
-    this.i++;
-    const to = this.group();
+    let from: Node | null = null;
+    let to: Node | null = null;
+    if (this.isSym("_")) {
+      this.i++;
+      from = this.group();
+      this.spaces();
+      if (!this.isSym("^")) throw new ParseError("Give the integral its upper limit", true);
+      this.i++;
+      to = this.group();
+    }
     const body = this.term();
     const { body: integrand, v } = splitDifferential(body);
     if (!v) throw new ParseError("End the integral with d and its variable (dx)", true);
@@ -618,13 +646,22 @@ class Parser {
   }
 
   /** The left side of a definition: a name, or a function's name and parameters. */
-  target(): { name: string; params: string[] | null } {
+  target(): { name: string; params: string[] | null; index?: Node[]; names?: string[] } {
     this.spaces();
+    if (this.isCmd("begin")) {
+      // Several names at once: \begin{pmatrix}a\\b\end{pmatrix} := v.
+      this.i++;
+      const m = this.environment(this.rawGroup());
+      const names = m.k === "matrix" ? m.rows.flat() : [];
+      if (!names.length || !names.every((n) => n.k === "name")) throw new ParseError("Define several names at once with a vector of names: (a, b) := v");
+      return { name: names.map((n) => (n as { name: string }).name).join(","), params: null, names: names.map((n) => (n as { name: string }).name) };
+    }
     const name = this.name();
     if (!name) throw new ParseError("Define a name: x := ...");
     this.spaces();
     const close = this.opens();
     if (!close) return { name, params: null };
+    if (close === "]") return { name, params: null, index: this.args(close) };
     const params: string[] = [];
     this.spaces();
     if (!this.closes(close)) {
@@ -670,14 +707,24 @@ export function parseStatement(latex: string): Statement {
     const p = new Parser(tokenize(rhs));
     const body = p.rangeOrExpression();
     if (!p.done) throw new ParseError("There's more here than one expression");
-    return { k: "define", name: target.name, params: target.params, body, show };
+    return { k: "define", name: target.name, params: target.params, index: target.index, names: target.names, body, show };
+  }
+  // A trailing arrow: worked out symbolically.
+  const arrow = text.match(/\\(?:to|rightarrow|longrightarrow)\s*$/);
+  if (arrow) {
+    const body = text.slice(0, arrow.index).trim();
+    if (!body) throw new ParseError("Put an expression before the arrow", true);
+    const p = new Parser(tokenize(body));
+    const expr = p.expression();
+    if (!p.done) throw new ParseError("There's more here than one expression");
+    return { k: "symbolic", expr };
   }
   const evaluate = /=\s*$/.test(text);
   const body = evaluate ? text.replace(/=\s*$/, "") : text;
   if (!body.trim()) return { k: "empty" };
   const p = new Parser(tokenize(body));
   const expr = p.rangeOrExpression();
-  if (!p.done) {
+  if (!p.done || (expr.k === "op" && expr.op === "==")) {
     if (/(^|[^:\\])=/.test(body)) throw new ParseError("Use := to define, and = at the end to evaluate");
     throw new ParseError("There's more here than one expression");
   }

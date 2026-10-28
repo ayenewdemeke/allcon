@@ -97,6 +97,15 @@ export function MathRegionView({
       (e) => {
         const previous = lastKey;
         lastKey = e.key;
+        if ((e.ctrlKey || e.metaKey) && e.key === ".") {
+          // Ctrl+. : symbolic evaluation (→), at the end, as in Mathcad.
+          e.preventDefault();
+          e.stopPropagation();
+          mf.executeCommand("moveToMathfieldEnd");
+          mf.executeCommand(["insert", "\\to"]);
+          handlers.current.onDraft(mf.value);
+          return;
+        }
         if (e.ctrlKey || e.metaKey || e.altKey) return;
         if (e.key === "Enter" && !e.shiftKey) {
           e.preventDefault();

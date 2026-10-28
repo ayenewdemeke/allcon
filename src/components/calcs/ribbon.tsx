@@ -104,6 +104,20 @@ const SOLVING: [string, string, string][] = [
   ["polyroots", "\\operatorname{polyroots}\\left(#0\\right)", "polyroots(v): a polynomial's roots, from its coefficients (constant first)"],
 ];
 
+const SYMBOLICS: [string, string, string][] = [
+  ["→", "\\to", "Symbolic evaluation (Ctrl+. or ->): works the expression out with names kept as names"],
+  ["simplify", "\\operatorname{simplify}\\left(#0\\right)\\to", "simplify(e): the simplest form"],
+  ["expand", "\\operatorname{expand}\\left(#0\\right)\\to", "expand(e): products and powers multiplied out"],
+  ["factor", "\\operatorname{factor}\\left(#0\\right)\\to", "factor(e): as a product of factors"],
+  ["solve", "\\operatorname{solve}\\left(#0,#?\\right)\\to", "solve(equation, x): x in terms of the rest"],
+  ["subs", "\\operatorname{subs}\\left(#0,#?=#?\\right)\\to", "subs(e, x = a): e with x replaced by a"],
+  ["series", "\\operatorname{series}\\left(#0,#?\\right)\\to", "series(e, x, a, n): Taylor series about a (0) to order n (6)"],
+  ["limit", "\\operatorname{limit}\\left(#0,#?,#?\\right)\\to", "limit(e, x, a): the limit as x goes to a"],
+  ["partfrac", "\\operatorname{partfrac}\\left(#0\\right)\\to", "partfrac(e): partial fractions"],
+  ["collect", "\\operatorname{collect}\\left(#0,#?\\right)\\to", "collect(e, x): grouped by powers of x"],
+  ["float", "\\operatorname{float}\\left(#0,6\\right)\\to", "float(e, n): as a decimal, to n digits"],
+];
+
 const MATRIX_OPERATORS: [string, string, string][] = [
   ["Mᵀ", "^{T}", "Transpose"],
   ["M⁻¹", "^{-1}", "Inverse"],
@@ -244,6 +258,7 @@ export function CalcRibbon({ doc, worksheet, quickAccess, status, project }: { d
               </div>
             </Panel>
             <Panel title="Programming">{keys(PROGRAMMING, "grid-cols-1")}</Panel>
+            <Panel title="Symbolics">{keys(SYMBOLICS, "grid-cols-4")}</Panel>
             <Panel title="Solving">
               <Big icon={SquareFunction} label="Solve block" title="A solve block: guess values, constraints and a solver (find)" onClick={() => worksheet.current?.addSolve()} />
               {keys(SOLVING, "grid-cols-3")}

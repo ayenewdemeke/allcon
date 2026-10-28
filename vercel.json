@@ -5,6 +5,10 @@
       "maxDuration": 120,
       "excludeFiles": "{node_modules/**,.next/**,src/**,public/**,prisma/**,samples/**,scripts/**,.git/**,**/*.test.*}",
       "includeFiles": "api/_dxf.py"
+    },
+    "api/sym.py": {
+      "maxDuration": 60,
+      "excludeFiles": "{node_modules/**,.next/**,src/**,public/**,prisma/**,samples/**,scripts/**,.git/**,**/*.test.*}"
     }
   }
 }

@@ -1,5 +1,7 @@
-# Python function api/ifc.py (the IfcOpenShell worker for 3D models, and DXF for drafting).
+# Python functions: api/ifc.py (the IfcOpenShell worker for 3D models, and DXF for drafting) and
+# api/sym.py (SymPy, for symbolic math in Calcs).
 ifcopenshell==0.9.0.post1
 certifi==2025.8.3
 pyproj==3.8.0
 ezdxf==1.4.5
+sympy==1.14.0

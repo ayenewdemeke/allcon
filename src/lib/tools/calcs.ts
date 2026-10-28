@@ -2,9 +2,10 @@ import "server-only";
 import { gunzipSync, gzipSync } from "node:zlib";
 import { z } from "zod";
 import { uploadBuffer } from "@/lib/aps/oss";
-import { evaluateSheet, type Result, type SheetItem, type UnitSystem } from "@/lib/calcs/evaluate";
+import { evaluateSheet, putSymbolicAnswers, takeSymbolicRequests, type Result, type SheetItem, type UnitSystem } from "@/lib/calcs/evaluate";
 import { loadShapes } from "@/lib/calcs/library/shapes";
 import { calcPdf } from "@/lib/calcs/pdf";
+import { workOutSymbolic } from "@/lib/calcs/symbolic";
 import { findTemplate, layout, regionHeight, type Line } from "@/lib/calcs/library/templates";
 import { CALC_FILE, newCalcKey } from "@/lib/calcs/server";
 import { contentSize, emptyCalc, GRID, readingOrder, type CalcData, type Header, type Region } from "@/lib/calcs/types";
@@ -93,7 +94,14 @@ export async function workOut(data: CalcData) {
   await loadShapes();
   const regions = readingOrder(data.regions);
   const items = regions.flatMap((r): SheetItem[] => (r.kind === "text" ? [] : [r as SheetItem]));
-  return { regions, results: evaluateSheet(items, data.settings) };
+  let results = evaluateSheet(items, data.settings);
+  // Symbolic evaluations (→) not worked out yet: asked for, then the sheet again with them.
+  const requests = takeSymbolicRequests();
+  if (requests.length) {
+    putSymbolicAnswers(await workOutSymbolic(requests));
+    results = evaluateSheet(items, data.settings);
+  }
+  return { regions, results };
 }
 
 /** A region as apps read it: what it holds, where it is, and what it works out to. */

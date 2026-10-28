@@ -59,6 +59,7 @@ const SHORTCUTS: Record<string, string> = {
   "<=": "\\le",
   ">=": "\\ge",
   "!=": "\\ne",
+  "->": "\\to",
 };
 
 /** A math field set up for worksheet math. Some options apply only once it's in the page, so

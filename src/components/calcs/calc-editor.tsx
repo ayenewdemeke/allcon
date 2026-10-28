@@ -3,12 +3,13 @@
 import "mathlive/fonts.css";
 import "mathlive/static.css";
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import { AlertCircle, ArrowLeft, Check, Cloud, Loader2, Minus, Plus, Redo2, Undo2 } from "lucide-react";
+import { AlertCircle, ArrowLeft, Check, Cloud, FileUp, Loader2, Minus, Plus, Redo2, Undo2, X } from "lucide-react";
 import { toast } from "sonner";
 import { publishCalcToSheets, setCalcProject } from "@/app/actions/calcs";
 import { LinkButton } from "@/components/ui/link-button";
 import { CalcDocument } from "@/lib/calcs/document";
-import { evaluateSheet, type SheetItem, type UnitSystem } from "@/lib/calcs/evaluate";
+import type { ImportReport } from "@/lib/calcs/import";
+import { evaluateSheet, putSymbolicAnswers, retrySymbolic, takeSymbolicRequests, type SheetItem, type SymbolicAnswer, type UnitSystem } from "@/lib/calcs/evaluate";
 import { loadShapes } from "@/lib/calcs/library/shapes";
 import { findTemplate, layout } from "@/lib/calcs/library/templates";
 import { emptyCalc, PAGES, readingOrder, type CalcData } from "@/lib/calcs/types";
@@ -119,17 +120,43 @@ function Workspace({ doc, calc, projects, backHref }: { doc: CalcDocument; calc:
     };
   }, []);
 
+  // Symbolic answers (→) arrive from the server; each arrival works the sheet out again.
+  const [answers, setAnswers] = useState(0);
+  const failures = useRef(new Map<string, number>());
+
   // The math, worked out in reading order with what's being typed (live, as in Mathcad).
   const results = useMemo(() => {
     void version;
     void shapes;
+    void answers;
     const items = readingOrder([...doc.regions.values()]).flatMap((r): SheetItem[] => {
       if (r.kind === "math") return [{ id: r.id, kind: "math", latex: drafts.get(r.id) ?? r.latex, displayUnit: r.displayUnit }];
       if (r.kind === "text") return [];
       return [r];
     });
     return evaluateSheet(items, doc.settings);
-  }, [doc, version, drafts, shapes]);
+  }, [doc, version, drafts, shapes, answers]);
+  useEffect(() => {
+    // What the sheet asked to be worked out symbolically, once typing pauses.
+    const timer = setTimeout(async () => {
+      const requests = takeSymbolicRequests();
+      if (!requests.length) return;
+      const res = await fetch("/api/calcs/symbolic", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ requests }) }).catch(() => null);
+      const body = res?.ok ? ((await res.json()) as { results: Record<string, SymbolicAnswer> }) : null;
+      if (body) putSymbolicAnswers(body.results);
+      else {
+        // Didn't get through: asked again in a moment (three tries), then said so.
+        const tries = requests.map((r) => [r, (failures.current.get(r.key) ?? 0) + 1] as const);
+        tries.forEach(([r, n]) => failures.current.set(r.key, n));
+        const done = tries.filter(([, n]) => n >= 3).map(([r]) => r);
+        putSymbolicAnswers(Object.fromEntries(done.map((r) => [r.key, { error: "Symbolic math isn't available right now" }])));
+        retrySymbolic(tries.filter(([, n]) => n < 3).map(([r]) => r));
+        await new Promise((r) => setTimeout(r, 2000));
+      }
+      setAnswers((n) => n + 1);
+    }, 350);
+    return () => clearTimeout(timer);
+  }, [results]);
   const errors = [...results.values()].filter((r) => r.kind === "error" && !r.incomplete).length;
 
   // --- saving, and others' changes ------------------------------------------------------------
@@ -261,6 +288,24 @@ function Workspace({ doc, calc, projects, backHref }: { doc: CalcDocument; calc:
     };
   }, [doc, saveNow]);
 
+  // What an import brought in (once, straight after importing).
+  // (The workspace only mounts in the browser, once the worksheet has loaded.)
+  const [imported, setImported] = useState<ImportReport | null>(() => {
+    try {
+      const text = sessionStorage.getItem(`calc-import:${calc.id}`);
+      return text ? (JSON.parse(text) as ImportReport) : null;
+    } catch {
+      return null;
+    }
+  });
+  useEffect(() => {
+    try {
+      sessionStorage.removeItem(`calc-import:${calc.id}`);
+    } catch {
+      // Nothing to clear.
+    }
+  }, [calc.id]);
+
   // --- the project it's filed under, and publishing to its Sheets ------------------------------
   const [projectId, setProjectId] = useState(calc.projectId);
   const [publishing, setPublishing] = useState(false);
@@ -337,6 +382,7 @@ function Workspace({ doc, calc, projects, backHref }: { doc: CalcDocument; calc:
           </span>
         }
       />
+      {imported && <ImportSummary report={imported} errors={errors} onClose={() => setImported(null)} />}
       <div className="calc-scroll min-h-0 flex-1 overflow-auto bg-neutral-200 dark:bg-neutral-800">
         <Worksheet doc={doc} version={version} results={results} zoom={zoom} drafts={drafts} setDrafts={setDrafts} handle={worksheet} others={others} />
       </div>
@@ -362,6 +408,26 @@ function Workspace({ doc, calc, projects, backHref }: { doc: CalcDocument; calc:
           </button>
         </span>
       </div>
+    </div>
+  );
+}
+
+/** What an import brought across, and what it couldn't. */
+function ImportSummary({ report, errors, onClose }: { report: ImportReport; errors: number; onClose: () => void }) {
+  const skipped = report.skipped.reduce((n, s) => n + s.count, 0);
+  return (
+    <div className="no-print flex items-start gap-3 border-b bg-amber-50 px-4 py-2 text-xs text-amber-950 dark:bg-amber-950/40 dark:text-amber-100">
+      <FileUp className="mt-0.5 size-4 shrink-0" />
+      <div className="min-w-0 flex-1 space-y-0.5">
+        <p className="font-medium">
+          Imported from {report.format}: {report.regions} regions{skipped ? `, ${skipped} noted in place as not brought in` : ""}.{errors ? ` ${errors} region${errors === 1 ? " has an error" : "s have errors"} to look at.` : " Everything works out."}
+        </p>
+        {skipped > 0 && <p>Not brought in: {report.skipped.map((s) => `${s.why} (${s.count})`).join("; ")}.</p>}
+        {report.missingFunctions.length > 0 && <p>Functions Calcs doesn&apos;t have: {report.missingFunctions.join(", ")}.</p>}
+      </div>
+      <button type="button" onClick={onClose} className="rounded p-0.5 hover:bg-amber-100 dark:hover:bg-amber-900" aria-label="Close">
+        <X className="size-3.5" />
+      </button>
     </div>
   );
 }

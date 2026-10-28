@@ -59,7 +59,8 @@ export class RangeValue {
   constructor(readonly values: Value[]) {}
 }
 
-type Fn = { params: string[]; body: Node; scope: Scope };
+/** A function defined in the worksheet (or, with native, one worked out another way: a solve function). */
+type Fn = { params: string[]; body: Node; scope: Scope; native?: (args: Value[]) => Value };
 export type Value = number | boolean | string | Unit | Matrix | Complex | RangeValue;
 type Scope = Map<string, Value | Fn>;
 
@@ -146,16 +147,37 @@ function fromBase(template: Value, n: number): Value {
 
 const op2 = (fn: (a: never, b: never) => unknown) => (a: Value, b: Value) => fn(a as never, b as never) as Value;
 
+/** An angle next to a plain number is a number of radians, as in Mathcad (π/4 + 30°). */
+const ANGLE_OPS = new Set(["+", "-", "<", ">", "<=", ">=", "!=", "=="]);
+let radian: Unit | null = null;
+function plainAngle(v: Value, other: Value): Value {
+  if (!isUnit(v) || typeof other !== "number") return v;
+  radian ??= math.unit(1, "rad");
+  return v.equalBase(radian) ? v.toNumber("rad") : v;
+}
+
 function arith(op: string, a: Value, b: Value): Value {
-  return broadcast([a, b], (x, y) => {
+  return broadcast([a, b], (x0, y0) => {
+    const [x, y] = ANGLE_OPS.has(op) ? [plainAngle(x0, y0), plainAngle(y0, x0)] : [x0, y0];
     try {
       switch (op) {
         case "+":
           return op2(math.add)(x, y);
         case "-":
           return op2(math.subtract)(x, y);
-        case "*":
+        case "*": {
+          if (isMatrix(x) && isMatrix(y)) {
+            // Mathcad's vector · vector is the dot product; a 1×1 result is a number.
+            const [a, b] = [x.size(), y.size()];
+            const vector = (s: number[]) => s.length === 1 || s[0] === 1 || s[1] === 1;
+            const length = (s: number[]) => s.reduce((n, d) => n * d, 1);
+            if (vector(a) && vector(b) && length(a) === length(b) && !(a[0] === 1 && b[0] === length(b) && length(b) > 1)) return math.dot(math.flatten(x) as never, math.flatten(y) as never) as unknown as Value;
+            const product = op2(math.multiply)(x, y);
+            if (isMatrix(product) && length(product.size()) === 1) return (product.toArray() as Value[][]).flat()[0];
+            return product;
+          }
           return op2(math.multiply)(x, y);
+        }
         case "/":
           if (isMatrix(y)) return op2(math.multiply)(x, math.inv(y as never) as unknown as Value);
           return op2(math.divide)(x, y);
@@ -163,6 +185,10 @@ function arith(op: string, a: Value, b: Value): Value {
           if (isUnit(y)) throw new CalcError("Powers are plain numbers");
           if (isMatrix(x) && y === -1) return math.inv(x as never) as unknown as Value;
           return op2(math.pow)(x, y);
+        case "and":
+          return truthy(x) && truthy(y);
+        case "or":
+          return truthy(x) || truthy(y);
         case "<":
           return op2(math.smaller)(x, y);
         case ">":
@@ -195,11 +221,43 @@ function magnitude(v: Value): Value {
   return math.abs(v as never) as unknown as Value;
 }
 
+/** A vector (n×1 or 1×n) as a flat list, for norms; a matrix as it is. */
+const flatVector = (m: Value) => (isMatrix(m) && m.size().some((d) => d === 1) ? math.flatten(m as never) : m);
+
 const MATRIX_FUNCTIONS: Record<string, (...args: Value[]) => Value> = {
   rows: (m) => (isMatrix(m) ? m.size()[0] : 1),
   cols: (m) => (isMatrix(m) ? (m.size()[1] ?? 1) : 1),
   length: (m) => (isMatrix(m) ? m.size().reduce((a, b) => a * b, 1) : 1),
   last: (m) => (isMatrix(m) ? m.size().reduce((a, b) => a * b, 1) - 1 + ORIGIN : ORIGIN),
+  // Mathcad's matrix functions mathjs has.
+  det: (m) => math.det(m as never) as unknown as Value,
+  tr: (m) => math.trace(m as never) as unknown as Value,
+  diag: (m) => matrixOf(math.diag(m as never)),
+  reverse: (m) => {
+    if (!isMatrix(m)) return m;
+    return matrixOf([...(m.toArray() as Value[][])].reverse());
+  },
+  norm1: (m) => math.norm(flatVector(m) as never, 1) as unknown as Value,
+  norm2: (m) => math.norm(flatVector(m) as never, 2) as unknown as Value,
+  norme: (m) => math.norm(flatVector(m) as never, "fro") as unknown as Value,
+  normi: (m) => math.norm(flatVector(m) as never, Infinity) as unknown as Value,
+  norm: (m) => math.norm(flatVector(m) as never, 2) as unknown as Value,
+  eigenvals: (m) => matrixOf((math.eigs(m as never).values as unknown as Matrix).toArray().map((v) => [v])),
+  eigenvecs: (m) => matrixOf(math.transpose(math.matrix(math.eigs(m as never).eigenvectors.map((e) => (e.vector as unknown as Matrix).toArray?.() ?? e.vector)) as never)),
+  lsolve: (m, b) => matrixOf(math.lusolve(m as never, b as never)),
+  geninv: (m) => matrixOf(math.pinv(m as never)),
+  IsScalar: (v) => (isMatrix(v) ? 0 : 1),
+  IsArray: (v) => (isMatrix(v) ? 1 : 0),
+  // A matrix's column or row (Mathcad's M⟨j⟩), as a vector.
+  col: (m, j) => {
+    if (!isMatrix(m) || typeof j !== "number") throw new CalcError("col takes a matrix and a column number: col(M, 0)");
+    return matrixOf((m.toArray() as Value[][]).map((row) => [Array.isArray(row) ? row[j - ORIGIN] : row]));
+  },
+  row: (m, i) => {
+    if (!isMatrix(m) || typeof i !== "number") throw new CalcError("row takes a matrix and a row number: row(M, 0)");
+    const r = (m.toArray() as Value[][])[i - ORIGIN];
+    return matrixOf((Array.isArray(r) ? r : [r]).map((v) => [v]));
+  },
   transpose: (m) => math.transpose(m as never) as unknown as Value,
   identity: (n) => math.identity(n as number) as unknown as Value,
   augment: (...ms) => math.concat(...(ms as never[]), 1) as unknown as Value,
@@ -384,6 +442,7 @@ function call(node: Extract<Node, { k: "call" | "apply" }>, scope: Scope): Value
   const f = scope.get(node.name);
   if (isFn(f)) {
     if (node.args.length !== f.params.length) throw new CalcError(`${display(node.name)} takes ${f.params.length} value${f.params.length === 1 ? "" : "s"}`);
+    if (f.native) return broadcast(node.args.map((a) => evaluate(a, scope)), (...xs) => f.native!(xs));
     return broadcast(node.args.map((a) => evaluate(a, scope)), (...xs) => {
       const inner: Scope = new Map(f.scope);
       inner.set(node.name, f); // a function can call itself
@@ -412,7 +471,10 @@ function call(node: Extract<Node, { k: "call" | "apply" }>, scope: Scope): Value
     const matrixFn = MATRIX_FUNCTIONS[node.name];
     if (matrixFn) {
       try {
-        return settle(matrixFn(...node.args.map((a) => asVector(evaluate(a, scope)))));
+        const values = node.args.map((a) => evaluate(a, scope));
+        // With several arguments and a range among them, value by value (min(a, s[i]) for each i).
+        if (values.length > 1 && values.some(isRange)) return broadcast(values, (...xs) => settle(matrixFn(...xs.map(asVector))));
+        return settle(matrixFn(...values.map(asVector)));
       } catch (err) {
         throw err instanceof CalcError ? err : new CalcError(friendly(err));
       }
@@ -452,6 +514,7 @@ function numeric(body: Node, v: string, scope: Scope, template: Value) {
 
 /** ∫ from a to b, by adaptive Simpson's rule (in base units; the result gets its units back). */
 function integrate(node: Extract<Node, { k: "integral" }>, scope: Scope): Value {
+  if (!node.from || !node.to) throw new CalcError("An integral without limits is worked out symbolically: end it with → (Ctrl+.)");
   const from = evaluate(node.from, scope);
   const to = evaluate(node.to, scope);
   // The variable has the limits' units (a limit of 0 can be written without them).
@@ -803,26 +866,204 @@ function failure(err: unknown): Result {
 }
 
 /** A math region: definitions, evaluations, expressions. */
-function mathRegion(latex: string, scope: Scope, settings: Settings, displayUnit?: string): Result {
+function mathRegion(latex: string, scope: Scope, settings: Settings, displayUnit?: string, onValue?: (v: Value) => void): Result {
+  // (A solve function runs its guess lines inside the region that calls it: theirs is put back.)
+  const outer = unitsRead;
   unitsRead = new Set();
   try {
     const s = parseStatement(latex);
     if (s.k === "empty" || s.k === "expression") return { kind: "ok", units: [...unitsRead] };
+    if (s.k === "symbolic") return symbolic(s.expr, scope);
     if (s.k === "define") {
+      if (s.index) return defineElements(s.name, s.index, s.body, scope, settings, s.show, displayUnit);
+      if (s.names) {
+        // (a, b) := v: each name from the vector's elements, in order.
+        const v = settle(evaluate(s.body, scope));
+        const items = isMatrix(v) ? (v.toArray() as Value[][]).flat() : isRange(v) ? v.values : [v];
+        if (items.length !== s.names.length) throw new CalcError(`That's ${items.length} value${items.length === 1 ? "" : "s"} for ${s.names.length} names`);
+        s.names.forEach((n, i) => scope.set(n, items[i]));
+        return { kind: "ok", defines: s.names.join(", "), result: s.show ? formatValue(v, settings, displayUnit) : undefined, units: [...unitsRead] };
+      }
       if (s.params) {
         scope.set(s.name, { params: s.params, body: s.body, scope: new Map(scope) });
         return { kind: "ok", defines: s.name, units: [...unitsRead] };
       }
       const v = settle(evaluate(s.body, scope));
       scope.set(s.name, v);
+      onValue?.(v);
       return { kind: "ok", defines: s.name, result: s.show ? formatValue(v, settings, displayUnit) : undefined, units: [...unitsRead] };
     }
-    return { kind: "ok", result: formatValue(settle(evaluate(s.expr, scope)), settings, displayUnit), units: [...unitsRead] };
+    const v = settle(evaluate(s.expr, scope));
+    onValue?.(v);
+    return { kind: "ok", result: formatValue(v, settings, displayUnit), units: [...unitsRead] };
   } catch (err) {
     return failure(err);
   } finally {
-    unitsRead = null;
+    unitsRead = outer;
   }
+}
+
+/** v[i] := ... : elements of a vector or matrix, one for each value of a range (Mathcad's way of
+ * filling a vector). Elements not given are 0; ones defined before are kept. */
+function defineElements(name: string, index: Node[], body: Node, scope: Scope, settings: Settings, show: boolean, displayUnit?: string): Result {
+  if (index.length > 2) throw new CalcError("An element has one index (v[i]) or two (M[i, j])");
+  const at = index.map((n) => evaluate(n, scope));
+  const value = evaluate(body, scope);
+  const count = Math.max(...[...at, value].map((v) => (isRange(v) ? v.values.length : 1)));
+  const pick = (v: Value, k: number) => (isRange(v) ? v.values[k] : v);
+  const before = scope.get(name);
+  const grid: Value[][] = isMatrix(before) ? (before.toArray() as Value[][]).map((r) => (Array.isArray(r) ? [...r] : [r])) : [];
+  let zero: Value = 0;
+  for (let k = 0; k < count; k++) {
+    const [i, j = ORIGIN] = at.map((v) => pick(v, k));
+    if (typeof i !== "number" || typeof j !== "number" || !Number.isInteger(i) || !Number.isInteger(j) || i < ORIGIN || j < ORIGIN) throw new CalcError("Indices are whole numbers, from 0");
+    if (i - ORIGIN > 100_000 || j - ORIGIN > 1000) throw new CalcError("That's too many elements");
+    const v = settle(pick(value, k));
+    if (isRange(v) || isMatrix(v)) throw new CalcError("An element is a single value");
+    if (isUnit(v)) zero = math.multiply(v, 0) as unknown as Value;
+    while (grid.length <= i - ORIGIN) grid.push([]);
+    grid[i - ORIGIN][j - ORIGIN] = v;
+  }
+  const width = Math.max(...grid.map((r) => r.length));
+  const full = grid.map((r) => Array.from({ length: width }, (_, c) => r[c] ?? zero));
+  const result = matrixOf(full);
+  scope.set(name, result);
+  return { kind: "ok", defines: name, result: show ? formatValue(result, settings, displayUnit) : undefined, units: [...(unitsRead ?? [])] };
+}
+
+/** Whether Calcs has a function by this name (for telling people what an import is missing). */
+export const isKnownFunction = (name: string) =>
+  name in BUILTINS || name in MATRIX_FUNCTIONS || ["if", "find", "root", "minimize", "maximize", "section"].includes(name) || SYMBOLIC_KEYWORDS.has(name);
+
+// --- symbolic evaluation (→) ---------------------------------------------------------------------
+// Worked out by SymPy on the server (api/sym.py): the math goes as a tree of whitelisted
+// operations. Names stay names (as symbols), even ones that are also units (L, N); functions
+// defined above are written out; subs() puts values in. Answers are kept here by what was asked, so a worksheet works out
+// again at once; what isn't known yet is asked for (takeSymbolicRequests) and shows "…".
+
+type Tree = unknown[];
+export type SymbolicRequest = { key: string; tree: Tree; names: Record<string, string> };
+export type SymbolicAnswer = { latex?: string; error?: string };
+
+const SYMBOLIC_KEYWORDS = new Set(["simplify", "expand", "factor", "solve", "series", "subs", "partfrac", "collect", "limit", "float"]);
+const SYMBOLIC_FUNCTIONS: Record<string, string> = {
+  sin: "sin", cos: "cos", tan: "tan", cot: "cot", sec: "sec", csc: "csc", arcsin: "asin", arccos: "acos", arctan: "atan", asin: "asin", acos: "acos", atan: "atan",
+  sinh: "sinh", cosh: "cosh", tanh: "tanh", exp: "exp", ln: "ln", log: "log", sqrt: "sqrt", floor: "floor", ceil: "ceil", max: "max", min: "min",
+};
+const answers = new Map<string, SymbolicAnswer>();
+const pending = new Map<string, SymbolicRequest>();
+const asked = new Set<string>();
+
+/** What to ask the symbolic engine (each once). */
+export function takeSymbolicRequests(): SymbolicRequest[] {
+  const out = [...pending.values()].filter((r) => !asked.has(r.key));
+  pending.clear();
+  out.forEach((r) => asked.add(r.key));
+  return out;
+}
+
+/** Requests that didn't get through: asked again when the sheet next works out. */
+export function retrySymbolic(requests: SymbolicRequest[]) {
+  requests.forEach((r) => asked.delete(r.key));
+}
+
+/** The symbolic engine's answers, kept for working out again. */
+export function putSymbolicAnswers(results: Record<string, SymbolicAnswer>) {
+  for (const [key, answer] of Object.entries(results)) {
+    answers.set(key, answer);
+    asked.delete(key);
+  }
+  while (answers.size > 2000) answers.delete(answers.keys().next().value!);
+}
+
+function symbolicTree(node: Node, scope: Scope, env: Map<string, Tree>, depth = 0): Tree {
+  if (depth > 60) throw new CalcError("Functions call each other too deeply to write out");
+  const go = (n: Node) => symbolicTree(n, scope, env, depth);
+  const name = (n: string): Tree => ["sym", n];
+  switch (node.k) {
+    case "num":
+      return ["num", String(node.v)];
+    case "str":
+      throw new CalcError("Text can't be worked out symbolically");
+    case "name": {
+      if (env.has(node.name)) return env.get(node.name)!;
+      if (!scope.has(node.name)) {
+        if (node.name === "pi") return ["const", "pi"];
+        if (node.name === "e") return ["const", "e"];
+        if (node.name === "infty" || node.name === "infinity") return ["const", "oo"];
+        // Otherwise a name (L is a length here, not litres); units written upright stay units.
+      }
+      return name(node.name);
+    }
+    case "unit":
+      return ["sym", `unit:${node.name}`];
+    case "neg":
+      return ["neg", go(node.a)];
+    case "op": {
+      const ops: Record<string, string> = { "+": "add", "-": "sub", "*": "mul", "/": "div", "^": "pow", and: "and", or: "or" };
+      if (ops[node.op]) return [ops[node.op], go(node.a), go(node.b)];
+      return ["rel", node.op === "==" ? "==" : node.op, go(node.a), go(node.b)];
+    }
+    case "call":
+    case "apply": {
+      const f = scope.get(node.name);
+      if (isFn(f)) {
+        if (node.args.length !== f.params.length) throw new CalcError(`${display(node.name)} takes ${f.params.length} value${f.params.length === 1 ? "" : "s"}`);
+        if (f.native) throw new CalcError(`${display(node.name)} is a solve function: it can't be worked out symbolically`);
+        const inner = new Map(env);
+        f.params.forEach((p, i) => inner.set(p, go(node.args[i])));
+        return symbolicTree(f.body, f.scope, inner, depth + 1);
+      }
+      if (SYMBOLIC_KEYWORDS.has(node.name)) return ["kw", node.name, ...node.args.map(go)];
+      if (SYMBOLIC_FUNCTIONS[node.name]) return ["fn", SYMBOLIC_FUNCTIONS[node.name], ...node.args.map(go)];
+      if (node.k === "apply" && node.args.length === 1) return ["mul", name(node.name), go(node.args[0])];
+      throw new CalcError(`${display(node.name)} can't be worked out symbolically`);
+    }
+    case "abs":
+      return ["det", go(node.a)];
+    case "root":
+      return node.n ? ["root", go(node.a), go(node.n)] : ["fn", "sqrt", go(node.a)];
+    case "matrix":
+      return ["matrix", node.rows.map((r) => r.map(go))];
+    case "transpose":
+      return ["transpose", go(node.a)];
+    case "bigop":
+      if (!node.from || !node.to) throw new CalcError("A symbolic sum needs its limits: i = a to b");
+      return [node.op, name(node.v), go(node.from), go(node.to), go(node.body)];
+    case "integral":
+      return ["integral", name(node.v), node.from ? go(node.from) : null, node.to ? go(node.to) : null, go(node.body)];
+    case "derivative":
+      return ["diff", name(node.v), node.order, go(node.body)];
+    case "cases":
+      return ["cases", node.rows.map((r) => [go(r.value), r.cond ? go(r.cond) : null])];
+    default:
+      throw new CalcError("This can't be worked out symbolically");
+  }
+}
+
+/** A symbolic evaluation: its answer if known, else asked for. */
+function symbolic(expr: Node, scope: Scope): Result {
+  const raw = symbolicTree(expr, scope, new Map());
+  // Names go as s0, s1... in alphabetical order (so answers list them that way), with how to show them.
+  const all = new Set<string>();
+  const collect = (t: unknown) => {
+    if (!Array.isArray(t)) return;
+    if (t[0] === "sym" && typeof t[1] === "string") all.add(t[1]);
+    else t.forEach(collect);
+  };
+  collect(raw);
+  const ids = new Map([...all].sort().map((n, i) => [n, `s${i}`]));
+  const rename = (t: unknown): unknown => (!Array.isArray(t) ? t : t[0] === "sym" && typeof t[1] === "string" ? ["sym", ids.get(t[1])] : t.map(rename));
+  const tree = rename(raw) as Tree;
+  const names = Object.fromEntries([...ids].map(([n, id]) => [id, n.startsWith("unit:") ? `\\mathrm{${n.slice(5)}}` : display(n)]));
+  const key = JSON.stringify([tree, names]);
+  const answer = answers.get(key);
+  if (!answer) {
+    pending.set(key, { key, tree, names });
+    return { kind: "ok", result: "\\ldots" };
+  }
+  if (answer.error) return { kind: "error", message: answer.error };
+  return { kind: "ok", result: answer.latex };
 }
 
 /** A table: each column a vector named by its header, in its unit. */
@@ -900,8 +1141,6 @@ function plotRegion(item: Extract<SheetItem, { kind: "plot" }>, scope: Scope): R
 /** A solve block: guesses, constraints, and the solver line (find), as Mathcad's. Only what
  * the solver line defines leaves the block. */
 function solveRegion(item: Extract<SheetItem, { kind: "solve" }>, scope: Scope, settings: Settings): Result {
-  const local: Scope = new Map(scope);
-  const guesses = item.guesses.map((g) => (g.trim() ? mathRegion(g, local, settings) : ({ kind: "ok" } as Result)));
   const constraints: { lhs: Node; rhs: Node; rel: string }[] = [];
   const constraintResults = item.constraints.map((c): Result => {
     if (!c.trim()) return { kind: "ok" };
@@ -914,6 +1153,7 @@ function solveRegion(item: Extract<SheetItem, { kind: "solve" }>, scope: Scope, 
       return failure(err);
     }
   });
+  let guesses: Result[] = item.guesses.map(() => ({ kind: "ok" }) as Result);
   let solver: Result;
   try {
     const m = item.solver.match(/^(.*?)(\\coloneq|:=)(.*)$/);
@@ -921,56 +1161,77 @@ function solveRegion(item: Extract<SheetItem, { kind: "solve" }>, scope: Scope, 
     const rhs = (m ? m[3] : item.solver).trim();
     const show = /=\s*$/.test(rhs);
     const call = parseConstraint(rhs.replace(/=\s*$/, "")).lhs;
-    if (call.k !== "apply" && call.k !== "call") throw new CalcError("The solver line is find(x, y, ...)");
-    if (call.name !== "find") throw new CalcError("The solver line is find(x, y, ...)");
+    if ((call.k !== "apply" && call.k !== "call") || call.name !== "find") throw new CalcError("The solver line is find(x, y, ...)");
     const vars = call.args.map((a) => (a.k === "name" ? a.name : ""));
     if (!vars.length || vars.some((v) => !v)) throw new CalcError("List the unknowns: find(x, y)");
     if (!constraints.length) throw new CalcError("Add the constraints to solve");
-    const templates = vars.map((v) => {
-      const g = local.get(v);
-      if (g === undefined || isFn(g) || isRange(g) || isMatrix(g)) throw new CalcError(`Give ${display(v)} a guess value`);
-      return g;
-    });
-    const at = (u: number[]) => {
-      const inner: Scope = new Map(local);
-      vars.forEach((v, i) => inner.set(v, fromBase(templates[i], u[i])));
-      return inner;
-    };
-    const start = templates.map(toBase);
-    // Each equation's residual is scaled by the size of its sides at the guess.
-    const scales = constraints.map((c) => {
-      const inner = at(start);
-      return Math.max(Math.abs(toBase(settle(evaluate(c.lhs, inner)))), Math.abs(toBase(settle(evaluate(c.rhs, inner)))), 1e-12);
-    });
-    const residuals = (u: number[]) => {
-      const inner = at(u);
-      return constraints.map((c, i) => {
-        const d = (toBase(settle(evaluate(c.lhs, inner))) - toBase(settle(evaluate(c.rhs, inner)))) / scales[i];
-        if (c.rel === "=") return d;
-        if (c.rel === "<=" || c.rel === "<") return Math.max(0, d);
-        return Math.min(0, d);
+    const target = lhs && !lhs.startsWith("\\begin") ? parseStatement(`${lhs}\\coloneq 0`) : null;
+    const params = target?.k === "define" ? target.params : null;
+
+    /** Solves from the guesses, worked out in `base` (with a solve function's values in it). */
+    const solveIn = (base: Scope, record: boolean): Value => {
+      const local: Scope = new Map(base);
+      const lines = item.guesses.map((g) => (g.trim() ? mathRegion(g, local, settings) : ({ kind: "ok" } as Result)));
+      if (record) guesses = lines;
+      const bad = lines.find((l) => l.kind === "error");
+      if (bad?.kind === "error" && !record) throw new CalcError(bad.message);
+      const templates = vars.map((v) => {
+        const g = local.get(v);
+        if (g === undefined || isFn(g) || isRange(g) || isMatrix(g)) throw new CalcError(`Give ${display(v)} a guess value`);
+        return g;
       });
+      const at = (u: number[]) => {
+        const inner: Scope = new Map(local);
+        vars.forEach((v, i) => inner.set(v, fromBase(templates[i], u[i])));
+        return inner;
+      };
+      const start = templates.map(toBase);
+      // Each equation's residual is scaled by the size of its sides at the guess.
+      const scales = constraints.map((c) => {
+        const inner = at(start);
+        return Math.max(Math.abs(toBase(settle(evaluate(c.lhs, inner)))), Math.abs(toBase(settle(evaluate(c.rhs, inner)))), 1e-12);
+      });
+      const residuals = (u: number[]) => {
+        const inner = at(u);
+        return constraints.map((c, i) => {
+          const d = (toBase(settle(evaluate(c.lhs, inner))) - toBase(settle(evaluate(c.rhs, inner)))) / scales[i];
+          if (c.rel === "=") return d;
+          if (c.rel === "<=" || c.rel === "<") return Math.max(0, d);
+          return Math.min(0, d);
+        });
+      };
+      const { u, error } = solveSystem(residuals, start);
+      if (!(error < 1e-6)) throw new CalcError("No solution found: the constraints can't all be met from these guesses");
+      const values = u.map((n, i) => settle(fromBase(templates[i], n)));
+      return values.length === 1 ? values[0] : (matrixOf(values.map((x) => [x]) as never) as unknown as Value);
     };
-    const { u, error } = solveSystem(residuals, start);
-    if (!(error < 1e-6)) throw new CalcError("No solution found: the constraints can't all be met from these guesses");
-    const values = u.map((n, i) => settle(fromBase(templates[i], n)));
-    const value = values.length === 1 ? values[0] : (matrixOf(values.map((x) => [x]) as never) as unknown as Value);
-    // The solver line defines a name, or one name per unknown (a vector of names on the left).
-    const names = lhs.startsWith("\\begin") ? [...lhs.matchAll(/(?:^|&|\\\\|\})\s*([a-zA-Z][a-zA-Z0-9_{}']*)/g)].map((x) => x[1].replace(/[{}]/g, "")).filter((n) => n !== "pmatrix" && n !== "bmatrix") : lhs ? [parseNameLatex(lhs)] : [];
-    if (names.length > 1) names.forEach((n, i) => scope.set(n, values[i] ?? values[0]));
-    else if (names.length === 1) scope.set(names[0], value);
-    solver = { kind: "ok", result: show || !names.length ? formatValue(value, settings, item.displayUnit) : undefined, defines: names.join(", ") };
+
+    if (params && target?.k === "define") {
+      // A solve function, as in Mathcad: f(a, b) := find(x, y) solves again for each a and b.
+      scope.set(target.name, {
+        params,
+        body: { k: "num", v: 0 },
+        scope: new Map(scope),
+        native: (args) => {
+          const base: Scope = new Map(scope);
+          params.forEach((p, i) => base.set(p, args[i]));
+          return solveIn(base, false);
+        },
+      });
+      solver = { kind: "ok", defines: target.name };
+    } else {
+      const value = solveIn(scope, true);
+      const values = isMatrix(value) ? (value.toArray() as Value[][]).map((r) => r[0]) : [value];
+      // The solver line defines a name, or one name per unknown (a vector of names on the left).
+      const names = lhs.startsWith("\\begin") ? [...lhs.matchAll(/(?:^|&|\\\\|\})\s*([a-zA-Z][a-zA-Z0-9_{}']*)/g)].map((x) => x[1].replace(/[{}]/g, "")).filter((n) => n !== "pmatrix" && n !== "bmatrix") : target?.k === "define" ? [target.name] : [];
+      if (names.length > 1) names.forEach((n, i) => scope.set(n, values[i] ?? values[0]));
+      else if (names.length === 1) scope.set(names[0], value);
+      solver = { kind: "ok", result: show || !names.length ? formatValue(value, settings, item.displayUnit) : undefined, defines: names.join(", ") };
+    }
   } catch (err) {
     solver = failure(err);
   }
   return { kind: "solve", guesses, constraints: constraintResults, solver };
-}
-
-/** A defined name from its LaTeX (A_{s} → A_s). */
-function parseNameLatex(latex: string): string {
-  const s = parseStatement(`${latex}\\coloneq 0`);
-  if (s.k !== "define") throw new CalcError("Define a name with the solver: x := find(x)");
-  return s.name;
 }
 
 /** Works out a worksheet's regions, in the order given (reading order), each seeing what's
@@ -1006,12 +1267,13 @@ function sectionRegion(item: Extract<SheetItem, { kind: "section" }>, scope: Sco
   return { kind: "section", label: shape.label, metric: shape.metric, type: shape.type, rows };
 }
 
-export function evaluateSheet(items: SheetItem[], settings: Settings): Map<string, Result> {
+/** Works out a worksheet. `values`, if given, gets each math region's value (for checking). */
+export function evaluateSheet(items: SheetItem[], settings: Settings, values?: Map<string, Value>): Map<string, Result> {
   math.Unit.setUnitSystem(settings.system === "SI" ? "si" : "us");
   const scope: Scope = new Map();
   const results = new Map<string, Result>();
   for (const item of items) {
-    if (item.kind === "math") results.set(item.id, mathRegion(item.latex, scope, settings, item.displayUnit));
+    if (item.kind === "math") results.set(item.id, mathRegion(item.latex, scope, settings, item.displayUnit, values && ((v) => values.set(item.id, v))));
     else if (item.kind === "table") results.set(item.id, tableRegion(item, scope));
     else if (item.kind === "plot") results.set(item.id, plotRegion(item, scope));
     else if (item.kind === "section") results.set(item.id, sectionRegion(item, scope, settings));

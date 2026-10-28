@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { Sigma } from "lucide-react";
-import { CalcRowActions, NewCalcDialog } from "@/components/calcs/calc-list-actions";
+import { CalcRowActions, ImportCalcDialog, NewCalcDialog } from "@/components/calcs/calc-list-actions";
 import { PageBody, PageHeader } from "@/components/shell/page-header";
 import { Card, CardContent } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -20,7 +20,12 @@ export default async function CalcsPage() {
 
   return (
     <PageBody>
-      <PageHeader title="Calcs" description="Engineering calculations with units, laid out on pages the way you would in Mathcad." actions={calcs.length > 0 && <NewCalcDialog projects={projects} />} />
+      <PageHeader title="Calcs" description="Engineering calculations with units, laid out on pages the way you would in Mathcad." actions={
+          <div className="flex gap-2">
+            <ImportCalcDialog projects={projects} />
+            {calcs.length > 0 && <NewCalcDialog projects={projects} />}
+          </div>
+        } />
       {calcs.length === 0 ? (
         <Card>
           <CardContent className="flex flex-col items-center gap-4 py-16 text-center">

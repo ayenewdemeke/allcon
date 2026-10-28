@@ -1,15 +1,16 @@
 "use client";
 
-import { useActionState, useTransition } from "react";
+import { useActionState, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Loader2, Pencil, Plus, Trash2 } from "lucide-react";
+import { FileUp, Loader2, Pencil, Plus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
-import { createCalc, deleteCalc, renameCalc, type CalcFormState } from "@/app/actions/calcs";
+import { createCalc, createImportedCalc, deleteCalc, renameCalc, type CalcFormState } from "@/app/actions/calcs";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { TEMPLATES } from "@/lib/calcs/library/templates";
+import { uploadCalc } from "./upload";
 
 export function NewCalcDialog({ label = "New worksheet", projects }: { label?: string; projects: { id: string; name: string }[] }) {
   const [state, action, pending] = useActionState<CalcFormState, FormData>(createCalc, {});
@@ -67,6 +68,75 @@ export function NewCalcDialog({ label = "New worksheet", projects }: { label?: s
             </Button>
           </div>
         </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/** Opening a Mathcad Prime (.mcdx) or SMath Studio (.sm) worksheet as a Calcs worksheet. */
+export function ImportCalcDialog({ projects }: { projects: { id: string; name: string }[] }) {
+  const router = useRouter();
+  const [file, setFile] = useState<File | null>(null);
+  const [projectId, setProjectId] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const run = async () => {
+    if (!file) return;
+    setBusy(true);
+    setError(null);
+    try {
+      // Read in the browser (the reader loads only now).
+      const { importWorksheet } = await import("@/lib/calcs/import");
+      const { data, report } = importWorksheet(file.name, new Uint8Array(await file.arrayBuffer()));
+      const { id } = await createImportedCalc(file.name, projectId || null);
+      await uploadCalc(id, data);
+      try {
+        sessionStorage.setItem(`calc-import:${id}`, JSON.stringify(report));
+      } catch {
+        // The summary is a nicety.
+      }
+      router.push(`/calcs/${id}`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not open that file");
+      setBusy(false);
+    }
+  };
+  return (
+    <Dialog>
+      <DialogTrigger render={<Button variant="outline" />}>
+        <FileUp />
+        Import
+      </DialogTrigger>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>Import a worksheet</DialogTitle>
+          <DialogDescription>From Mathcad Prime (.mcdx) or SMath Studio (.sm): its math, text, solve blocks and plots, where they were. Anything that can&apos;t come across is noted in place.</DialogDescription>
+        </DialogHeader>
+        <div className="grid gap-4">
+          <div className="grid gap-1.5">
+            <Label htmlFor="calc-file">File</Label>
+            <Input id="calc-file" type="file" accept=".mcdx,.sm" onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
+          </div>
+          {projects.length > 0 && (
+            <div className="grid gap-1.5">
+              <Label htmlFor="calc-import-project">Project</Label>
+              <select id="calc-import-project" value={projectId} onChange={(e) => setProjectId(e.target.value)} className="h-8 rounded-lg border border-input bg-transparent px-2.5 text-sm">
+                <option value="">None</option>
+                {projects.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+          {error && <p className="text-sm text-destructive">{error}</p>}
+          <div className="flex justify-end">
+            <Button onClick={() => void run()} disabled={!file || busy}>
+              {busy ? "Importing…" : "Import and open"}
+            </Button>
+          </div>
+        </div>
       </DialogContent>
     </Dialog>
   );
