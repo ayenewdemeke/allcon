@@ -22,11 +22,12 @@ export async function PATCH(request: NextRequest, ctx: RouteContext<"/api/calcs/
   const revision = Number(params.get("revision"));
   const count = Math.max(0, Math.floor(Number(params.get("count")) || 0));
   if (!key.startsWith(`calcs/${calc.id}/`) || !Number.isInteger(revision)) return new Response("Invalid", { status: 400 });
-  const { count: updated } = await db.calc.updateMany({ where: { id: calc.id, revision }, data: { fileKey: key, revision: revision + 1, regionCount: count } });
+  // A person's save ends the chance to undo an AI app's last edit (it would lose this).
+  const { count: updated } = await db.calc.updateMany({ where: { id: calc.id, revision }, data: { fileKey: key, revision: revision + 1, regionCount: count, backupKey: null } });
   if (!updated) {
     await deleteFiles([key]);
     return Response.json({ error: "This worksheet was saved somewhere else meanwhile." }, { status: 409 });
   }
-  if (calc.fileKey && calc.fileKey !== key) await deleteFiles([calc.fileKey]).catch(() => {});
+  await deleteFiles([calc.fileKey !== key ? calc.fileKey : null, calc.backupKey]).catch(() => {});
   return Response.json({ revision: revision + 1 });
 }

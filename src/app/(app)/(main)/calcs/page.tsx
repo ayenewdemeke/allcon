@@ -13,11 +13,14 @@ export const metadata: Metadata = { title: "Calcs" };
 /** Your calculation worksheets, made in the Calcs editor. */
 export default async function CalcsPage() {
   const user = await requireUser();
-  const calcs = await db.calc.findMany({ where: { orgId: user.orgId }, orderBy: { updatedAt: "desc" } });
+  const [calcs, projects] = await Promise.all([
+    db.calc.findMany({ where: { orgId: user.orgId }, orderBy: { updatedAt: "desc" }, include: { project: { select: { id: true, name: true } } } }),
+    db.project.findMany({ where: { orgId: user.orgId }, orderBy: { name: "asc" }, select: { id: true, name: true } }),
+  ]);
 
   return (
     <PageBody>
-      <PageHeader title="Calcs" description="Engineering calculations with units, laid out on pages the way you would in Mathcad." actions={calcs.length > 0 && <NewCalcDialog />} />
+      <PageHeader title="Calcs" description="Engineering calculations with units, laid out on pages the way you would in Mathcad." actions={calcs.length > 0 && <NewCalcDialog projects={projects} />} />
       {calcs.length === 0 ? (
         <Card>
           <CardContent className="flex flex-col items-center gap-4 py-16 text-center">
@@ -28,7 +31,7 @@ export default async function CalcsPage() {
               <p className="font-medium">No worksheets yet</p>
               <p className="max-w-md text-sm text-muted-foreground">Write math as you would on paper, with units: definitions with :=, results with =, and live recalculation. Print it as a calc package.</p>
             </div>
-            <NewCalcDialog label="Create your first worksheet" />
+            <NewCalcDialog label="Create your first worksheet" projects={projects} />
           </CardContent>
         </Card>
       ) : (
@@ -37,6 +40,7 @@ export default async function CalcsPage() {
             <TableHeader>
               <TableRow>
                 <TableHead>Name</TableHead>
+                <TableHead>Project</TableHead>
                 <TableHead className="text-right">Regions</TableHead>
                 <TableHead>Updated</TableHead>
                 <TableHead className="w-24" />
@@ -50,6 +54,15 @@ export default async function CalcsPage() {
                       <Sigma className="size-4 text-muted-foreground" />
                       {c.name}
                     </Link>
+                  </TableCell>
+                  <TableCell>
+                    {c.project ? (
+                      <Link href={`/projects/${c.project.id}`} className="text-muted-foreground hover:text-primary hover:underline">
+                        {c.project.name}
+                      </Link>
+                    ) : (
+                      <span className="text-muted-foreground">—</span>
+                    )}
                   </TableCell>
                   <TableCell className="text-right tabular-nums">{c.regionCount.toLocaleString()}</TableCell>
                   <TableCell className="text-muted-foreground">{c.updatedAt.toLocaleString("en-US", { dateStyle: "medium", timeStyle: "short" })}</TableCell>

@@ -34,7 +34,12 @@ export type WorksheetHandle = {
   addSection: () => void;
   /** Adds regions (placed from 0, 0) at the crosshair, or below everything, as one undo step. */
   insertRegions: (regions: Region[]) => void;
+  /** Where this person is, for others: the region they're editing, or their crosshair. */
+  presence: () => { region: string | null; cursor: [number, number] | null };
 };
+
+/** Someone else in the worksheet, in their colour. */
+export type Other = { id: string; name: string; app: boolean; region: string | null; cursor: [number, number] | null; color: string };
 
 export function Worksheet({
   doc,
@@ -44,6 +49,7 @@ export function Worksheet({
   drafts,
   setDrafts,
   handle,
+  others = [],
 }: {
   doc: CalcDocument;
   version: number;
@@ -52,6 +58,7 @@ export function Worksheet({
   drafts: Map<string, string>;
   setDrafts: (update: (d: Map<string, string>) => Map<string, string>) => void;
   handle: React.RefObject<WorksheetHandle | null>;
+  others?: Other[];
 }) {
   void version;
   const [ml, setMl] = useState<MathLive | null>(null);
@@ -196,6 +203,10 @@ export function Worksheet({
     addSection: () => {
       const at = cursor ?? { x: 0, y: snap(bottom) };
       startRegion({ id: newId(), kind: "section", x: at.x, y: at.y, shape: "" });
+    },
+    presence: () => {
+      const c = cursorNow.current;
+      return { region: editingNow.current, cursor: c ? [c.x, c.y] : null };
     },
     insertRegions: (items: Region[]) => {
       if (!items.length) return;
@@ -494,9 +505,33 @@ export function Worksheet({
                         ) : (
                           <SolveRegionView ml={ml} region={r} result={results.get(r.id)} editing={editing === r.id} selected={selection.has(r.id)} onChange={change<SolveRegion>(r.id)} />
                         )}
+                        {others
+                          .filter((o) => o.region === r.id)
+                          .slice(0, 1)
+                          .map((o) => (
+                            // Someone else is editing this region.
+                            <div key={o.id} className="no-print pointer-events-none absolute -inset-1 rounded border-2" style={{ borderColor: o.color }}>
+                              <span className="absolute -top-4 left-0 rounded-sm px-1 text-[10px] leading-4 whitespace-nowrap text-white" style={{ background: o.color }}>
+                                {o.name}
+                              </span>
+                            </div>
+                          ))}
                       </div>
                     );
                   })}
+                {others
+                  .filter((o) => !o.region && o.cursor && Math.floor(o.cursor[1] / content.height) === p)
+                  .map((o) => (
+                    // Others' crosshairs.
+                    <div key={o.id} className="no-print pointer-events-none absolute" style={{ left: o.cursor![0] - 7, top: o.cursor![1] - p * content.height - 7, color: o.color }}>
+                      <svg width="15" height="15" viewBox="0 0 15 15">
+                        <path d="M7.5 0v15M0 7.5h15" stroke="currentColor" strokeWidth="1.5" />
+                      </svg>
+                      <span className="absolute top-3 left-3 rounded-sm px-1 text-[10px] leading-4 whitespace-nowrap text-white" style={{ background: o.color }}>
+                        {o.name}
+                      </span>
+                    </div>
+                  ))}
                 {cursor && Math.floor(cursor.y / content.height) === p && !editing && (
                   <div className="no-print pointer-events-none absolute" style={{ left: cursor.x - 7, top: cursor.y - p * content.height - 7 }}>
                     <svg width="15" height="15" viewBox="0 0 15 15" className="text-primary">

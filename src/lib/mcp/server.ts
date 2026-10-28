@@ -9,7 +9,10 @@ import { ToolError, type ToolContext } from "@/lib/tools/context";
 import { addCloud, addNote, boxSchema, flagIssue, listMarkups, listSheets, readSheet, renameSheet } from "@/lib/tools/drawings";
 import { LOD_LEVELS } from "@/lib/ifc/lod";
 import { buildModelPrompt, editModelPrompt } from "@/lib/mcp/model-prompts";
+import { CALC_GUIDE, writeCalcPrompt } from "@/lib/mcp/calcs-prompt";
 import { draftPrompt, SCRIPT_GUIDE } from "@/lib/mcp/drafting-prompt";
+import { TEMPLATES } from "@/lib/calcs/library/templates";
+import { createCalc, editCalc, getCalc, listCalcs, publishCalc, regionInput } from "@/lib/tools/calcs";
 import { addObjects, createDrawing, editObjects, getDrawing, listDrawings, objectInput, publishLayouts, runCommands } from "@/lib/tools/drafting";
 import { searchManuals } from "@/lib/tools/library";
 import { createModel, editModel, getModel, ifcHelp, ifcQuery, listModels } from "@/lib/tools/models3d";
@@ -33,6 +36,8 @@ To build a 3D model (IFC) from drawings, read the sheets, start the model with c
 To measure SOV / BoQ items from the models, use list_element_groups and map_groups (the map_to_boq prompt has the procedure).
 
 To draft 2D drawings (plans, details, sheets), use the drafting tools: list_drawings / create_drawing, get_drawing to read one (with a picture), run_commands to draw with AutoCAD command scripts, add_objects and edit_objects for direct edits, and publish_layouts to put its layouts into a project's Sheets. The draft_drawing prompt has the procedure.
+
+To write engineering calculations (like Mathcad: math with units, worked out live), use the Calcs tools: list_calcs / create_calc (optionally from a template), get_calc to read a worksheet and what it works out to, edit_calc to add math, text, steel sections, tables, plots and solve blocks or change them, and publish_calc to put it in a project's Sheets. The write_calc prompt has the procedure.
 
 Models are built to a target level of development (LOD 100, 200, 300 or 350): check the drawings support it and ask the user before modelling what they don't. Keep a model's description current: ifc_edit takes a new description.`;
 
@@ -521,6 +526,80 @@ Edits in one request build one revision of the model; the user can undo the whol
       ),
   );
 
+  // --- calcs ---------------------------------------------------------------------
+
+  server.registerTool(
+    "list_calcs",
+    { title: "List calcs", description: "The user's calculation worksheets (Calcs, like Mathcad), with their project and size.", annotations: readOnly },
+    async () => out(await run("list_calcs", "Listed calcs", () => listCalcs(ctx))),
+  );
+
+  server.registerTool(
+    "create_calc",
+    {
+      title: "Create calc",
+      description: `A new calculation worksheet, empty or from a template: ${TEMPLATES.map((t) => `${t.id} (${t.description})`).join("; ")}. Units: USCS (results in kip, ft, ksi) or SI (kN, m, MPa).`,
+      inputSchema: z.object({
+        name: z.string().min(1).max(200),
+        units: z.enum(["USCS", "SI"]),
+        template: z.enum(TEMPLATES.map((t) => t.id) as [string, ...string[]]).optional(),
+        project_id: uuid.optional().describe("File it under this project"),
+      }),
+      annotations: additive,
+    },
+    async (input) => out(await run("create_calc", `Created calc ${input.name}`, () => createCalc(ctx, input), (v) => ({ projectId: v.project?.id, undo: { type: "calc_create", calcId: v.id } }))),
+  );
+
+  server.registerTool(
+    "get_calc",
+    {
+      title: "Read calc",
+      description:
+        "A worksheet's header, settings and regions in reading order: each one's id, kind, place [x, y] (pixels on the page; the page's content size is given), what it holds (LaTeX math, text, a steel shape, a table, a plot, a solve block) and what it works out to (result as LaTeX, names defined, or error), and a list of the errors.",
+      inputSchema: z.object({ calc_id: uuid }),
+      annotations: readOnly,
+    },
+    async ({ calc_id }) => out(await run("get_calc", "Read a calc", () => getCalc(ctx, calc_id), (v) => ({ projectId: v.project?.id, summary: `Read calc ${v.name}` }))),
+  );
+
+  server.registerTool(
+    "edit_calc",
+    {
+      title: "Edit calc",
+      description: `Writes in a worksheet and saves it: adds regions (stacked in order below the last region, or below the region given as after, moving what's below down; or from a place [x, y]), changes regions by id (any of their fields, e.g. latex, text, shape, at), removes regions by id, and sets the header (project, title, number, by, checked, date), units and decimal places. Returns what the added and changed regions work out to, and every error in the worksheet.\n\n${CALC_GUIDE}`,
+      inputSchema: z.object({
+        calc_id: uuid,
+        add: z.array(regionInput).max(300).optional(),
+        after: z.string().max(40).optional().describe("Add below this region (its id)"),
+        at: z.tuple([z.number().min(0), z.number().min(0)]).optional().describe("Add from this place [x, y], in pixels on the worksheet"),
+        update: z.array(z.object({ id: z.string(), changes: z.record(z.string(), z.unknown()) })).max(300).optional(),
+        remove: z.array(z.string()).max(300).optional(),
+        header: z.object({ project: z.string().max(200), title: z.string().max(200), number: z.string().max(60), by: z.string().max(60), checked: z.string().max(60), date: z.string().max(40) }).partial().optional(),
+        units: z.enum(["USCS", "SI"]).optional(),
+        decimals: z.number().int().min(0).max(6).optional(),
+      }),
+      annotations: { ...additive, destructiveHint: true },
+    },
+    async ({ calc_id, ...input }) => out(await run("edit_calc", "Edited a calc", () => editCalc(ctx, calc_id, input), (v) => ({ summary: v.summary, undo: v.undo }))),
+  );
+
+  server.registerTool(
+    "publish_calc",
+    {
+      title: "Publish calc to Sheets",
+      description: "Prints a worksheet to a PDF (as it prints from the editor, with the calc header on each page) and adds it to a project's Sheets as a set, a sheet per page. Without project_id it goes to the project the worksheet is filed under.",
+      inputSchema: z.object({ calc_id: uuid, project_id: uuid.optional() }),
+      annotations: additive,
+    },
+    async ({ calc_id, project_id }) =>
+      out(
+        await run("publish_calc", "Published a calc", () => publishCalc(ctx, calc_id, project_id), (v) => ({
+          projectId: v.projectId,
+          summary: `Published a calc to Sheets (${v.sheets} sheet${v.sheets === 1 ? "" : "s"})`,
+        })),
+      ),
+  );
+
   // --- skills (ready-made prompts) ------------------------------------------------
 
   const user = (text: string) => ({ messages: [{ role: "user" as const, content: { type: "text" as const, text } }] });
@@ -624,6 +703,19 @@ Edits in one request build one revision of the model; the user can undo the whol
       }),
     },
     (args) => user(draftPrompt(args)),
+  );
+
+  server.registerPrompt(
+    "write_calc",
+    {
+      title: "Write an engineering calc",
+      description: "Writes a calculation in conkit's Calcs, like Mathcad: inputs, steel sections, code checks with references, worked out live with units, ready for a checker.",
+      argsSchema: z.object({
+        task: z.string().describe("What to calculate, e.g. 'check a W16x31 beam spanning 24 ft with 1.2 klf dead and 0.8 klf live load' or 'size a spread footing for 150 kip'"),
+        calc: z.string().optional().describe("An existing worksheet's name or id (default: a new one)"),
+      }),
+    },
+    (args) => user(writeCalcPrompt(args)),
   );
 
   return server;

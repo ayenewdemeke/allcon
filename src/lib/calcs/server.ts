@@ -11,5 +11,5 @@ export const newCalcKey = (calcId: string) => newFileKey(`calcs/${calcId}`, ".js
 export async function findAccessibleCalc(calcId: string) {
   const user = await getCurrentUser();
   if (!user || !isUuid(calcId)) return null;
-  return db.calc.findFirst({ where: { id: calcId, orgId: user.orgId }, select: { id: true, fileKey: true, revision: true } });
+  return db.calc.findFirst({ where: { id: calcId, orgId: user.orgId }, select: { id: true, fileKey: true, revision: true, backupKey: true } });
 }

@@ -19,7 +19,8 @@ export default async function CalcPage({ params, searchParams }: PageProps<"/cal
   const system = query.system === "SI" ? "SI" : "USCS";
   const template = typeof query.template === "string" ? query.template : undefined;
   const user = await requireUser();
-  const calc = isUuid(calcId) ? await db.calc.findFirst({ where: { id: calcId, orgId: user.orgId }, select: { id: true, name: true, revision: true } }) : null;
+  const calc = isUuid(calcId) ? await db.calc.findFirst({ where: { id: calcId, orgId: user.orgId }, select: { id: true, name: true, revision: true, projectId: true } }) : null;
   if (!calc) notFound();
-  return <CalcEditor key={calc.id} calc={calc} system={system} template={template} backHref="/calcs" />;
+  const projects = await db.project.findMany({ where: { orgId: user.orgId }, orderBy: { name: "asc" }, select: { id: true, name: true } });
+  return <CalcEditor key={calc.id} calc={calc} projects={projects} system={system} template={template} backHref="/calcs" />;
 }

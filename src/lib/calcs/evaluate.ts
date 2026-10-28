@@ -701,8 +701,8 @@ function unitLatex(u: Unit): string {
 
 /** Structural units results are shown in when the inputs leave a mix (klf × ft² → kip·ft). */
 const PREFERRED: Record<UnitSystem, string[]> = {
-  USCS: ["kip", "kip ft", "ksi", "kip/ft", "pcf", "ft", "inch^2", "ft^3", "ft/s", "ft/s^2", "lb"],
-  SI: ["kN", "kN m", "MPa", "kN/m", "kN/m^3", "m", "m^2", "m^3", "m/s", "m/s^2", "kg"],
+  USCS: ["kip", "kip ft", "ksi", "kip/ft", "pcf", "ft", "inch^2", "inch^3", "inch^4", "ft/s", "ft/s^2", "lb"],
+  SI: ["kN", "kN m", "MPa", "kN/m", "kN/m^3", "m", "m^2", "m^3", "mm^4", "m/s", "m/s^2", "kg"],
 };
 const preferred = new Map<UnitSystem, { dims: number[]; unit: string }[]>();
 function preferredFor(system: UnitSystem) {

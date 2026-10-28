@@ -40,7 +40,7 @@ const loadPicture = (drawingId: string) => async (key: string) =>
   key.startsWith(`drawings/${drawingId}/attachments/`) ? getFile(key).catch(() => null) : null;
 
 /** The app's name, as people see it in the drawing ("Claude"). */
-async function appName(ctx: ToolContext) {
+export async function appName(ctx: ToolContext) {
   if (!ctx.clientId) return "AI app";
   const client = await db.oauthClient.findFirst({ where: { clientId: ctx.clientId }, select: { name: true } });
   return client?.name?.trim() || "AI app";

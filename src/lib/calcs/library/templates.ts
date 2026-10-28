@@ -1,18 +1,22 @@
 import { newId } from "../document";
 import type { UnitSystem } from "../evaluate";
-import { contentSize, GRID, type Paper, type Region, type TextRegion } from "../types";
+import { contentSize, GRID, type Paper, type PlotRegion, type Region, type SolveRegion, type TableRegion, type TextRegion } from "../types";
 import type { Snippet } from "./materials";
 
 // Worksheet templates: complete calcs to start from (AISC 360-22 and ACI 318-19, LRFD), laid out
 // as an engineer would, with the code reference beside each step. Also the layout used to insert
 // materials (a note, then their math).
 
+/** A region without its id and place (distributes over the kinds). */
+export type Body<T> = T extends unknown ? Omit<T, "id" | "x" | "y"> : never;
+
 /** A line of a template: text, math (with the code reference beside it, or above it for math too
- * wide to share the line), or a steel section. */
+ * wide to share the line), a steel section, or a table, plot or solve block. */
 export type Line =
   | { text: string; style?: TextRegion["style"] }
   | { math: string; ref?: string; unit?: string; wide?: boolean }
-  | { shape: string; suffix?: string };
+  | { shape: string; suffix?: string; compact?: boolean }
+  | { region: Body<TableRegion> | Body<PlotRegion> | Body<SolveRegion> };
 
 /** Space a math region takes on the page, roughly: taller for fractions, piecewise and roots. */
 function mathHeight(latex: string) {
@@ -25,6 +29,27 @@ function mathHeight(latex: string) {
   return 32;
 }
 
+const textHeight = (text: string, style: TextRegion["style"] = "normal", width = 600) =>
+  style === "heading" ? 40 : style === "subheading" ? 36 : 8 + text.split("\n").reduce((n, line) => n + Math.max(1, Math.ceil((line.length * (style === "note" ? 6 : 7)) / width)), 0) * 20;
+
+/** Roughly how tall a region is on the page (before it's drawn and measured). */
+export function regionHeight(r: Body<Region>): number {
+  switch (r.kind) {
+    case "math":
+      return mathHeight(r.latex);
+    case "text":
+      return textHeight(r.text, r.style, r.width || 600);
+    case "section":
+      return r.compact ? 64 : 176;
+    case "table":
+      return 52 + r.rows.length * 22;
+    case "plot":
+      return r.height + 48;
+    case "solve":
+      return 72 + (r.guesses.length + r.constraints.length + 1) * 30;
+  }
+}
+
 const REF_X = 440;
 const snap = (v: number) => Math.ceil(v / GRID) * GRID;
 
@@ -34,7 +59,7 @@ export function layout(lines: Line[], at: { x: number; y: number }, paper: Paper
   const out: Region[] = [];
   let y = at.y;
   for (const line of lines) {
-    const h = "text" in line ? (line.style === "heading" ? 40 : line.style === "subheading" ? 36 : 16 + Math.ceil(line.text.length / 80) * 20) : "math" in line ? mathHeight(line.math) : 176;
+    const h = "text" in line ? textHeight(line.text, line.style) : "math" in line ? mathHeight(line.math) : "shape" in line ? (line.compact ? 64 : 176) : regionHeight(line.region);
     const above = "math" in line && line.wide && line.ref ? 24 : 0;
     if (Math.floor(y / page) !== Math.floor((y + above + h - 8) / page)) y = Math.ceil(y / page) * page;
     if ("math" in line && line.wide && line.ref) {
@@ -47,7 +72,8 @@ export function layout(lines: Line[], at: { x: number; y: number }, paper: Paper
     } else if ("math" in line) {
       out.push({ id: newId(), kind: "math", x: at.x, y, latex: line.math, ...(line.unit ? { displayUnit: line.unit } : {}) });
       if (line.ref && !line.wide) out.push({ id: newId(), kind: "text", x: at.x + REF_X, y: y + Math.max(0, (h - 32) / 2), text: line.ref, style: "note", width: 230 });
-    } else out.push({ id: newId(), kind: "section", x: at.x, y, shape: line.shape, ...(line.suffix ? { suffix: line.suffix } : {}) });
+    } else if ("shape" in line) out.push({ id: newId(), kind: "section", x: at.x, y, shape: line.shape, ...(line.suffix ? { suffix: line.suffix } : {}), ...(line.compact ? { compact: true } : {}) });
+    else out.push({ ...line.region, id: newId(), x: at.x, y } as Region);
     y = snap(y + h + GRID);
   }
   return out;

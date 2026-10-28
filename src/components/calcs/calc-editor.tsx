@@ -4,20 +4,25 @@ import "mathlive/fonts.css";
 import "mathlive/static.css";
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { AlertCircle, ArrowLeft, Check, Cloud, Loader2, Minus, Plus, Redo2, Undo2 } from "lucide-react";
+import { toast } from "sonner";
+import { publishCalcToSheets, setCalcProject } from "@/app/actions/calcs";
 import { LinkButton } from "@/components/ui/link-button";
 import { CalcDocument } from "@/lib/calcs/document";
 import { evaluateSheet, type SheetItem, type UnitSystem } from "@/lib/calcs/evaluate";
 import { loadShapes } from "@/lib/calcs/library/shapes";
 import { findTemplate, layout } from "@/lib/calcs/library/templates";
 import { emptyCalc, PAGES, readingOrder, type CalcData } from "@/lib/calcs/types";
+import { People, personColor } from "@/components/drafting/presence";
 import { CalcRibbon } from "./ribbon";
-import { Worksheet, type WorksheetHandle } from "./worksheet";
+import { Worksheet, type Other, type WorksheetHandle } from "./worksheet";
 
 // Calcs: engineering calculation worksheets that work the way Mathcad does. This component
-// loads the worksheet, works out its math (live, as it's typed), saves as you work, and lays
-// out the ribbon, the pages and the status bar. Printing gives just the pages.
+// loads the worksheet, works out its math (live, as it's typed), saves as you work, takes in
+// what others save (people, or AI apps through the connector), and lays out the ribbon, the
+// pages and the status bar. Printing gives just the pages.
 
 type SaveState = "saved" | "unsaved" | "saving" | "error" | "conflict";
+type Person = { id: string; name: string; app: boolean; region: string | null; cursor: [number, number] | null; activity: string | null };
 
 async function gzip(text: string) {
   const stream = new Blob([text]).stream().pipeThrough(new CompressionStream("gzip"));
@@ -38,7 +43,9 @@ async function loadCalc(calcId: string, system: UnitSystem, template?: string): 
   return data;
 }
 
-export function CalcEditor({ calc, system, template, backHref }: { calc: { id: string; name: string; revision: number }; system: UnitSystem; template?: string; backHref: string }) {
+type CalcInfo = { id: string; name: string; revision: number; projectId: string | null };
+
+export function CalcEditor({ calc, projects, system, template, backHref }: { calc: CalcInfo; projects: { id: string; name: string }[]; system: UnitSystem; template?: string; backHref: string }) {
   const [doc, setDoc] = useState<CalcDocument | null>(null);
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
@@ -73,11 +80,11 @@ export function CalcEditor({ calc, system, template, backHref }: { calc: { id: s
         <Loader2 className="size-5 animate-spin" /> Opening {calc.name}…
       </div>
     );
-  return <Workspace doc={doc} calc={calc} backHref={backHref} />;
+  return <Workspace doc={doc} calc={calc} projects={projects} backHref={backHref} />;
 }
 
 function SaveStatus({ save, onRetry }: { save: SaveState; onRetry: () => void }) {
-  if (save === "conflict") return <span className="text-xs text-destructive">Saved elsewhere meanwhile: reopen the worksheet</span>;
+  if (save === "conflict") return <span className="text-xs text-destructive">Couldn&apos;t save over others&apos; changes: reopen the worksheet</span>;
   if (save === "error")
     return (
       <button type="button" onClick={onRetry} className="flex items-center gap-1 text-xs text-destructive hover:underline" title="Retry saving">
@@ -92,7 +99,7 @@ function SaveStatus({ save, onRetry }: { save: SaveState; onRetry: () => void })
   );
 }
 
-function Workspace({ doc, calc, backHref }: { doc: CalcDocument; calc: { id: string; name: string; revision: number }; backHref: string }) {
+function Workspace({ doc, calc, projects, backHref }: { doc: CalcDocument; calc: CalcInfo; projects: { id: string; name: string }[]; backHref: string }) {
   const version = useSyncExternalStore(
     useCallback((l: () => void) => doc.subscribe(l), [doc]),
     () => doc.version,
@@ -125,47 +132,112 @@ function Workspace({ doc, calc, backHref }: { doc: CalcDocument; calc: { id: str
   }, [doc, version, drafts, shapes]);
   const errors = [...results.values()].filter((r) => r.kind === "error" && !r.incomplete).length;
 
-  // --- saving ---------------------------------------------------------------------------------
+  // --- saving, and others' changes ------------------------------------------------------------
+  // Several people (and AI apps through the connector) can work on a worksheet at once. Each
+  // saves what they changed; when someone else saves, their version is pulled in here, region by
+  // region, keeping what's changed here and not saved yet.
   const revision = useRef(calc.revision);
   const saving = useRef(false);
+  const pulling = useRef(false);
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const [people, setPeople] = useState<Person[]>([]);
+  const [notice, setNotice] = useState<string | null>(null);
+
+  /** Takes in the latest saved version, if it's newer than the one here. */
+  const pull = useCallback(async () => {
+    if (pulling.current) return false;
+    pulling.current = true;
+    try {
+      const meta = (await (await fetch(`/api/calcs/${calc.id}/file?meta=1`, { cache: "no-store" })).json()) as { revision: number; url: string | null };
+      if (meta.revision <= revision.current || !meta.url) return false;
+      const data = (await (await fetch(meta.url, { cache: "no-store" })).json()) as CalcData;
+      doc.applyRemote(data);
+      revision.current = meta.revision;
+      return true;
+    } finally {
+      pulling.current = false;
+    }
+  }, [doc, calc.id]);
+
   const saveNow = useCallback(async () => {
     clearTimeout(timer.current);
     if (saving.current || !doc.unsaved) return;
     saving.current = true;
     setSave("saving");
     try {
-      const seq = doc.editSeq;
-      const data = doc.toData();
-      const body = await gzip(JSON.stringify(data));
-      const link = await fetch(`/api/calcs/${calc.id}/save`, { method: "POST" });
-      if (!link.ok) throw new Error();
-      const { key, upload } = (await link.json()) as { key: string; upload: { url: string; headers: Record<string, string> } };
-      const put = await fetch(upload.url, { method: "PUT", headers: upload.headers, body });
-      if (!put.ok) throw new Error();
-      const done = await fetch(`/api/calcs/${calc.id}/save?key=${encodeURIComponent(key)}&revision=${revision.current}&count=${data.regions.length}`, { method: "PATCH" });
-      if (done.status === 409) return setSave("conflict");
-      if (!done.ok) throw new Error();
-      revision.current = ((await done.json()) as { revision: number }).revision;
-      doc.markSaved(seq);
-      setSave(doc.unsaved ? "unsaved" : "saved");
+      for (let attempt = 0; attempt < 3; attempt++) {
+        const seq = doc.editSeq;
+        const data = doc.toData();
+        const body = await gzip(JSON.stringify(data));
+        const link = await fetch(`/api/calcs/${calc.id}/save`, { method: "POST" });
+        if (!link.ok) throw new Error();
+        const { key, upload } = (await link.json()) as { key: string; upload: { url: string; headers: Record<string, string> } };
+        const put = await fetch(upload.url, { method: "PUT", headers: upload.headers, body });
+        if (!put.ok) throw new Error();
+        const done = await fetch(`/api/calcs/${calc.id}/save?key=${encodeURIComponent(key)}&revision=${revision.current}&count=${data.regions.length}`, { method: "PATCH" });
+        if (done.status === 409) {
+          // Saved by someone else meanwhile: take theirs in, then save on top of it.
+          await pull();
+          continue;
+        }
+        if (!done.ok) throw new Error();
+        revision.current = ((await done.json()) as { revision: number }).revision;
+        doc.markSaved(seq);
+        setSave(doc.unsaved ? "unsaved" : "saved");
+        return;
+      }
+      setSave("conflict");
     } catch {
       setSave("error");
     } finally {
       saving.current = false;
       if (doc.unsaved) timer.current = setTimeout(() => void saveNow(), 1500);
     }
-  }, [doc, calc.id]);
+  }, [doc, calc.id, pull]);
 
   useEffect(
     () =>
       doc.subscribe(() => {
+        if (!doc.unsaved) return; // others' changes taken in
         setSave((s) => (s === "conflict" ? s : "unsaved"));
         clearTimeout(timer.current);
         timer.current = setTimeout(() => void saveNow(), 1500);
       }),
     [doc, saveNow],
   );
+  // Checking in: what this person is editing (for others' presence), the latest revision, and
+  // who else is here. Every 2 seconds while the tab is visible.
+  useEffect(() => {
+    const url = `/api/calcs/${calc.id}/state`;
+    let clear: ReturnType<typeof setTimeout> | undefined;
+    const tick = async () => {
+      if (document.hidden) return;
+      const me = worksheet.current?.presence() ?? { region: null, cursor: null };
+      const res = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(me) }).catch(() => null);
+      if (!res?.ok) return;
+      const state = (await res.json()) as { revision: number; people: Person[] };
+      setPeople(state.people);
+      if (state.revision > revision.current && !saving.current && (await pull().catch(() => false))) {
+        const apps = state.people.filter((p) => p.app && p.activity);
+        const names = state.people.filter((p) => !p.app).map((p) => p.name);
+        setNotice(apps.length ? `Changes from ${apps.map((a) => `${a.name}: ${a.activity}`).join("; ")}` : `Changes from ${names.join(", ") || "another window"} are in`);
+        clearTimeout(clear);
+        clear = setTimeout(() => setNotice(null), 8000);
+      }
+    };
+    void tick();
+    const interval = setInterval(() => void tick(), 2000);
+    const leave = () => void fetch(url, { method: "DELETE", keepalive: true }).catch(() => {});
+    window.addEventListener("pagehide", leave);
+    return () => {
+      clearInterval(interval);
+      clearTimeout(clear);
+      window.removeEventListener("pagehide", leave);
+      leave();
+    };
+  }, [calc.id, pull]);
+  const others = useMemo<Other[]>(() => people.map((p) => ({ ...p, color: personColor(p.id) })), [people]);
+
   // A worksheet started from a template saves straight away.
   useEffect(() => {
     if (doc.unsaved) timer.current = setTimeout(() => void saveNow(), 500);
@@ -188,6 +260,36 @@ function Workspace({ doc, calc, backHref }: { doc: CalcDocument; calc: { id: str
       clearTimeout(timer.current);
     };
   }, [doc, saveNow]);
+
+  // --- the project it's filed under, and publishing to its Sheets ------------------------------
+  const [projectId, setProjectId] = useState(calc.projectId);
+  const [publishing, setPublishing] = useState(false);
+  const chooseProject = (id: string | null) => {
+    const before = projectId;
+    setProjectId(id);
+    setCalcProject(calc.id, id).catch(() => {
+      setProjectId(before);
+      toast.error("Could not file the worksheet under that project");
+    });
+  };
+  const publish = async () => {
+    setPublishing(true);
+    try {
+      // What's published is the saved worksheet: save (or wait for the save under way) first.
+      for (let i = 0; i < 20 && doc.unsaved; i++) {
+        await saveNow();
+        if (doc.unsaved) await new Promise((r) => setTimeout(r, 300));
+      }
+      if (doc.unsaved) throw new Error("Not saved");
+      const result = await publishCalcToSheets(calc.id);
+      if ("error" in result) toast.error(result.error);
+      else toast.success(`Published to Sheets: ${result.sheets} sheet${result.sheets === 1 ? "" : "s"}`, { action: { label: "Open", onClick: () => window.open(result.link, "_blank") } });
+    } catch {
+      toast.error("Could not publish the worksheet");
+    } finally {
+      setPublishing(false);
+    }
+  };
 
   const page = PAGES[doc.paper];
   return (
@@ -227,10 +329,16 @@ function Workspace({ doc, calc, backHref }: { doc: CalcDocument; calc: { id: str
             </button>
           </>
         }
-        status={<SaveStatus save={save} onRetry={() => void saveNow()} />}
+        project={{ projects, projectId, onProject: chooseProject, onPublish: () => void publish(), publishing }}
+        status={
+          <span className="flex items-center gap-2">
+            <People people={people} noun="worksheet" />
+            <SaveStatus save={save} onRetry={() => void saveNow()} />
+          </span>
+        }
       />
       <div className="calc-scroll min-h-0 flex-1 overflow-auto bg-neutral-200 dark:bg-neutral-800">
-        <Worksheet doc={doc} version={version} results={results} zoom={zoom} drafts={drafts} setDrafts={setDrafts} handle={worksheet} />
+        <Worksheet doc={doc} version={version} results={results} zoom={zoom} drafts={drafts} setDrafts={setDrafts} handle={worksheet} others={others} />
       </div>
       <div className="no-print flex h-8 items-center gap-3 border-t bg-muted/40 px-3 text-xs text-muted-foreground">
         <span>{doc.regions.size} regions</span>
@@ -240,6 +348,7 @@ function Workspace({ doc, calc, backHref }: { doc: CalcDocument; calc: { id: str
             {errors} error{errors === 1 ? "" : "s"}
           </span>
         )}
+        {notice && <span className="truncate text-primary">{notice}</span>}
         <span className="ml-auto">{doc.settings.system === "SI" ? "SI units" : "US customary units"}</span>
         <span className="flex items-center gap-1">
           <button type="button" onClick={() => setZoom((z) => Math.max(0.5, Math.round((z - 0.1) * 10) / 10))} className="rounded p-0.5 hover:bg-accent" aria-label="Zoom out">

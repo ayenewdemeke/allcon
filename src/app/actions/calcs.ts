@@ -7,18 +7,27 @@ import { getCurrentUser, isUuid, requireUser } from "@/lib/auth/session";
 import { findTemplate } from "@/lib/calcs/library/templates";
 import { db } from "@/lib/db";
 import { deleteFiles } from "@/lib/storage";
+import { ToolError } from "@/lib/tools/context";
+import { publishCalc } from "@/lib/tools/calcs";
 
 const name = z.string().trim().min(1, "Give the worksheet a name").max(200);
 const system = z.enum(["USCS", "SI"]).catch("USCS");
 
 export type CalcFormState = { error?: string };
 
-/** A new, empty worksheet, opened in the editor. */
+/** A project of the user's organization, or null. */
+async function orgProject(orgId: string, projectId: unknown) {
+  if (typeof projectId !== "string" || !isUuid(projectId)) return null;
+  return db.project.findFirst({ where: { id: projectId, orgId }, select: { id: true } });
+}
+
+/** A new worksheet (empty, or from a template), opened in the editor. */
 export async function createCalc(_prev: CalcFormState, formData: FormData): Promise<CalcFormState> {
   const user = await requireUser();
   const parsed = name.safeParse(formData.get("name"));
   if (!parsed.success) return { error: parsed.error.issues[0]?.message };
-  const calc = await db.calc.create({ data: { orgId: user.orgId, name: parsed.data, createdById: user.id } });
+  const project = await orgProject(user.orgId, formData.get("project"));
+  const calc = await db.calc.create({ data: { orgId: user.orgId, projectId: project?.id ?? null, name: parsed.data, createdById: user.id } });
   revalidatePath("/calcs");
   const template = findTemplate(String(formData.get("template") ?? ""));
   redirect(`/calcs/${calc.id}?system=${system.parse(formData.get("system"))}${template ? `&template=${template.id}` : ""}`);
@@ -45,4 +54,28 @@ export async function deleteCalc(calcId: string) {
   await db.calc.delete({ where: { id: calc.id } });
   await deleteFiles([calc.fileKey]).catch((err) => console.error("Could not delete a worksheet's file", err));
   revalidatePath("/calcs");
+}
+
+/** Files a worksheet under a project (or under none). */
+export async function setCalcProject(calcId: string, projectId: string | null) {
+  const user = await requireUser();
+  const calc = await ownCalc(calcId);
+  const project = projectId ? await orgProject(user.orgId, projectId) : null;
+  if (projectId && !project) throw new Error("Project not found");
+  await db.calc.update({ where: { id: calc.id }, data: { projectId: project?.id ?? null } });
+  revalidatePath("/calcs");
+}
+
+/** Prints the saved worksheet to a PDF and adds it to its project's Sheets. */
+export async function publishCalcToSheets(calcId: string): Promise<{ link: string; sheets: number } | { error: string }> {
+  const user = await requireUser();
+  const calc = await ownCalc(calcId);
+  try {
+    const result = await publishCalc({ userId: user.id, orgId: user.orgId, clientId: null }, calc.id);
+    revalidatePath(`/projects/${result.projectId}/sheets`);
+    return { link: result.link, sheets: result.sheets };
+  } catch (err) {
+    if (err instanceof ToolError) return { error: err.message };
+    throw err;
+  }
 }

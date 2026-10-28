@@ -3,8 +3,8 @@
 import { Bot } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-// Who else is in the drawing: people with it open, and AI apps editing it through the
-// connector, as small avatars by the save status. Their cursors show on the drawing.
+// Who else is in the drawing (or worksheet): people with it open, and AI apps editing it
+// through the connector, as small avatars by the save status. Their cursors show on it.
 
 export type Person = { id: string; name: string; app: boolean; space: string | null; cursor: [number, number] | null; activity: string | null };
 
@@ -25,14 +25,14 @@ const initials = (name: string) =>
     .map((w) => w[0]!.toUpperCase())
     .join("");
 
-export function People({ people }: { people: Person[] }) {
+export function People({ people, noun = "drawing" }: { people: Pick<Person, "id" | "name" | "app" | "activity">[]; noun?: string }) {
   if (!people.length) return null;
   return (
     <span className="flex items-center -space-x-1">
       {people.slice(0, 6).map((p) => (
         <span
           key={p.id}
-          title={p.app ? `${p.name} is editing through the connector${p.activity ? `: ${p.activity}` : ""}` : `${p.name} has this drawing open`}
+          title={p.app ? `${p.name} is editing through the connector${p.activity ? `: ${p.activity}` : ""}` : `${p.name} has this ${noun} open`}
           className={cn("flex size-5 items-center justify-center rounded-full border-2 border-background text-[9px] font-semibold text-white", p.app && "animate-pulse")}
           style={{ background: personColor(p.id) }}
         >

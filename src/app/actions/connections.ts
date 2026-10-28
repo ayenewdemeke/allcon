@@ -7,6 +7,7 @@ import { db } from "@/lib/db";
 import { getCurrentUser, isUuid } from "@/lib/auth/session";
 import { drawingExtraFiles } from "@/lib/drafting/server";
 import { deleteFiles } from "@/lib/storage";
+import { calcUndo } from "@/lib/tools/calcs";
 import { drawingUndo } from "@/lib/tools/drafting";
 import { removeModel, restoreModel } from "@/lib/tools/models3d";
 
@@ -57,6 +58,33 @@ async function undoDrawing(orgId: string, undo: unknown) {
   return true;
 }
 
+const calcCreateUndo = z.object({ type: z.literal("calc_create"), calcId: z.uuid() });
+
+/** Calcs: a worksheet the app made goes; an edited one goes back to before the app's request
+ * (unless someone has changed it since, which undoing would lose). */
+async function undoCalc(orgId: string, undo: unknown) {
+  const created = calcCreateUndo.safeParse(undo);
+  const edited = calcUndo.safeParse(undo);
+  const calcId = created.success ? created.data.calcId : edited.success ? edited.data.calcId : null;
+  if (!calcId) return false;
+  const calc = await db.calc.findFirst({ where: { id: calcId, orgId } });
+  if (!calc) throw new Error("That worksheet no longer exists");
+  if (created.success) {
+    await db.calc.delete({ where: { id: calc.id } });
+    await deleteFiles([calc.fileKey, calc.backupKey]).catch(() => {});
+    return true;
+  }
+  if (!edited.success) return false;
+  if (calc.revision !== edited.data.revision) throw new Error("The worksheet has changed since; open it and undo there instead");
+  const { count } = await db.calc.updateMany({
+    where: { id: calc.id, revision: calc.revision },
+    data: { fileKey: edited.data.backupKey, backupKey: null, revision: calc.revision + 1 },
+  });
+  if (!count) throw new Error("The worksheet has changed since; open it and undo there instead");
+  if (calc.fileKey && calc.fileKey !== edited.data.backupKey) await deleteFiles([calc.fileKey]).catch(() => {});
+  return true;
+}
+
 const mappingUndo = z.object({ type: z.literal("mapping_rules_create"), ruleIds: z.array(z.uuid()) });
 
 const renameUndo = z.object({
@@ -75,7 +103,8 @@ export async function undoActivity(activityId: string) {
   const model = modelUndo.safeParse(row?.undo);
   const mapping = mappingUndo.safeParse(row?.undo);
   const drawing = row ? await undoDrawing(user.orgId, row.undo) : false;
-  if (!row || (!row.markupIds.length && !rename.success && !model.success && !mapping.success && !drawing)) throw new Error("Nothing to undo");
+  const calc = row && !drawing ? await undoCalc(user.orgId, row.undo) : false;
+  if (!row || (!row.markupIds.length && !rename.success && !model.success && !mapping.success && !drawing && !calc)) throw new Error("Nothing to undo");
   if (model.success) {
     // 3D models: delete one the app created, or put an edited one back as it was before.
     if (model.data.type === "ifc_model_create") await removeModel(user.orgId, model.data.modelId);

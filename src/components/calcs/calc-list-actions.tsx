@@ -11,7 +11,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { TEMPLATES } from "@/lib/calcs/library/templates";
 
-export function NewCalcDialog({ label = "New worksheet" }: { label?: string }) {
+export function NewCalcDialog({ label = "New worksheet", projects }: { label?: string; projects: { id: string; name: string }[] }) {
   const [state, action, pending] = useActionState<CalcFormState, FormData>(createCalc, {});
   return (
     <Dialog>
@@ -40,6 +40,19 @@ export function NewCalcDialog({ label = "New worksheet" }: { label?: string }) {
               ))}
             </select>
           </div>
+          {projects.length > 0 && (
+            <div className="grid gap-1.5">
+              <Label htmlFor="calc-project">Project</Label>
+              <select id="calc-project" name="project" defaultValue="" className="h-8 rounded-lg border border-input bg-transparent px-2.5 text-sm">
+                <option value="">None</option>
+                {projects.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
           <div className="grid gap-1.5">
             <Label htmlFor="calc-system">Units</Label>
             <select id="calc-system" name="system" defaultValue="USCS" className="h-8 rounded-lg border border-input bg-transparent px-2.5 text-sm">

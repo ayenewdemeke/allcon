@@ -2,7 +2,8 @@ import type { Settings } from "./evaluate";
 import type { CalcData, Header, Paper, Region } from "./types";
 
 // The open worksheet: its regions and settings, undo (one step per edit), and what's changed
-// since the last save. Listeners hear about every change.
+// since the last save, region by region, so others' saved changes can be merged in without
+// losing what's changed here. Listeners hear about every change.
 
 type Meta = { paper: Paper; settings: Settings; header: Header };
 type Change = { kind: "region"; before: Region | null; after: Region | null } | { kind: "meta"; before: Meta; after: Meta };
@@ -20,6 +21,8 @@ export class CalcDocument {
   /** Counts edits; a save covers the edits up to the count it was made at. */
   editSeq = 0;
   private savedSeq = 0;
+  /** What's changed here and not saved yet ("r:" and a region's id, or "meta"), at which edit. */
+  private dirty = new Map<string, number>();
   private undoStack: Change[][] = [];
   private redoStack: Change[][] = [];
   private open: Change[] | null = null;
@@ -49,7 +52,7 @@ export class CalcDocument {
   }
 
   get unsaved() {
-    return this.editSeq > this.savedSeq;
+    return this.editSeq > this.savedSeq || this.dirty.size > 0;
   }
   /** A worksheet made here (from a template) that isn't saved yet. */
   markUnsaved() {
@@ -57,6 +60,22 @@ export class CalcDocument {
   }
   markSaved(seq: number) {
     this.savedSeq = Math.max(this.savedSeq, seq);
+    for (const [key, at] of this.dirty) if (at <= seq) this.dirty.delete(key);
+  }
+
+  /** Takes in a version saved elsewhere (another person, an AI app): their regions and settings,
+   * except where there are changes here not saved yet, which win. */
+  applyRemote(remote: CalcData) {
+    const mine = (key: string) => this.dirty.has(key);
+    const incoming = new Map(remote.regions.map((r) => [r.id, r]));
+    for (const id of [...this.regions.keys()]) if (!incoming.has(id) && !mine(`r:${id}`)) this.regions.delete(id);
+    for (const [id, r] of incoming) if (!mine(`r:${id}`)) this.regions.set(id, r);
+    if (!mine("meta")) {
+      this.paper = remote.paper;
+      this.settings = remote.settings;
+      this.header = remote.header;
+    }
+    this.changed();
   }
 
   // --- edits, as undo steps ---------------------------------------------------------------
@@ -81,11 +100,11 @@ export class CalcDocument {
   }
 
   private record(change: Change) {
+    this.editSeq++;
     this.transact(() => {
       this.open!.push(change);
       this.apply(change, false);
     });
-    this.editSeq++;
     this.changed();
   }
 
@@ -93,10 +112,12 @@ export class CalcDocument {
     if (change.kind === "region") {
       const target = backwards ? change.before : change.after;
       const id = (change.after ?? change.before)!.id;
+      this.dirty.set(`r:${id}`, this.editSeq);
       if (target) this.regions.set(id, target);
       else this.regions.delete(id);
     } else {
       const m = backwards ? change.before : change.after;
+      this.dirty.set("meta", this.editSeq);
       this.paper = m.paper;
       this.settings = m.settings;
       this.header = m.header;
@@ -128,9 +149,9 @@ export class CalcDocument {
   undo() {
     const step = this.undoStack.pop();
     if (!step) return false;
+    this.editSeq++;
     for (const c of [...step].reverse()) this.apply(c, true);
     this.redoStack.push(step);
-    this.editSeq++;
     this.changed();
     return true;
   }
@@ -138,9 +159,9 @@ export class CalcDocument {
   redo() {
     const step = this.redoStack.pop();
     if (!step) return false;
+    this.editSeq++;
     for (const c of step) this.apply(c, false);
     this.undoStack.push(step);
-    this.editSeq++;
     this.changed();
     return true;
   }

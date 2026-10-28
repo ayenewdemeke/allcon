@@ -45,6 +45,7 @@ model User {
   references      Reference[]
   reviews         Review[]
   drawingPresence DrawingPresence[]
+  calcPresence    CalcPresence[]
   oauthClients    OauthClient[]
   refreshTokens   OauthRefreshToken[]
   accessTokens    OauthAccessToken[]
@@ -845,6 +846,7 @@ model Calc {
   projectId   String?      @map("project_id") @db.Uuid
   name        String
   fileKey     String?      @map("file_key") // null until first saved
+  backupKey   String?      @map("backup_key") // the file before an AI app's last edit, for undo
   revision    Int          @default(0)
   regionCount Int          @default(0) @map("region_count")
   createdById String?      @map("created_by") @db.Uuid
@@ -852,8 +854,28 @@ model Calc {
   updatedAt   DateTime     @default(now()) @updatedAt @map("updated_at")
   org         Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
   project     Project?     @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  presence    CalcPresence[]
 
   @@index([orgId])
   @@index([projectId])
   @@map("calc")
+}
+
+// Who has a worksheet open (or is editing it through an AI app): seen in the last few seconds,
+// the region they're editing or where their crosshair is, and what they last did.
+model CalcPresence {
+  id       String   @id @default(uuid()) @db.Uuid
+  calcId   String   @map("calc_id") @db.Uuid
+  userId   String   @map("user_id") @db.Uuid
+  clientId String   @default("") @map("client_id") // an AI app acting for the user; "" for the person
+  name     String
+  region   String? // the region they're editing
+  cursor   Json? // their crosshair, [x, y] on the worksheet
+  activity String? // e.g. "added 12 regions"
+  seenAt   DateTime @default(now()) @map("seen_at")
+  calc     Calc     @relation(fields: [calcId], references: [id], onDelete: Cascade)
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([calcId, userId, clientId])
+  @@map("calc_presence")
 }

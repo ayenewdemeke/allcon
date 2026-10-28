@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Calculator, ChartSpline, FileText, Grid3x3, Heading1, Heading2, LayoutTemplate, Printer, Ruler, Sigma, SquareFunction, StickyNote, Table2, Type } from "lucide-react";
+import { Calculator, ChartSpline, FileText, FolderKanban, Grid3x3, Heading1, Heading2, LayoutTemplate, Loader2, Printer, Ruler, Send, Sigma, SquareFunction, StickyNote, Table2, Type } from "lucide-react";
 import type { CalcDocument } from "@/lib/calcs/document";
 import { materials } from "@/lib/calcs/library/materials";
 import { layout, snippetLines, TEMPLATES } from "@/lib/calcs/library/templates";
@@ -148,7 +148,10 @@ const unitLatex = (u: string) => {
   return bottom ? `\\frac{${pow(top)}}{${pow(bottom)}}` : pow(top);
 };
 
-export function CalcRibbon({ doc, worksheet, quickAccess, status }: { doc: CalcDocument; worksheet: React.RefObject<WorksheetHandle | null>; quickAccess: React.ReactNode; status: React.ReactNode }) {
+/** The worksheet's project (it can be filed under one), and publishing it to that project's Sheets. */
+export type ProjectLink = { projects: { id: string; name: string }[]; projectId: string | null; onProject: (id: string | null) => void; onPublish: () => void; publishing: boolean };
+
+export function CalcRibbon({ doc, worksheet, quickAccess, status, project }: { doc: CalcDocument; worksheet: React.RefObject<WorksheetHandle | null>; quickAccess: React.ReactNode; status: React.ReactNode; project: ProjectLink }) {
   const [tab, setTab] = useState<Tab>("math");
   const insert = (latex: string) => worksheet.current?.insertMath(latex);
   const [size, setSize] = useState({ rows: 2, cols: 2 });
@@ -376,8 +379,31 @@ export function CalcRibbon({ doc, worksheet, quickAccess, status }: { doc: CalcD
             <Panel title="Header">
               <HeaderFields doc={doc} />
             </Panel>
+            <Panel title="Project">
+              <div className="flex flex-col gap-1 pt-1 text-[11px]">
+                <label className="flex items-center gap-2">
+                  <FolderKanban className="size-4" />
+                  <select value={project.projectId ?? ""} onChange={(e) => project.onProject(e.target.value || null)} className="h-6 w-48 rounded border bg-background px-1" aria-label="Project">
+                    <option value="">Not filed under a project</option>
+                    {project.projects.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <span className="max-w-56 text-muted-foreground">Publishing adds it to the project&apos;s Sheets, a sheet per page.</span>
+              </div>
+            </Panel>
             <Panel title="Output">
               <Big icon={Printer} label="Print / PDF" title="Print, or save as PDF (Ctrl+P)" onClick={() => window.print()} />
+              <Big
+                icon={project.publishing ? Loader2 : Send}
+                label="Publish to Sheets"
+                title={project.projectId ? "Add this worksheet to the project's Sheets as a PDF" : "File the worksheet under a project first"}
+                onClick={() => project.projectId && !project.publishing && project.onPublish()}
+                active={false}
+              />
             </Panel>
           </>
         )}

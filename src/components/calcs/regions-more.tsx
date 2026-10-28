@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { Plus, X } from "lucide-react";
+import { axes, PLOT_COLORS as COLORS, tickLabel as label } from "@/lib/calcs/axes";
 import type { Result, Trace } from "@/lib/calcs/evaluate";
 import type { PlotRegion, SolveRegion, TableRegion } from "@/lib/calcs/types";
 import { cn } from "@/lib/utils";
@@ -250,33 +251,9 @@ const nameLatex = (name: string) => name.replace(/_(.+)$/, "_{$1}");
 
 // --- plots -------------------------------------------------------------------------------------
 
-const COLORS = ["#2563eb", "#dc2626", "#16a34a", "#9333ea", "#ea580c", "#0891b2"];
-
-/** Round steps for an axis (1, 2 or 5 × 10ⁿ), about `count` of them. */
-function ticks(min: number, max: number, count = 6) {
-  if (!(max > min)) {
-    const d = Math.abs(min) || 1;
-    [min, max] = [min - d / 2, max + d / 2];
-  }
-  const raw = (max - min) / count;
-  const mag = 10 ** Math.floor(Math.log10(raw));
-  const step = [1, 2, 5, 10].map((m) => m * mag).find((s) => s >= raw)!;
-  const lo = Math.floor(min / step) * step;
-  const hi = Math.ceil(max / step) * step;
-  const out: number[] = [];
-  for (let v = lo; v <= hi + step / 2; v += step) out.push(Math.abs(v) < step * 1e-9 ? 0 : v);
-  return { lo, hi, values: out, step };
-}
-const label = (v: number, step: number) => {
-  const decimals = Math.max(0, -Math.floor(Math.log10(step)));
-  return Math.abs(v) >= 1e6 || (Math.abs(v) < 1e-3 && v !== 0) ? v.toExponential(2) : v.toFixed(Math.min(decimals, 6));
-};
-
 export function PlotRegionView({ ml, region, result, editing, selected, onChange }: { ml: MathLive | null; region: PlotRegion; result: Result | undefined; editing: boolean; selected: boolean; onChange: Change<PlotRegion> }) {
   const traces: Trace[] = result?.kind === "plot" ? result.traces : [];
-  const points = traces.flatMap((t) => t.xs.map((x, i) => [x, t.ys[i]] as const)).filter(([x, y]) => Number.isFinite(x) && Number.isFinite(y));
-  const xt = ticks(Math.min(...points.map((p) => p[0]), 0), Math.max(...points.map((p) => p[0]), points.length ? -Infinity : 1));
-  const yt = ticks(Math.min(...points.map((p) => p[1])), Math.max(...points.map((p) => p[1])));
+  const { x: xt, y: yt } = axes(traces);
   const [W, H] = [region.width, region.height];
   const pad = { left: 52, right: 12, top: 10, bottom: 30 };
   const sx = (x: number) => pad.left + ((x - xt.lo) / (xt.hi - xt.lo)) * (W - pad.left - pad.right);
