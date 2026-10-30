@@ -5,7 +5,9 @@ import { CASES, CBC_DEFAULTS, designCbc, type CbcInputs } from "./cbc";
 // whose moments come from a commercial frame program: the frame here agrees within 1–2%.
 
 const within = (a: number, b: number, rel: number, abs = 0.5) => expect(Math.abs(a - b)).toBeLessThanOrEqual(Math.max(abs, rel * Math.abs(b)));
-const EXAMPLE: CbcInputs = { ...CBC_DEFAULTS, steel: { ...CBC_DEFAULTS.steel, topIn: 0.64, botIn: 0.7 } };
+/** The example: precast, welded wire (fy 65 ksi, 4 in spacing, 1 in assumed for d). */
+const PRECAST: CbcInputs = { ...CBC_DEFAULTS, construction: "precast", phiF: 1.0, phiV: 0.9, reinf: "wwr", fy: 65 };
+const EXAMPLE: CbcInputs = { ...PRECAST, steel: { ...PRECAST.steel, topIn: 0.64, botIn: 0.7 } };
 
 // Table 12.5.2, unfactored moments (kip-in): DC, EV, EHmax, EHmin, LS, WA, LL+IM pos, LL+IM neg.
 const TABLE: [string, number[]][] = [
@@ -79,8 +81,24 @@ describe("Box culvert, the MnDOT example", () => {
     within(r54.checks.find((c) => c.id === "top-in-crack")!.demand, 44.6, 0.01, 0);
   });
 
-  it("passes with the defaults (the example's steel, rounded up)", () => {
-    expect(designCbc(CBC_DEFAULTS).checks.filter((c) => !c.ok).map((c) => c.name)).toEqual([]);
+  it("passes with the example's steel rounded up (0.65, 0.71 in²/ft)", () => {
+    expect(designCbc(PRECAST).checks.filter((c) => !c.ok).map((c) => c.name)).toEqual([]);
+  });
+
+  it("passes with the defaults: cast in place, bars", () => {
+    const r = designCbc(CBC_DEFAULTS);
+    expect(r.checks.filter((c) => !c.ok).map((c) => c.name)).toEqual([]);
+    // #6 @ 6 in: 0.88 in²/ft, d = 9 − 2 − 0.375 in.
+    const g = r.governs.find((x) => x.face === "topIn")!;
+    within(g.As, 0.88, 1e-9, 0);
+    within(g.flex.flex.d, 6.625, 1e-9, 0);
+    within(g.crack!.crack!.fss, Math.min(525 / ((1 + 2.375 / (0.7 * 6.625)) * (6 + 4.75)), 36), 1e-9, 0);
+    expect(r.checks.find((c) => c.id === "top-in-spacing")?.capacity).toBe(13.5);
+  });
+
+  it("checks the bar spacing (AASHTO 5.10.3.2)", () => {
+    const r = designCbc({ ...CBC_DEFAULTS, bars: { ...CBC_DEFAULTS.bars, topOut: { bar: 8, spacing: 15 } } });
+    expect(r.checks.find((c) => c.id === "top-out-spacing")?.ok).toBe(false);
   });
 });
 
@@ -108,7 +126,7 @@ describe("Box culvert, more cells", () => {
 
   it("distributes live load under shallow fill by the strip method", () => {
     const r = designCbc({ ...CBC_DEFAULTS, span: 16, rise: 12, Tt: 12, Tb: 11, fill: 1 });
-    // MnDOT 12.6: E = 96 + 1.44 S = 119 in, Espan = 10 + 1.15·12 = 23.8 in, IM = 29%; lane load on a 16 ft span.
+    // AASHTO 4.6.2.10 (as MnDOT's 12.6 example): E = 96 + 1.44 S = 119 in, Espan = 10 + 1.15·12 = 23.8 in, IM = 29%; lane load on a 16 ft span.
     within(r.live.Wp * 12, 119.04, 1e-6, 0);
     within(r.live.Lp * 12, 23.8, 1e-6, 0);
     within(r.live.IM, 0.28875, 1e-6, 0);

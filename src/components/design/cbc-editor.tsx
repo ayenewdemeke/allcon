@@ -2,13 +2,24 @@
 
 import { useMemo, useState } from "react";
 import { Card, CardContent } from "@/components/ui/card";
-import { CASES, designCbc, type CbcInputs, type CbcResult, type Steel } from "@/lib/design/culverts/cbc";
+import { cn } from "@/lib/utils";
+import { CASES, designCbc, PHI_BOX, type CbcInputs, type CbcResult, type Face } from "@/lib/design/culverts/cbc";
 import { DesignError } from "@/lib/design/walls/cip";
-import { ChecksBanner, ChecksTable, Choice, DesignErrorCard, DesignHeader, Field, fmt, KeyValues, Section, Toggle } from "./design-kit";
+import { BarsField, ChecksBanner, ChecksTable, Choice, DesignErrorCard, DesignHeader, Field, fmt, KeyValues, Section, Toggle } from "./design-kit";
 import { CbcSketch } from "./wall-sketch";
 
 // Designing a box culvert: the inputs on the left, worked out as they change (section and moment
 // diagram, checks, the steel each face needs and the frame's results) on the right, saved as you go.
+
+const FACES: { key: Face; label: string }[] = [
+  { key: "topIn", label: "Top slab, inside" },
+  { key: "topOut", label: "Top slab, outside" },
+  { key: "botIn", label: "Bottom slab, inside" },
+  { key: "botOut", label: "Bottom slab, outside" },
+  { key: "wallIn", label: "Exterior walls, inside" },
+  { key: "wallOut", label: "Exterior walls, outside" },
+  { key: "intWall", label: "Interior walls, each face" },
+];
 
 const groupOf = (id: string) => (id.startsWith("top") ? "Top slab" : id.startsWith("bottom") ? "Bottom slab" : id.startsWith("iwall") ? "Interior walls" : "Exterior walls");
 
@@ -16,7 +27,8 @@ export function CbcEditor({ design, projects }: { design: { id: string; name: st
   const [inputs, setInputs] = useState(design.inputs);
   const [moments, setMoments] = useState(true);
   const set = <K extends keyof CbcInputs>(key: K) => (v: CbcInputs[K]) => setInputs((s) => ({ ...s, [key]: v }));
-  const setSteel = (key: keyof Steel) => (v: number) => setInputs((s) => ({ ...s, steel: { ...s.steel, [key]: v } }));
+  const setSteel = (key: Face) => (v: number) => setInputs((s) => ({ ...s, steel: { ...s.steel, [key]: v } }));
+  const setBars = (key: Face) => (v: CbcInputs["bars"][Face]) => setInputs((s) => ({ ...s, bars: { ...s.bars, [key]: v } }));
 
   const outcome = useMemo(() => {
     try {
@@ -30,7 +42,7 @@ export function CbcEditor({ design, projects }: { design: { id: string; name: st
 
   return (
     <div className="space-y-4">
-      <DesignHeader design={design} projects={projects} inputs={inputs} label="Box Culvert · AASHTO LRFD, MnDOT" canMakeCalc={!!r} />
+      <DesignHeader design={design} projects={projects} inputs={inputs} label="Box Culvert · AASHTO LRFD" canMakeCalc={!!r} />
 
       <div className="grid gap-4 lg:grid-cols-[minmax(300px,360px)_1fr]">
         {/* Inputs */}
@@ -70,20 +82,34 @@ export function CbcEditor({ design, projects }: { design: { id: string; name: st
               )}
             </Section>
             <Section title="Reinforcement" open>
-              <Field label="Top slab, inside" unit="in²/ft" value={inputs.steel.topIn} onChange={setSteel("topIn")} step={0.01} />
-              <Field label="Top slab, outside" unit="in²/ft" value={inputs.steel.topOut} onChange={setSteel("topOut")} step={0.01} />
-              <Field label="Bottom slab, inside" unit="in²/ft" value={inputs.steel.botIn} onChange={setSteel("botIn")} step={0.01} />
-              <Field label="Bottom slab, outside" unit="in²/ft" value={inputs.steel.botOut} onChange={setSteel("botOut")} step={0.01} />
-              <Field label="Exterior walls, inside" unit="in²/ft" value={inputs.steel.wallIn} onChange={setSteel("wallIn")} step={0.01} />
-              <Field label="Exterior walls, outside" unit="in²/ft" value={inputs.steel.wallOut} onChange={setSteel("wallOut")} step={0.01} />
-              {multi && <Field label="Interior walls, each face" unit="in²/ft" value={inputs.steel.intWall} onChange={setSteel("intWall")} step={0.01} />}
+              <Choice
+                label="Type"
+                value={inputs.reinf}
+                options={[
+                  { value: "bars", label: "Rebars" },
+                  { value: "wwr", label: "Welded wire" },
+                ]}
+                // fy follows the type while it's at the usual value for the other one.
+                onChange={(v) => setInputs((s) => ({ ...s, reinf: v, fy: v === "wwr" && s.fy === 60 ? 65 : v === "bars" && s.fy === 65 ? 60 : s.fy }))}
+              />
+              {FACES.filter((f) => multi || f.key !== "intWall").map((f) =>
+                inputs.reinf === "bars" ? (
+                  <BarsField key={f.key} label={f.label} value={inputs.bars[f.key]} onChange={setBars(f.key)} />
+                ) : (
+                  <Field key={f.key} label={f.label} unit="in²/ft" value={inputs.steel[f.key]} onChange={setSteel(f.key)} step={0.01} />
+                ),
+              )}
               <Field label="Clear cover" unit="in" value={inputs.cover} onChange={set("cover")} step={0.25} />
-              <Field label="Wire diameter assumed for d" unit="in" value={inputs.dw} onChange={set("dw")} step={0.125} />
-              <Field label="Wire spacing (crack control)" unit="in" value={inputs.spacing} onChange={set("spacing")} />
+              {inputs.reinf === "wwr" && (
+                <>
+                  <Field label="Wire diameter" unit="in" value={inputs.dw} onChange={set("dw")} step={0.125} />
+                  <Field label="Wire spacing" unit="in" value={inputs.spacing} onChange={set("spacing")} />
+                </>
+              )}
             </Section>
             <Section title="Concrete and steel">
               <Field label="f'c" unit="ksi" value={inputs.fc} onChange={set("fc")} step={0.5} />
-              <Field label="fy (65 welded wire, 60 bars)" unit="ksi" value={inputs.fy} onChange={set("fy")} />
+              <Field label="fy" unit="ksi" value={inputs.fy} onChange={set("fy")} />
               <Field label="Concrete unit weight" unit="pcf" value={inputs.gammaC} scale={1000} onChange={set("gammaC")} />
               <Choice
                 label="Exposure"
@@ -97,8 +123,18 @@ export function CbcEditor({ design, projects }: { design: { id: string; name: st
               <Field label="Maximum aggregate" unit="in" value={inputs.agg} onChange={set("agg")} step={0.125} />
             </Section>
             <Section title="Factors">
+              <Choice
+                label="Box"
+                value={inputs.construction}
+                options={[
+                  { value: "cip", label: "Cast in place" },
+                  { value: "precast", label: "Precast" },
+                ]}
+                // φ from AASHTO Table 12.5.5-1.
+                onChange={(v) => setInputs((s) => ({ ...s, construction: v, ...PHI_BOX[v] }))}
+              />
               <Field label="η on EV and EH (redundancy)" value={inputs.eta} onChange={set("eta")} step={0.05} />
-              <Field label="Flexure φf (1.0 precast)" value={inputs.phiF} onChange={set("phiF")} step={0.05} />
+              <Field label="Flexure φf" value={inputs.phiF} onChange={set("phiF")} step={0.05} />
               <Field label="Shear φv" value={inputs.phiV} onChange={set("phiV")} step={0.05} />
               <Field label="Compression φ" value={inputs.phiC} onChange={set("phiC")} step={0.05} />
             </Section>
@@ -155,7 +191,7 @@ function SteelSummary({ r }: { r: CbcResult }) {
             {r.governs.map((g) => {
               const flex = g.flex.flex.AsReq;
               const crack = g.crack?.crack?.AsReq ?? 0;
-              const min = Math.max(0.002 * 12 * g.h, 0.06);
+              const min = 0.002 * 12 * g.h;
               const need = Math.max(flex, crack, min);
               return (
                 <tr key={g.label} className="border-b border-border/40 text-right tabular-nums">
@@ -164,7 +200,10 @@ function SteelSummary({ r }: { r: CbcResult }) {
                   <td className={need === crack ? "font-medium" : ""}>{g.crack ? fmt(crack) : "—"}</td>
                   <td className={need === min ? "font-medium" : ""}>{fmt(min)}</td>
                   <td>{fmt(need)}</td>
-                  <td className={g.As + 1e-9 < need ? "text-red-600" : "text-emerald-600"}>{fmt(g.As)}</td>
+                  <td className={cn("whitespace-nowrap", g.As + 1e-9 < need ? "text-red-600" : "text-emerald-600")}>
+                    {g.steel.bars && <span className="pr-1 text-muted-foreground">#{g.steel.bars.bar} @ {g.steel.bars.spacing}&quot;</span>}
+                    {fmt(g.As)}
+                  </td>
                 </tr>
               );
             })}
@@ -204,7 +243,7 @@ function Working({ r }: { r: CbcResult }) {
           ["Distribution", r.live.shallow ? "Strip method (fill < 2 ft)" : "Spread through the fill"],
           ["Footprint across / along the span (one axle)", `${fmt(r.live.Wp, 2)} / ${fmt(r.live.Lp, 2)} ft`],
           ...r.live.vehicles.map((v) => [v.name, `${fmt(v.w)} ksf over ${fmt(v.L, 2)} ft`] as [string, string]),
-          ["Lane load", r.live.lane ? `${fmt(r.live.wLane)} ksf` : "No (span < 15 ft)"],
+          ["Lane load", r.live.lane ? `${fmt(r.live.wLane)} ksf` : "No (span 15 ft or less)"],
           ["Frame elements", String(r.model.elements.length)],
         ]}
       />

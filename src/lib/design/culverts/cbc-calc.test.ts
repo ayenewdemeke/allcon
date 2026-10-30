@@ -28,10 +28,11 @@ const close = (a: number, b: number) => expect(Math.abs(a - b)).toBeLessThanOrEq
 
 describe("Box culvert calc package", () => {
   for (const [name, inputs] of [
-    ["the MnDOT example", CBC_DEFAULTS],
+    ["the defaults (bars, cast in place)", CBC_DEFAULTS],
+    ["the MnDOT example (precast, welded wire)", { ...CBC_DEFAULTS, construction: "precast", phiF: 1.0, phiV: 0.9, reinf: "wwr", fy: 65 }],
     ["two cells under shallow fill", { ...CBC_DEFAULTS, cells: 2, span: 16, rise: 8, Tt: 12, Tb: 12, fill: 1.5 }],
     ["three cells, no water, deep fill", { ...CBC_DEFAULTS, cells: 3, span: 8, rise: 6, fill: 14, water: false }],
-    ["an under-reinforced box", { ...CBC_DEFAULTS, steel: { ...CBC_DEFAULTS.steel, topIn: 0.3, wallOut: 0.2 } }],
+    ["an under-reinforced box", { ...CBC_DEFAULTS, bars: { ...CBC_DEFAULTS.bars, topIn: { bar: 4, spacing: 8 }, wallOut: { bar: 4, spacing: 12 } } }],
   ] as [string, CbcInputs][]) {
     it(`works out ${name} with no errors, matching the engine`, () => {
       const r = designCbc(inputs);

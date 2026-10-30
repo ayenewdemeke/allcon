@@ -19,7 +19,7 @@ export const CATEGORIES: { id: string; name: string; kinds: { id: DesignKind; na
     id: "culverts",
     name: "Culverts",
     kinds: [
-      { id: "box-culvert", name: "Box Culvert", short: "One or more cells: frame analysis and member design", description: "Reinforced concrete box culvert, single or multiple cells: loads, 2D frame analysis with moving HL-93 live load, and the slabs and walls designed. AASHTO LRFD with MnDOT practice.", available: true },
+      { id: "box-culvert", name: "Box Culvert", short: "One or more cells: frame analysis and member design", description: "Reinforced concrete box culvert, single or multiple cells: loads, 2D frame analysis with moving HL-93 live load, and the slabs and walls designed. AASHTO LRFD.", available: true },
     ],
   },
 ];
@@ -38,10 +38,12 @@ export function mseInputs(saved: unknown): MseInputs {
   return { ...MSE_DEFAULTS, ...s, factors: { ...MSE_FACTORS, ...(s.factors ?? {}) } };
 }
 
-/** A box culvert's inputs as saved, filled in from the defaults. */
+/** A box culvert's inputs as saved, filled in from the defaults. Saved before bars were a choice:
+ * precast with welded wire (as they were designed). */
 export function cbcInputs(saved: unknown): CbcInputs {
   const s = (saved && typeof saved === "object" ? saved : {}) as Partial<CbcInputs>;
-  return { ...CBC_DEFAULTS, ...s, steel: { ...CBC_DEFAULTS.steel, ...(s.steel ?? {}) } };
+  const old = s.steel && !s.reinf ? ({ reinf: "wwr", construction: "precast" } as const) : {};
+  return { ...CBC_DEFAULTS, ...old, ...s, steel: { ...CBC_DEFAULTS.steel, ...(s.steel ?? {}) }, bars: { ...CBC_DEFAULTS.bars, ...(s.bars ?? {}) } };
 }
 
 /** A design's inputs as saved, filled in from its kind's defaults. */

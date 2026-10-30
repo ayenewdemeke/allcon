@@ -1,15 +1,16 @@
 import type { Line } from "@/lib/calcs/library/templates";
 import type { Figure } from "../figures";
-import { CASES, combos, designCbc, type CaseId, type CbcInputs } from "./cbc";
+import { BARS } from "../walls/cip";
+import { CASES, combos, designCbc, type CaseId, type CbcInputs, type Face } from "./cbc";
 
 // A box culvert design as a Calcs worksheet: the loads as live math, the frame analysis's
 // unfactored moments at each governing section (the one step Calcs can't do), then the load
-// combinations and every check worked out live, the way MnDOT's example (BDM 12.5) sets it out.
+// combinations and every check worked out live (AASHTO LRFD 12.11).
 // Moments per foot strip in kip·in, steel in in² per foot (b = 12 in).
 
 const num = (v: number, d = 6) => String(+v.toFixed(d));
 const ok = (demand: string, capacity: string) => `\\operatorname{if}\\left(${demand}\\le ${capacity},\\text{OK},\\text{NG}\\right)=`;
-/** A load factor as MnDOT writes it: 1.30·η, 0.90/η, or a number. */
+/** A load factor with its η: 1.30·η, 0.90/η, or a number. */
 function factorTex(f: number, eta: number) {
   for (const base of [1.3, 1.35]) if (Math.abs(f - base * eta) < 1e-12 && eta !== 1) return `${base.toFixed(2)}\\cdot\\eta`;
   if (Math.abs(f - 0.9 / eta) < 1e-12 && eta !== 1) return "\\frac{0.90}{\\eta}";
@@ -29,7 +30,7 @@ export function cbcCalcLines(i: CbcInputs, title: string, figures?: { section?: 
 
   text(title.toUpperCase(), "heading");
   text(
-    `Reinforced concrete box culvert, ${n === 1 ? "single cell" : `${n} cells`}, per foot of barrel. AASHTO LRFD Bridge Design Specifications (9th ed.) Section 12.11 with the MnDOT Bridge Design Manual's box culvert practice (12.2.3). Moments are positive with tension on the inside face of a cell; thrust is positive in compression.`,
+    `Reinforced concrete box culvert, ${n === 1 ? "single cell" : `${n} cells`}, per foot of barrel. AASHTO LRFD Bridge Design Specifications (9th ed.) Section 12.11, ${i.construction === "precast" ? "precast" : "cast in place"}, reinforced with ${i.reinf === "bars" ? "bars" : "welded wire"}. Moments are positive with tension on the inside face of a cell; thrust is positive in compression.`,
   );
 
   // --- materials and geometry ------------------------------------------------------------------
@@ -38,11 +39,14 @@ export function cbcCalcLines(i: CbcInputs, title: string, figures?: { section?: 
   m(`\\gamma_s\\coloneq ${num(i.gammaS)}\\mathrm{kcf}`, "Fill");
   m(`\\gamma_w\\coloneq ${num(i.gammaW)}\\mathrm{kcf}`, "Water");
   m(`f'_{c}\\coloneq ${num(i.fc)}\\mathrm{ksi}`);
-  m(`f_y\\coloneq ${num(i.fy)}\\mathrm{ksi}`, i.fy >= 65 ? "Welded wire reinforcement" : "Reinforcing bars");
+  m(`f_y\\coloneq ${num(i.fy)}\\mathrm{ksi}`, i.reinf === "bars" ? "Reinforcing bars" : "Welded wire reinforcement");
   m(`E_s\\coloneq ${num(i.Es)}\\mathrm{ksi}`);
   m("\\beta_1\\coloneq\\max\\left(0.65,\\min\\left(0.85,0.85-0.05\\cdot\\frac{f'_{c}-4\\mathrm{ksi}}{\\mathrm{ksi}}\\right)\\right)=", "AASHTO 5.6.2.2");
   m(`c_{c}\\coloneq ${num(i.cover)}\\mathrm{in}`, "Clear cover");
-  m(`d_w\\coloneq ${num(i.dw)}\\mathrm{in}`, "Wire diameter assumed for d");
+  if (i.reinf === "wwr") {
+    m(`d_w\\coloneq ${num(i.dw)}\\mathrm{in}`, "Welded wire diameter");
+    m(`s_w\\coloneq ${num(i.spacing)}\\mathrm{in}`, "Welded wire spacing");
+  }
   m("b\\coloneq12\\mathrm{in}", "Design strip");
   m("w\\coloneq1\\mathrm{ft}", "Strip width, for klf");
 
@@ -81,7 +85,7 @@ export function cbcCalcLines(i: CbcInputs, title: string, figures?: { section?: 
   m("EH_{nb}\\coloneq\\gamma_{EHn}\\cdot H_2\\cdot w=", undefined, "klf");
 
   text("Live load surcharge (LS)", "subheading");
-  m(`k_a\\coloneq ${num(i.ka)}`, "MnDOT 12.2.3");
+  m(`k_a\\coloneq ${num(i.ka)}`, "Lateral earth pressure coefficient, AASHTO 3.11.6.4");
   m(`h_{eq1}\\coloneq ${num(r.loads.heq1, 4)}\\mathrm{ft}`, "At H, AASHTO T. 3.11.6.4-1 (interpolated)");
   m(`h_{eq2}\\coloneq ${num(r.loads.heq2, 4)}\\mathrm{ft}`, "At H2");
   m("LS_t\\coloneq k_a\\cdot\\gamma_s\\cdot h_{eq1}\\cdot w=", "Top, AASHTO Eq. 3.11.6.4-1", "klf");
@@ -114,17 +118,19 @@ export function cbcCalcLines(i: CbcInputs, title: string, figures?: { section?: 
 
   text("Analysis", "subheading");
   text(
-    `A 2D plane frame on the members' centerlines, ${r.model.elements.length} elements, the haunches deepening the members near each corner; pinned at one bottom corner and on a roller at the other, every load balanced by the soil's reaction (MnDOT 12.2.3). Its unfactored moments, shears and thrusts at the governing sections are given below.`,
+    `A 2D plane frame on the members' centerlines, ${r.model.elements.length} elements, the haunches deepening the members near each corner; pinned at one bottom corner and on a roller at the other, every load balanced by the soil's reaction. Its unfactored moments, shears and thrusts at the governing sections are given below.`,
     "note",
   );
+  text("Load combinations, AASHTO Tables 3.4.1-1 and 3.4.1-2 (EH at its minimum: half, 3.11.7):", "note");
   text(C.map((c) => `${c.name}: ${(["DC", "EV", "LL", "EHmax", "EHmin", "LS", "WA"] as const).filter((k) => c.f[k]).map((k) => `${num(c.f[k], 4)} ${k}`).join(" + ")}`).join("\n"), "note");
   if (figures?.moments) {
     text("Factored moment envelope (the strength combinations), kip·in, drawn on each member's tension side:", "note");
     lines.push({ region: figures.moments });
   }
-  m(`\\eta\\coloneq ${num(i.eta)}`, "Load modifier on EV and EH (AASHTO 12.5.4)");
-  m(`\\phi_f\\coloneq ${num(i.phiF)}`, "Flexure (precast), MnDOT 12.2.3");
-  m(`\\phi_v\\coloneq ${num(i.phiV)}`, "Shear");
+  m(`\\eta\\coloneq ${num(i.eta)}`, "Load modifier on EV and EH, AASHTO 1.3.2, 12.5.4");
+  const box = i.construction === "precast" ? "precast box" : "cast-in-place box";
+  m(`\\phi_f\\coloneq ${num(i.phiF)}`, `Flexure, AASHTO Table 12.5.5-1 (${box})`);
+  m(`\\phi_v\\coloneq ${num(i.phiV)}`, `Shear, AASHTO Table 12.5.5-1 (${box})`);
 
   // --- design ----------------------------------------------------------------------------------
   const sectionValues = (key: string, idx: number, effect: "M" | "N", llPick: "pos" | "neg" | "none" | "vmax" | "vmin") => {
@@ -143,24 +149,41 @@ export function cbcCalcLines(i: CbcInputs, title: string, figures?: { section?: 
     m(`${target}\\coloneq ${terms.join("+")}=`, c.name, effect === "M" ? "kip*in" : "kip");
   };
 
+  const keyOf = (g: { kind: string; key: string }) => `${g.kind[0]}${g.key[0]}`; // ti, to, bi, bo, wi, wo, ie
+  const faceKey = (face: Face) => {
+    const g = r.governs.find((x) => x.face === face);
+    return g ? keyOf(g) : null;
+  };
+  const bars = i.reinf === "bars";
+
   r.governs.forEach((g, gi) => {
-    const k = `${g.kind[0]}${g.key[0]}`; // ti, to, bi, bo, wi, wo, ie
+    const k = keyOf(g);
     const f = g.flex;
+    const db = bars ? `d_{b${k}}` : "d_w";
+    const sp = bars ? `s_{${k}}` : "s_w";
     text(`${g.label}`, "subheading");
     text(`Flexure governs at ${f.station.name}, ${C.find((c) => c.id === f.combo)!.name}.`, "note");
     sectionValues(k, f.index, "M", f.u.ll);
     combination(`M_{u${k}}`, k, f.combo, "M");
     m(`h_{${k}}\\coloneq ${num(g.h)}\\mathrm{in}`, "Member thickness");
-    m(`d_{${k}}\\coloneq h_{${k}}-c_{c}-\\frac{d_w}{2}=`, "Effective depth", "in");
-    m(`A_{s${k}}\\coloneq ${num(g.As, 8)}\\mathrm{in}^{2}`, "Provided, per foot");
+    if (g.steel.bars) {
+      const bar = BARS[g.steel.bars.bar];
+      m(`${db}\\coloneq ${num(bar.dia)}\\mathrm{in}`, `#${g.steel.bars.bar} bars`);
+      m(`${sp}\\coloneq ${num(g.steel.bars.spacing)}\\mathrm{in}`, "Bar spacing");
+      m(ok(sp, `\\min\\left(1.5\\cdot h_{${k}},18\\mathrm{in}\\right)`), "Maximum spacing, AASHTO 5.10.3.2");
+      m(`d_{${k}}\\coloneq h_{${k}}-c_{c}-\\frac{${db}}{2}=`, "Effective depth", "in");
+      m(`A_{s${k}}\\coloneq\\frac{${num(bar.area)}\\mathrm{in}^{2}\\cdot b}{${sp}}=`, "Provided, per foot", "in^2");
+    } else {
+      m(`d_{${k}}\\coloneq h_{${k}}-c_{c}-\\frac{${db}}{2}=`, "Effective depth", "in");
+      m(`A_{s${k}}\\coloneq ${num(g.As, 8)}\\mathrm{in}^{2}`, "Provided, per foot");
+    }
     m(`a_{${k}}\\coloneq\\frac{A_{s${k}}\\cdot f_y}{0.85\\cdot f'_{c}\\cdot b}=`, undefined, "in");
     m(`M_{r${k}}\\coloneq\\phi_f\\cdot A_{s${k}}\\cdot f_y\\cdot\\left(d_{${k}}-\\frac{a_{${k}}}{2}\\right)=`, "AASHTO 5.6.3.2", "kip*in");
     m(ok(`\\left|M_{u${k}}\\right|`, `M_{r${k}}`), "Flexure");
     m(`A_{q${k}}\\coloneq\\frac{\\phi_f\\cdot f_y\\cdot d_{${k}}-\\sqrt{\\left(\\phi_f\\cdot f_y\\cdot d_{${k}}\\right)^{2}-4\\cdot\\frac{\\phi_f\\cdot f_y^{2}}{1.7\\cdot f'_{c}\\cdot b}\\cdot\\left|M_{u${k}}\\right|}}{2\\cdot\\frac{\\phi_f\\cdot f_y^{2}}{1.7\\cdot f'_{c}\\cdot b}}=`, "Steel needed for flexure", "in^2");
-    m(ok(`\\max\\left(0.002\\cdot b\\cdot h_{${k}},0.06\\mathrm{in}^{2}\\right)`, `A_{s${k}}`), "Minimum, AASHTO 12.11.4.3.2 (MnDOT 0.06 in²/ft)");
+    m(ok(`0.002\\cdot b\\cdot h_{${k}}`, `A_{s${k}}`), "Minimum, AASHTO 12.11.4.3.2");
     m(`c_{n${k}}\\coloneq\\frac{A_{s${k}}\\cdot f_y}{0.85\\cdot f'_{c}\\cdot\\beta_1\\cdot b}=`, undefined, "in");
-    m(ok(`\\frac{c_{n${k}}}{d_{${k}}}`, "0.375"), "Tension controlled, AASHTO 5.6.2.1");
-    m(ok(`\\frac{A_{s${k}}}{b\\cdot d_{${k}}}`, "0.6\\cdot\\frac{0.85\\cdot\\beta_1\\cdot f'_{c}}{f_y}\\cdot\\frac{87}{87+\\frac{f_y}{\\mathrm{ksi}}}"), "0.6 ρb (MnDOT)");
+    m(ok(`\\frac{c_{n${k}}}{d_{${k}}}`, num(r.cdMax)), "Tension controlled, AASHTO 5.6.2.1");
 
     if (g.crack) {
       const cr = g.crack;
@@ -170,9 +193,9 @@ export function cbcCalcLines(i: CbcInputs, title: string, figures?: { section?: 
       sectionValues(ks, cr.index, "N", cr.s!.ll);
       combination(`M_{s${k}}`, ks, cr.serCombo!, "M");
       combination(`N_{s${k}}`, ks, cr.serCombo!, "N");
-      m(`d_{c${k}}\\coloneq c_{c}+\\frac{d_w}{2}=`, undefined, "in");
+      m(`d_{c${k}}\\coloneq c_{c}+\\frac{${db}}{2}=`, undefined, "in");
       m(`\\beta_{s${k}}\\coloneq1+\\frac{d_{c${k}}}{0.7\\cdot\\left(h_{${k}}-d_{c${k}}\\right)}=`, "AASHTO 5.6.7");
-      m(`f_{ss${k}}\\coloneq\\min\\left(\\frac{700\\cdot${num(i.gammaE)}\\cdot\\frac{\\mathrm{kip}}{\\mathrm{in}}}{\\beta_{s${k}}\\cdot\\left(${num(i.spacing)}\\mathrm{in}+2\\cdot d_{c${k}}\\right)},0.6\\cdot f_y\\right)=`, `Allowable at ${num(i.spacing)} in spacing, γe = ${num(i.gammaE)}`, "ksi");
+      m(`f_{ss${k}}\\coloneq\\min\\left(\\frac{700\\cdot${num(i.gammaE)}\\cdot\\frac{\\mathrm{kip}}{\\mathrm{in}}}{\\beta_{s${k}}\\cdot\\left(${sp}+2\\cdot d_{c${k}}\\right)},0.6\\cdot f_y\\right)=`, `Allowable stress, AASHTO Eq. 5.6.7-1 (γe = ${num(i.gammaE)})`, "ksi");
       if (cr.crack!.thrust) {
         m(`e_{${k}}\\coloneq\\frac{\\left|M_{s${k}}\\right|}{N_{s${k}}}+d_{${k}}-\\frac{h_{${k}}}{2}=`, "AASHTO C12.11.3", "in");
         m(`j_{${k}}\\coloneq\\min\\left(0.9,0.74+0.1\\cdot\\frac{e_{${k}}}{d_{${k}}}\\right)=`);
@@ -180,7 +203,7 @@ export function cbcCalcLines(i: CbcInputs, title: string, figures?: { section?: 
         m(`f_{s${k}}\\coloneq\\frac{\\left|M_{s${k}}\\right|+N_{s${k}}\\cdot\\left(d_{${k}}-\\frac{h_{${k}}}{2}\\right)}{A_{s${k}}\\cdot j_{${k}}\\cdot i_{${k}}\\cdot d_{${k}}}=`, "AASHTO Eq. C12.11.3-1", "ksi");
       } else m(`f_{s${k}}\\coloneq\\frac{\\left|M_{s${k}}\\right|}{A_{s${k}}\\cdot0.9\\cdot d_{${k}}}=`, cr.Ns > 1e-9 ? "e/d under 1.15: the thrust's benefit left out" : "No thrust", "ksi");
       m(ok(`f_{s${k}}`, `f_{ss${k}}`), "Crack control");
-      m(`A_{c${k}}\\coloneq A_{s${k}}\\cdot\\frac{f_{s${k}}}{f_{ss${k}}}=`, "Steel needed for crack control (MnDOT)", "in^2");
+      m(`A_{c${k}}\\coloneq A_{s${k}}\\cdot\\frac{f_{s${k}}}{f_{ss${k}}}=`, "Steel needed for crack control, about (at this spacing)", "in^2");
     }
 
     // Shear and thrust, after the member's last face.
@@ -194,8 +217,15 @@ export function cbcCalcLines(i: CbcInputs, title: string, figures?: { section?: 
       m(`V_{u${kv}}\\coloneq ${num(s.Vu, 8)}\\mathrm{kip}`, "Frame analysis, at dv past the haunch tip");
       m(`M_{u${kv}}\\coloneq ${num(s.Mu * 12, 8)}\\mathrm{kip}\\cdot\\mathrm{in}`, "The largest moment there (conservative)");
       m(`h_{${kv}}\\coloneq ${num(s.h)}\\mathrm{in}`);
-      m(`d_{${kv}}\\coloneq h_{${kv}}-c_{c}-\\frac{d_w}{2}=`, undefined, "in");
-      m(`A_{s${kv}}\\coloneq ${num(s.As, 8)}\\mathrm{in}^{2}`, s.rule === "slab" ? "The lesser face" : "Tension face");
+      const fk = faceKey(s.face);
+      const which = s.rule === "slab" ? "The lesser face" : "Tension face";
+      if (fk) {
+        m(`d_{${kv}}\\coloneq d_{${fk}}=`, which, "in");
+        m(`A_{s${kv}}\\coloneq A_{s${fk}}=`, undefined, "in^2");
+      } else {
+        m(`d_{${kv}}\\coloneq ${num(s.d, 8)}\\mathrm{in}`, which);
+        m(`A_{s${kv}}\\coloneq ${num(s.As, 8)}\\mathrm{in}^{2}`);
+      }
       if (s.rule === "slab") {
         m(`r_{${kv}}\\coloneq\\min\\left(1,\\frac{V_{u${kv}}\\cdot d_{${kv}}}{M_{u${kv}}}\\right)=`);
         m(`V_{c${kv}}\\coloneq\\phi_v\\cdot\\left(0.0676\\cdot\\sqrt{\\frac{f'_{c}}{\\mathrm{ksi}}}\\cdot\\mathrm{ksi}+4.6\\cdot\\frac{A_{s${kv}}}{b\\cdot d_{${kv}}}\\cdot r_{${kv}}\\cdot\\mathrm{ksi}\\right)\\cdot b\\cdot d_{${kv}}=`, "AASHTO Eq. 5.12.7.3-1", "kip");
@@ -205,7 +235,7 @@ export function cbcCalcLines(i: CbcInputs, title: string, figures?: { section?: 
         m(`d_{v${kv}}\\coloneq\\max\\left(0.72\\cdot h_{${kv}},0.9\\cdot d_{${kv}},d_{${kv}}-\\frac{a_{${kv}}}{2}\\right)=`, "AASHTO 5.7.2.8", "in");
         m(`\\varepsilon_{s${kv}}\\coloneq\\frac{\\frac{\\max\\left(M_{u${kv}},V_{u${kv}}\\cdot d_{v${kv}}\\right)}{d_{v${kv}}}+V_{u${kv}}}{E_s\\cdot A_{s${kv}}}=`, "AASHTO Eq. 5.7.3.4.2-4 (no benefit from thrust)");
         m(`s_{xe${kv}}\\coloneq\\max\\left(12\\mathrm{in},\\min\\left(80\\mathrm{in},d_{v${kv}}\\cdot\\frac{1.38}{${num(i.agg)}+0.63}\\right)\\right)=`, undefined, "in");
-        m(`\\beta_{${kv}}\\coloneq\\max\\left(\\frac{4.8}{1+750\\cdot\\varepsilon_{s${kv}}}\\cdot\\frac{51}{39+\\frac{s_{xe${kv}}}{\\mathrm{in}}},${s.h <= 16 ? 2 : 0}\\right)=`, "General procedure, or 2.0 (simplified, h ≤ 16 in): the greater (MnDOT)");
+        m(`\\beta_{${kv}}\\coloneq\\max\\left(\\frac{4.8}{1+750\\cdot\\varepsilon_{s${kv}}}\\cdot\\frac{51}{39+\\frac{s_{xe${kv}}}{\\mathrm{in}}},${s.h <= 16 ? 2 : 0}\\right)=`, "General procedure (5.7.3.4.2), or 2.0 (simplified, h ≤ 16 in, 5.7.3.4.1): the greater");
         m(`V_{r${kv}}\\coloneq\\min\\left(\\phi_v\\cdot0.0316\\cdot\\beta_{${kv}}\\cdot\\sqrt{\\frac{f'_{c}}{\\mathrm{ksi}}}\\cdot\\mathrm{ksi}\\cdot b\\cdot d_{v${kv}},\\phi_v\\cdot0.25\\cdot f'_{c}\\cdot b\\cdot d_{v${kv}}\\right)=`, "AASHTO 5.7.3.3", "kip");
       }
       m(ok(`V_{u${kv}}`, `V_{r${kv}}`), "Shear");

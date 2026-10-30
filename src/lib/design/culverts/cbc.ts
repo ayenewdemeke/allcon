@@ -1,16 +1,17 @@
-// Precast (or cast-in-place) reinforced concrete box culvert, one or more cells, per foot of
-// barrel: AASHTO LRFD (9th ed.) Section 12.11 with the MnDOT Bridge Design Manual's box culvert
-// practice (Article 12.2.3 and the 10'×10' example of 12.5). Loads are worked out, a 2D plane
+// Cast-in-place or precast reinforced concrete box culvert, one or more cells, per foot of
+// barrel: AASHTO LRFD (9th ed.) Section 12.11. (Checked against the 10'×10' precast example of
+// the MnDOT Bridge Design Manual, 12.5, in the tests.) Loads are worked out, a 2D plane
 // frame on the members' centerlines (haunches stiffening the corners, pinned and roller supports,
 // the soil's reaction balancing every load) gives the moments, shears and thrusts, and each
 // member is checked for flexure, crack control, minimum and maximum steel, shear and thrust.
 // Kip and foot for loads and forces; member thicknesses, covers and steel in inches.
 
 import { abutmentHeq } from "../walls/mse";
-import { type Check, DesignError } from "../walls/cip";
+import { BARS, type Bars, type Check, DesignError } from "../walls/cip";
 import { type DistLoad, type EndForces, Frame, type FrameElement, type FrameNode, type LoadCase, type NodalLoad } from "../frame";
 
 export type Steel = { topIn: number; topOut: number; botIn: number; botOut: number; wallIn: number; wallOut: number; intWall: number }; // in²/ft
+export type Face = keyof Steel;
 
 export type CbcInputs = {
   // Geometry
@@ -38,20 +39,44 @@ export type CbcInputs = {
   // Concrete and steel
   fc: number; // ksi
   gammaC: number; // kcf
-  fy: number; // ksi (65 welded wire, 60 bars)
+  fy: number; // ksi (60 bars, 65 welded wire)
   Es: number; // ksi
   cover: number; // in, clear
-  dw: number; // wire (bar) diameter assumed for d, in
-  spacing: number; // wire spacing for crack control, in
   gammaE: number; // exposure factor (0.75 Class 2)
   agg: number; // maximum aggregate size, in
-  steel: Steel;
+  // Reinforcement: bars (size and spacing) on each face, or welded wire (area per foot)
+  reinf: "bars" | "wwr";
+  bars: Record<Face, Bars>;
+  steel: Steel; // welded wire, in²/ft
+  dw: number; // welded wire diameter, in
+  spacing: number; // welded wire spacing, in (crack control)
   // Factors
+  construction: "cip" | "precast"; // AASHTO Table 12.5.5-1's φ
   eta: number; // load modifier on EV and EH (lack of redundancy, 12.5.4)
   phiF: number;
   phiV: number;
   phiC: number;
 };
+
+/** φ for flexure and shear, AASHTO Table 12.5.5-1. */
+export const PHI_BOX = { cip: { phiF: 0.9, phiV: 0.85 }, precast: { phiF: 1.0, phiV: 0.9 } } as const;
+
+const BARS_DEFAULT: Record<Face, Bars> = {
+  topIn: { bar: 6, spacing: 6 },
+  topOut: { bar: 5, spacing: 12 },
+  botIn: { bar: 6, spacing: 6 },
+  botOut: { bar: 5, spacing: 12 },
+  wallIn: { bar: 5, spacing: 12 },
+  wallOut: { bar: 5, spacing: 9 },
+  intWall: { bar: 5, spacing: 9 },
+};
+
+/** A face's steel: its area per foot, the bar (or wire) diameter for d, and the spacing. */
+export function faceSteel(i: CbcInputs, face: Face): { As: number; db: number; s: number; bars?: Bars } {
+  if (i.reinf === "wwr") return { As: i.steel[face], db: i.dw, s: i.spacing };
+  const b = i.bars[face];
+  return { As: (BARS[b.bar].area * 12) / b.spacing, db: BARS[b.bar].dia, s: b.spacing, bars: b };
+}
 
 export const CBC_DEFAULTS: CbcInputs = {
   cells: 1,
@@ -75,17 +100,20 @@ export const CBC_DEFAULTS: CbcInputs = {
   mpf: 1.2,
   fc: 5,
   gammaC: 0.15,
-  fy: 65,
+  fy: 60,
   Es: 29000,
   cover: 2,
-  dw: 1,
-  spacing: 4,
   gammaE: 0.75,
   agg: 0.75,
+  reinf: "bars",
+  bars: BARS_DEFAULT,
   steel: { topIn: 0.65, topOut: 0.22, botIn: 0.71, botOut: 0.24, wallIn: 0.2, wallOut: 0.33, intWall: 0.33 },
+  dw: 1,
+  spacing: 4,
+  construction: "cip",
   eta: 1.05,
-  phiF: 1.0,
-  phiV: 0.9,
+  phiF: 0.9,
+  phiV: 0.85,
   phiC: 0.7,
 };
 
@@ -100,15 +128,19 @@ export const CASES: { id: CaseId; name: string }[] = [
 ];
 
 export type ComboId = "StrIa" | "StrIb" | "StrIc" | "SerIa" | "SerIb" | "SerIc";
-/** MnDOT's load combinations (Bridge Design Manual 12.2.3), η on EV and EH applied in `factors`. */
+/** Strength I and Service I (AASHTO Table 3.4.1-1), with the permanent loads' maximum and minimum
+ * factors (Table 3.4.1-2: DC, EV for rigid buried structures, EH at rest) arranged for the worst
+ * of each effect: EH at its maximum, or at its minimum (half, 3.11.7) with the culvert full, or
+ * the vertical loads at their minimum. η (1.3.2, 12.5.4) multiplies the maximum factors on EV
+ * and EH and divides the minimum ones. */
 export function combos(eta: number): { id: ComboId; name: string; strength: boolean; f: Record<CaseId | "LL", number> }[] {
   return [
-    { id: "StrIa", name: "Strength Ia", strength: true, f: { DC: 1.25, EV: 1.3 * eta, LL: 1.75, EHmax: 1.35 * eta, EHmin: 0, LS: 1.75, WA: 0 } },
-    { id: "StrIb", name: "Strength Ib", strength: true, f: { DC: 1.25, EV: 1.3 * eta, LL: 1.75, EHmax: 0, EHmin: 0.9 / eta, LS: 0, WA: 1.0 } },
-    { id: "StrIc", name: "Strength Ic", strength: true, f: { DC: 0.9, EV: 0.9 / eta, LL: 0, EHmax: 1.35 * eta, EHmin: 0, LS: 1.75, WA: 0 } },
-    { id: "SerIa", name: "Service Ia", strength: false, f: { DC: 1, EV: 1, LL: 1, EHmax: 1, EHmin: 0, LS: 1, WA: 0 } },
-    { id: "SerIb", name: "Service Ib", strength: false, f: { DC: 1, EV: 1, LL: 1, EHmax: 0, EHmin: 1, LS: 0, WA: 1 } },
-    { id: "SerIc", name: "Service Ic", strength: false, f: { DC: 1, EV: 1, LL: 0, EHmax: 1, EHmin: 0, LS: 1, WA: 0 } },
+    { id: "StrIa", name: "Strength I, max EH", strength: true, f: { DC: 1.25, EV: 1.3 * eta, LL: 1.75, EHmax: 1.35 * eta, EHmin: 0, LS: 1.75, WA: 0 } },
+    { id: "StrIb", name: "Strength I, min EH, water", strength: true, f: { DC: 1.25, EV: 1.3 * eta, LL: 1.75, EHmax: 0, EHmin: 0.9 / eta, LS: 0, WA: 1.0 } },
+    { id: "StrIc", name: "Strength I, min vertical", strength: true, f: { DC: 0.9, EV: 0.9 / eta, LL: 0, EHmax: 1.35 * eta, EHmin: 0, LS: 1.75, WA: 0 } },
+    { id: "SerIa", name: "Service I, max EH", strength: false, f: { DC: 1, EV: 1, LL: 1, EHmax: 1, EHmin: 0, LS: 1, WA: 0 } },
+    { id: "SerIb", name: "Service I, min EH, water", strength: false, f: { DC: 1, EV: 1, LL: 1, EHmax: 0, EHmin: 1, LS: 0, WA: 1 } },
+    { id: "SerIc", name: "Service I, no live load", strength: false, f: { DC: 1, EV: 1, LL: 0, EHmax: 1, EHmin: 0, LS: 1, WA: 0 } },
   ];
 }
 
@@ -150,9 +182,11 @@ export function buildModel(i: CbcInputs) {
     return nodes.length - 1;
   };
   const wallT = (k: number) => (k === 0 || k === n ? ts : ti);
-  const dvOf = (h: number, As: number) => {
-    const d = h * 12 - i.cover - i.dw / 2;
-    const a = (As * i.fy) / (0.85 * i.fc * 12);
+  // dv at a face (the lesser for slabs), to place the shear sections.
+  const dvOf = (h: number, ...faces: Face[]) => {
+    const f = faces.map((x) => faceSteel(i, x)).reduce((w, x) => (x.As < w.As ? x : w));
+    const d = h * 12 - i.cover - f.db / 2;
+    const a = (f.As * i.fy) / (0.85 * i.fc * 12);
     return Math.max(0.72 * h * 12, 0.9 * d, d - a / 2) / 12;
   };
   const addMember = (kind: MemberKind, name: string, a: FrameNode, b: FrameNode, t: number, tA: number, tB: number, nH: number, dv: number) => {
@@ -207,12 +241,12 @@ export function buildModel(i: CbcInputs) {
   };
   const cellName = (k: number) => (n > 1 ? ` (cell ${k + 1})` : "");
   for (let k = 0; k < n; k++) {
-    addMember("top", `Top slab${cellName(k)}`, { x: xs[k], y: yTop }, { x: xs[k + 1], y: yTop }, tt, wallT(k), wallT(k + 1), 1, dvOf(tt, Math.min(i.steel.topIn, i.steel.topOut)));
-    addMember("bottom", `Bottom slab${cellName(k)}`, { x: xs[k + 1], y: 0 }, { x: xs[k], y: 0 }, tb, wallT(k + 1), wallT(k), 1, dvOf(tb, Math.min(i.steel.botIn, i.steel.botOut)));
+    addMember("top", `Top slab${cellName(k)}`, { x: xs[k], y: yTop }, { x: xs[k + 1], y: yTop }, tt, wallT(k), wallT(k + 1), 1, dvOf(tt, "topIn", "topOut"));
+    addMember("bottom", `Bottom slab${cellName(k)}`, { x: xs[k + 1], y: 0 }, { x: xs[k], y: 0 }, tb, wallT(k + 1), wallT(k), 1, dvOf(tb, "botIn", "botOut"));
   }
-  addMember("wall", "Left wall", { x: 0, y: 0 }, { x: 0, y: yTop }, ts, tb, tt, 1, dvOf(ts, i.steel.wallOut));
-  addMember("wall", "Right wall", { x: B, y: yTop }, { x: B, y: 0 }, ts, tt, tb, 1, dvOf(ts, i.steel.wallOut));
-  for (let k = 1; k < n; k++) addMember("iwall", `Interior wall ${n > 2 ? k : ""}`.trim(), { x: xs[k], y: 0 }, { x: xs[k], y: yTop }, ti, tb, tt, 2, dvOf(ti, i.steel.intWall));
+  addMember("wall", "Left wall", { x: 0, y: 0 }, { x: 0, y: yTop }, ts, tb, tt, 1, dvOf(ts, "wallOut"));
+  addMember("wall", "Right wall", { x: B, y: yTop }, { x: B, y: 0 }, ts, tt, tb, 1, dvOf(ts, "wallOut"));
+  for (let k = 1; k < n; k++) addMember("iwall", `Interior wall ${n > 2 ? k : ""}`.trim(), { x: xs[k], y: 0 }, { x: xs[k], y: yTop }, ti, tb, tt, 2, dvOf(ti, "intWall"));
   const pin = joint(0, 0);
   const roller = joint(B, 0);
   const frame = new Frame(nodes, elements, [
@@ -260,7 +294,7 @@ export function liveLoadParams(i: CbcInputs) {
   // Parallel to the span (L) and across it (W), ft.
   const Lp = shallow ? (10 + i.lldf * H * 12) / 12 : 10 / 12 + i.lldf * H; // AASHTO 4.6.2.10.2 / 3.6.1.2.6
   const Wp = shallow ? (96 + 1.44 * i.span) / 12 : 6 + 20 / 12 + i.lldf * H;
-  const lane = i.span >= 15; // MnDOT: lane load on spans of 15 ft or more
+  const lane = i.span > 15; // AASHTO 3.6.1.3.3: the lane load too on spans over 15 ft
   const wLane = lane ? (0.64 * i.mpf) / (10 + (shallow ? 0 : i.lldf * H)) : 0;
   return { IM, shallow, Lp, Wp, lane, wLane };
 }
@@ -270,7 +304,7 @@ const VEHICLES = [
   { id: "tandem", name: "HL-93 tandem", axles: [25, 25], gaps: [4] },
 ];
 
-/** A vehicle's axles as patches on the top of the box: overlapping footprints merge into one (MnDOT Fig. 12.2.3.3). */
+/** A vehicle's axles as patches on the top of the box: overlapping footprints merge into one (AASHTO 3.6.1.2.6). */
 export function patches(i: CbcInputs, axles: number[], gaps: number[], x0: number) {
   const { IM, Lp, Wp } = liveLoadParams(i);
   const xs = axles.map((_, k) => x0 + gaps.slice(0, k).reduce((s, g) => s + g, 0));
@@ -496,17 +530,13 @@ export function designCbc(i: CbcInputs) {
   // --- design ----------------------------------------------------------------------------------
   const beta1 = Math.max(0.65, Math.min(0.85, 0.85 - 0.05 * (i.fc - 4)));
   const thickness = (kind: MemberKind) => (kind === "top" ? i.Tt : kind === "bottom" ? i.Tb : kind === "wall" ? i.Ts : i.Ti);
-  const steelOf = (kind: MemberKind, sign: 1 | -1) => {
-    const st = i.steel;
-    if (kind === "top") return sign > 0 ? st.topIn : st.topOut;
-    if (kind === "bottom") return sign > 0 ? st.botIn : st.botOut;
-    if (kind === "wall") return sign > 0 ? st.wallIn : st.wallOut;
-    return st.intWall;
-  };
+  const faceOf = (kind: MemberKind, sign: 1 | -1): Face => (kind === "top" ? (sign > 0 ? "topIn" : "topOut") : kind === "bottom" ? (sign > 0 ? "botIn" : "botOut") : kind === "wall" ? (sign > 0 ? "wallIn" : "wallOut") : "intWall");
+  type FaceSteel = ReturnType<typeof faceSteel>;
   const faceName = (kind: MemberKind, sign: 1 | -1) => (kind === "iwall" ? (sign > 0 ? "right face" : "left face") : sign > 0 ? "inside face" : "outside face");
   const b = 12;
-  const flexure = (h: number, As: number, Mu: number) => {
-    const d = h - i.cover - i.dw / 2;
+  const flexure = (h: number, st: FaceSteel, Mu: number) => {
+    const As = st.As;
+    const d = h - i.cover - st.db / 2;
     const a = (As * i.fy) / (0.85 * i.fc * b);
     const Mr = (i.phiF * As * i.fy * (d - a / 2)) / 12; // kip·ft/ft
     // Steel needed: φ As fy (d − As fy / (1.7 f'c b)) = Mu.
@@ -517,11 +547,12 @@ export function designCbc(i: CbcInputs) {
     const c = (As * i.fy) / (0.85 * i.fc * beta1 * b);
     return { d, a, Mr, AsReq, c };
   };
-  const crack = (h: number, As: number, Ms: number, Ns: number) => {
-    const d = h - i.cover - i.dw / 2;
-    const dc = i.cover + i.dw / 2;
+  const crack = (h: number, st: FaceSteel, Ms: number, Ns: number) => {
+    const As = st.As;
+    const d = h - i.cover - st.db / 2;
+    const dc = i.cover + st.db / 2;
     const betaS = 1 + dc / (0.7 * (h - dc));
-    const fss = Math.min((700 * i.gammaE) / (betaS * (i.spacing + 2 * dc)), 0.6 * i.fy);
+    const fss = Math.min((700 * i.gammaE) / (betaS * (st.s + 2 * dc)), 0.6 * i.fy);
     const M = Math.abs(Ms) * 12; // kip·in
     const N = Math.max(Ns, 0);
     let fs: number;
@@ -540,7 +571,7 @@ export function designCbc(i: CbcInputs) {
     return { d, dc, betaS, fss, e, j, i: ii, fs, thrust, AsReq: (As * fs) / fss };
   };
 
-  type FaceResult = { station: Station; index: number; sign: 1 | -1; face: string; h: number; As: number; Mu: number; combo: ComboId; u: Variant; flex: ReturnType<typeof flexure>; Ms: number; Ns: number; serCombo: ComboId | null; s: Variant | null; crack: ReturnType<typeof crack> | null };
+  type FaceResult = { station: Station; index: number; sign: 1 | -1; face: string; key: Face; steel: FaceSteel; h: number; As: number; Mu: number; combo: ComboId; u: Variant; flex: ReturnType<typeof flexure>; Ms: number; Ns: number; serCombo: ComboId | null; s: Variant | null; crack: ReturnType<typeof crack> | null };
   const faces: FaceResult[] = [];
   stations.forEach((s, m) => {
     if (s.role === "shear") return;
@@ -548,55 +579,60 @@ export function designCbc(i: CbcInputs) {
     for (const sign of [1, -1] as const) {
       const u = pick(m, true, sign);
       if (!u) continue;
-      const As = steelOf(s.kind, sign);
+      const key = faceOf(s.kind, sign);
+      const st = faceSteel(i, key);
       const sv = pick(m, false, sign);
-      faces.push({ station: s, index: m, sign, face: faceName(s.kind, sign), h, As, Mu: Math.abs(u.M), combo: u.combo, u, flex: flexure(h, As, Math.abs(u.M)), Ms: sv ? Math.abs(sv.M) : 0, Ns: sv?.N ?? 0, serCombo: sv?.combo ?? null, s: sv, crack: sv ? crack(h, As, sv.M, sv.N) : null });
+      faces.push({ station: s, index: m, sign, face: faceName(s.kind, sign), key, steel: st, h, As: st.As, Mu: Math.abs(u.M), combo: u.combo, u, flex: flexure(h, st, Math.abs(u.M)), Ms: sv ? Math.abs(sv.M) : 0, Ns: sv?.N ?? 0, serCombo: sv?.combo ?? null, s: sv, crack: sv ? crack(h, st, sv.M, sv.N) : null });
     }
   });
 
-  type ShearResult = { station: Station; index: number; h: number; rule: "slab" | "beam"; Vu: number; Mu: number; combo: ComboId; gov: Variant; d: number; As: number; ratio: number; Vr: number; raw: number; lo: number; hi: number; dv: number; beta: number; epsS: number; sxe: number };
+  type ShearResult = { station: Station; index: number; h: number; face: Face; rule: "slab" | "beam"; Vu: number; Mu: number; combo: ComboId; gov: Variant; d: number; As: number; ratio: number; Vr: number; raw: number; lo: number; hi: number; dv: number; beta: number; epsS: number; sxe: number };
   const shears = stations.flatMap((s, m): ShearResult[] => {
     if (s.role !== "shear") return [];
     const h = thickness(s.kind);
-    const d = h - i.cover - i.dw / 2;
     const strength = variants[m].list.filter((v) => v.strength);
     const gov = strength.reduce((w, v) => (Math.abs(v.V) > Math.abs(w.V) ? v : w), strength[0]);
     const Vu = Math.abs(gov.V);
-    const Mu = Math.max(...strength.map((v) => Math.abs(v.M)), Vu * (d / 12));
     const slabRule = s.kind === "bottom" || (s.kind === "top" && H >= 2); // AASHTO 5.12.7.3
     const sign: 1 | -1 = (strength.reduce((w, v) => (Math.abs(v.M) > Math.abs(w.M) ? v : w), strength[0]).M >= 0 ? 1 : -1) as 1 | -1;
-    const As = slabRule ? Math.min(steelOf(s.kind, 1), steelOf(s.kind, -1)) : steelOf(s.kind, sign);
+    // The lesser face for the slab rule, else the tension face.
+    const face = slabRule ? ([faceOf(s.kind, 1), faceOf(s.kind, -1)] as const).reduce((w, x) => (faceSteel(i, x).As < faceSteel(i, w).As ? x : w)) : faceOf(s.kind, sign);
+    const st = faceSteel(i, face);
+    const As = st.As;
+    const d = h - i.cover - st.db / 2;
+    const Mu = Math.max(...strength.map((v) => Math.abs(v.M)), Vu * (d / 12));
     if (slabRule) {
       const ratio = Math.min(1, (Vu * d) / (Mu * 12));
       const raw = i.phiV * (0.0676 * Math.sqrt(i.fc) + (4.6 * As * ratio) / (b * d)) * b * d;
       const lo = i.phiV * 0.0948 * Math.sqrt(i.fc) * b * d; // monolithic with the walls
       const hi = i.phiV * 0.126 * Math.sqrt(i.fc) * b * d;
-      return [{ station: s, index: m, h, rule: "slab", Vu, Mu, combo: gov.combo, gov, d, As, ratio, Vr: Math.min(Math.max(raw, lo), hi), raw, lo, hi, dv: d, beta: 0, epsS: 0, sxe: 0 }];
+      return [{ station: s, index: m, h, face, rule: "slab", Vu, Mu, combo: gov.combo, gov, d, As, ratio, Vr: Math.min(Math.max(raw, lo), hi), raw, lo, hi, dv: d, beta: 0, epsS: 0, sxe: 0 }];
     }
     const a = (As * i.fy) / (0.85 * i.fc * b);
     const dv = Math.max(0.72 * h, 0.9 * d, d - a / 2);
     const MuDesign = Math.max(Mu * 12, Vu * dv);
-    const epsS = (MuDesign / dv + Vu) / (i.Es * As); // Nu = 0 (MnDOT takes no benefit of thrust)
+    const epsS = (MuDesign / dv + Vu) / (i.Es * As); // Nu = 0: no benefit taken from thrust
     const sxe = Math.max(12, Math.min(80, (dv * 1.38) / (i.agg + 0.63)));
     const general = (4.8 / (1 + 750 * epsS)) * (51 / (39 + sxe));
-    const beta = Math.max(general, h <= 16 ? 2 : 0); // the greater of the simplified and general procedures
+    const beta = Math.max(general, h <= 16 ? 2 : 0); // either is permitted (5.7.3.4.1, 5.7.3.4.2): the greater
     const Vr = Math.min(i.phiV * 0.0316 * beta * Math.sqrt(i.fc) * b * dv, i.phiV * 0.25 * i.fc * b * dv);
-    return [{ station: s, index: m, h, rule: "beam", Vu, Mu, combo: gov.combo, gov, d, As, ratio: 0, Vr, raw: Vr, lo: 0, hi: 0, dv, beta, epsS, sxe }];
+    return [{ station: s, index: m, h, face, rule: "beam", Vu, Mu, combo: gov.combo, gov, d, As, ratio: 0, Vr, raw: Vr, lo: 0, hi: 0, dv, beta, epsS, sxe }];
   });
 
   // --- checks ----------------------------------------------------------------------------------
   const checks: Check[] = [];
   const add = (c: Omit<Check, "ok"> & { ok?: boolean }) => checks.push({ ...c, ok: c.ok ?? c.demand <= c.capacity + 1e-9 });
   // What governs each group and face, for the calc package.
-  const governs: { kind: MemberKind; key: "in" | "out" | "each"; label: string; flex: FaceResult; crack: FaceResult | null; As: number; h: number }[] = [];
+  const governs: { kind: MemberKind; key: "in" | "out" | "each"; face: Face; steel: FaceSteel; label: string; flex: FaceResult; crack: FaceResult | null; As: number; h: number }[] = [];
+  const comboName = (id: ComboId | null) => C.find((c) => c.id === id)?.name ?? "";
+  const epsTl = i.fy <= 75 ? 0.005 : Math.min(0.008, 0.005 + (0.003 * (i.fy - 75)) / 25); // AASHTO 5.6.2.1
+  const cdMax = 0.003 / (0.003 + epsTl);
   const thrusts: { kind: MemberKind; Pu: number; h: number; station: Station; combo: ComboId }[] = [];
   const governing = <T,>(list: T[], ratio: (x: T) => number) => list.reduce((w, x) => (ratio(x) > ratio(w) ? x : w), list[0]);
-  const rhoB = ((0.85 * beta1 * i.fc) / i.fy) * (87 / (87 + i.fy));
   for (const g of GROUPS) {
     const mine = faces.filter((f) => f.station.kind === g.kind);
     if (!mine.length) continue;
     const h = thickness(g.kind);
-    const d = h - i.cover - i.dw / 2;
     const faceKeys = g.kind === "iwall" ? [0] : [1, -1];
     for (const key of faceKeys) {
       const list = g.kind === "iwall" ? mine : mine.filter((f) => f.sign === key);
@@ -604,22 +640,24 @@ export function designCbc(i: CbcInputs) {
       const label = g.kind === "iwall" ? "each face" : key > 0 ? "inside face" : "outside face";
       const id = `${g.kind}-${g.kind === "iwall" ? "each" : key > 0 ? "in" : "out"}`;
       const fl = governing(list, (f) => f.Mu / f.flex.Mr);
-      add({ id: `${id}-flex`, name: `${g.name}, ${label}: flexure`, demand: fl.Mu, capacity: fl.flex.Mr, unit: "kip·ft/ft", ref: "AASHTO 5.6.3.2, 12.11.4.2", note: `${fl.station.name}, ${fl.combo}; needs ${fl.flex.AsReq.toFixed(3)} in²/ft` });
+      add({ id: `${id}-flex`, name: `${g.name}, ${label}: flexure`, demand: fl.Mu, capacity: fl.flex.Mr, unit: "kip·ft/ft", ref: "AASHTO 5.6.3.2, 12.11.4.2", note: `${fl.station.name}, ${comboName(fl.combo)}; needs ${fl.flex.AsReq.toFixed(3)} in²/ft` });
       const withCrack = list.filter((f) => f.crack && f.Ms > 1e-9);
       if (withCrack.length) {
         const cr = governing(withCrack, (f) => f.crack!.fs / f.crack!.fss);
-        add({ id: `${id}-crack`, name: `${g.name}, ${label}: crack control`, demand: cr.crack!.fs, capacity: cr.crack!.fss, unit: "ksi", ref: "AASHTO 5.6.7, C12.11.3", note: `${cr.station.name}, ${cr.serCombo}; needs ${cr.crack!.AsReq.toFixed(3)} in²/ft` });
+        add({ id: `${id}-crack`, name: `${g.name}, ${label}: crack control`, demand: cr.crack!.fs, capacity: cr.crack!.fss, unit: "ksi", ref: "AASHTO 5.6.7, C12.11.3", note: `${cr.station.name}, ${comboName(cr.serCombo)}; needs ${cr.crack!.AsReq.toFixed(3)} in²/ft` });
       }
-      const As = list[0].As;
-      governs.push({ kind: g.kind, key: g.kind === "iwall" ? "each" : key > 0 ? "in" : "out", label: `${g.name}, ${label}`, flex: fl, crack: withCrack.length ? governing(withCrack, (f) => f.crack!.fs / f.crack!.fss) : null, As, h });
-      add({ id: `${id}-min`, name: `${g.name}, ${label}: minimum steel`, demand: Math.max(0.002 * b * h, 0.06), capacity: As, unit: "in²/ft", ref: "AASHTO 12.11.4.3.2; MnDOT 0.06 in²/ft" });
-      const maxAs = Math.min((0.375 * d * 0.85 * i.fc * beta1 * b) / i.fy, 0.6 * rhoB * b * d);
-      add({ id: `${id}-max`, name: `${g.name}, ${label}: maximum steel`, demand: As, capacity: maxAs, unit: "in²/ft", ref: "AASHTO 5.6.2.1 (c/d ≤ 0.375); 0.6 ρb" });
+      const { As, steel } = list[0];
+      const d = h - i.cover - steel.db / 2;
+      governs.push({ kind: g.kind, key: g.kind === "iwall" ? "each" : key > 0 ? "in" : "out", face: list[0].key, steel, label: `${g.name}, ${label}`, flex: fl, crack: withCrack.length ? governing(withCrack, (f) => f.crack!.fs / f.crack!.fss) : null, As, h });
+      add({ id: `${id}-min`, name: `${g.name}, ${label}: minimum steel`, demand: 0.002 * b * h, capacity: As, unit: "in²/ft", ref: "AASHTO 12.11.4.3.2 (0.002 Ag)" });
+      // Tension controlled, so φ applies as given: c/d ≤ 0.003/(0.003 + εtl), 0.375 up to fy 75 ksi.
+      add({ id: `${id}-max`, name: `${g.name}, ${label}: tension controlled`, demand: As, capacity: (cdMax * d * 0.85 * i.fc * beta1 * b) / i.fy, unit: "in²/ft", ref: "AASHTO 5.6.2.1" });
+      if (steel.bars) add({ id: `${id}-spacing`, name: `${g.name}, ${label}: bar spacing`, demand: steel.s, capacity: Math.min(1.5 * h, 18), unit: "in", ref: "AASHTO 5.10.3.2 (1.5 h, 18 in)" });
     }
     const sh = shears.filter((x) => x.station.kind === g.kind);
     if (sh.length) {
       const s = governing(sh, (x) => x.Vu / x.Vr);
-      add({ id: `${g.kind}-shear`, name: `${g.name}: shear`, demand: s.Vu, capacity: s.Vr, unit: "kip/ft", ref: s.rule === "slab" ? "AASHTO 5.12.7.3" : "AASHTO 5.7.3.3; MnDOT 12.2.3", note: `${s.station.name}, ${s.combo}` });
+      add({ id: `${g.kind}-shear`, name: `${g.name}: shear`, demand: s.Vu, capacity: s.Vr, unit: "kip/ft", ref: s.rule === "slab" ? "AASHTO 5.12.7.3" : "AASHTO 5.7.3.3", note: `${s.station.name}, ${comboName(s.combo)}` });
     }
     if (g.kind === "wall" || g.kind === "iwall") {
       const idx = stations.map((s, m) => (s.kind === g.kind ? m : -1)).filter((m) => m >= 0);
@@ -646,7 +684,7 @@ export function designCbc(i: CbcInputs) {
     thrusts,
     diagram,
     beta1,
-    rhoB,
+    cdMax,
   };
 }
 
