@@ -1,9 +1,10 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { CipEditor } from "@/components/design/cip-editor";
+import { MseEditor } from "@/components/design/mse-editor";
 import { PageBody } from "@/components/shell/page-header";
 import { isUuid, requireUser } from "@/lib/auth/session";
-import { cipInputs } from "@/lib/design/kinds";
+import { cipInputs, mseInputs } from "@/lib/design/kinds";
 import { db } from "@/lib/db";
 
 export async function generateMetadata({ params }: PageProps<"/design/[designId]">): Promise<Metadata> {
@@ -20,10 +21,18 @@ export default async function DesignEditorPage({ params }: PageProps<"/design/[d
   const design = isUuid(designId) ? await db.design.findFirst({ where: { id: designId, orgId: user.orgId } }) : null;
   if (!design) notFound();
   const projects = await db.project.findMany({ where: { orgId: user.orgId }, orderBy: { name: "asc" }, select: { id: true, name: true } });
-  if (design.kind !== "cip-cantilever-wall") notFound();
-  return (
-    <PageBody>
-      <CipEditor design={{ id: design.id, name: design.name, projectId: design.projectId, inputs: cipInputs(design.inputs) }} projects={projects} />
-    </PageBody>
-  );
+  const base = { id: design.id, name: design.name, projectId: design.projectId };
+  if (design.kind === "cip-cantilever-wall")
+    return (
+      <PageBody>
+        <CipEditor design={{ ...base, inputs: cipInputs(design.inputs) }} projects={projects} />
+      </PageBody>
+    );
+  if (design.kind === "mse-wall")
+    return (
+      <PageBody>
+        <MseEditor design={{ ...base, inputs: mseInputs(design.inputs) }} projects={projects} />
+      </PageBody>
+    );
+  notFound();
 }

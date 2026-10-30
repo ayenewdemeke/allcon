@@ -9,8 +9,9 @@ import { getCurrentUser, isUuid, requireUser } from "@/lib/auth/session";
 import { layout } from "@/lib/calcs/library/templates";
 import { CALC_FILE, newCalcKey } from "@/lib/calcs/server";
 import { emptyCalc } from "@/lib/calcs/types";
-import { cipInputs, kindInfo } from "@/lib/design/kinds";
+import { cipInputs, designInputs, kindInfo, mseInputs } from "@/lib/design/kinds";
 import { cipCalcLines } from "@/lib/design/walls/cip-calc";
+import { mseCalcLines } from "@/lib/design/walls/mse-calc";
 import { db } from "@/lib/db";
 import { putFile } from "@/lib/storage";
 
@@ -37,7 +38,7 @@ export async function createDesign(kind: string, projectId: string | null) {
   const project = await orgProject(user.orgId, projectId);
   const count = await db.design.count({ where: { orgId: user.orgId, kind } });
   const design = await db.design.create({
-    data: { orgId: user.orgId, projectId: project?.id ?? null, kind, name: `${info.name} ${count + 1}`, inputs: cipInputs({}) as unknown as Prisma.InputJsonValue, createdById: user.id },
+    data: { orgId: user.orgId, projectId: project?.id ?? null, kind, name: `${info.name} ${count + 1}`, inputs: designInputs(kind, {}) as unknown as Prisma.InputJsonValue, createdById: user.id },
   });
   revalidatePath("/design");
   redirect(`/design/${design.id}`);
@@ -48,7 +49,7 @@ export async function saveDesignInputs(designId: string, inputs: unknown) {
   const { design } = await ownDesign(designId);
   const parsed = z.record(z.string(), z.unknown()).safeParse(inputs);
   if (!parsed.success) throw new Error("Invalid inputs");
-  const clean = design.kind === "cip-cantilever-wall" ? cipInputs(parsed.data) : parsed.data;
+  const clean = kindInfo(design.kind) ? designInputs(design.kind, parsed.data) : parsed.data;
   await db.design.update({ where: { id: design.id }, data: { inputs: clean as unknown as Prisma.InputJsonValue } });
 }
 
@@ -77,10 +78,11 @@ export async function deleteDesign(designId: string) {
 /** The design written out as a Calcs worksheet (the calc package), filed with the design. */
 export async function createCalcFromDesign(designId: string): Promise<{ calcId: string }> {
   const { user, design } = await ownDesign(designId);
-  if (design.kind !== "cip-cantilever-wall") throw new Error("Calc packages for this design type are coming");
+  const lines = design.kind === "cip-cantilever-wall" ? cipCalcLines(cipInputs(design.inputs), design.name) : design.kind === "mse-wall" ? mseCalcLines(mseInputs(design.inputs), design.name) : null;
+  if (!lines) throw new Error("Calc packages for this design type are coming");
   const data = emptyCalc("USCS");
   data.header = { ...data.header, title: design.name, by: user.name ?? "" };
-  data.regions = layout(cipCalcLines(cipInputs(design.inputs), design.name), { x: 0, y: 0 }, data.paper);
+  data.regions = layout(lines, { x: 0, y: 0 }, data.paper);
   const calc = await db.calc.create({ data: { orgId: user.orgId, projectId: design.projectId, name: `${design.name} calc`, createdById: user.id } });
   const key = newCalcKey(calc.id);
   await putFile(key, gzipSync(JSON.stringify(data)), CALC_FILE);
