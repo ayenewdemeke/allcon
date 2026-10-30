@@ -93,7 +93,7 @@ async function present(ctx: ToolContext, calcId: string, activity: string) {
 export async function workOut(data: CalcData) {
   await loadShapes();
   const regions = readingOrder(data.regions);
-  const items = regions.flatMap((r): SheetItem[] => (r.kind === "text" ? [] : [r as SheetItem]));
+  const items = regions.flatMap((r): SheetItem[] => (r.kind === "text" || r.kind === "image" ? [] : [r as SheetItem]));
   let results = evaluateSheet(items, data.settings);
   // Symbolic evaluations (→) not worked out yet: asked for, then the sheet again with them.
   const requests = takeSymbolicRequests();
@@ -108,6 +108,7 @@ export async function workOut(data: CalcData) {
 function describeRegion(r: Region, result: Result | undefined) {
   const { id, kind, x, y, ...rest } = r;
   const out: Record<string, unknown> = { id, kind, at: [x, y] };
+  if (r.kind === "image") return { ...out, picture: `${r.width} x ${r.height} px drawing` };
   for (const [k, v] of Object.entries(rest)) if (v !== undefined && v !== "" && k !== "width" && !(k === "style" && v === "normal")) out[k === "displayUnit" ? "display_unit" : k === "compact" ? "names_only" : k] = v;
   if (!result) return out;
   if (result.kind === "error") out.error = result.incomplete ? `incomplete: ${result.message}` : result.message;

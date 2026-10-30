@@ -1,4 +1,5 @@
 import type { Line } from "@/lib/calcs/library/templates";
+import type { Figure } from "../figures";
 import { CASES, combos, designCbc, type CaseId, type CbcInputs } from "./cbc";
 
 // A box culvert design as a Calcs worksheet: the loads as live math, the frame analysis's
@@ -16,7 +17,7 @@ function factorTex(f: number, eta: number) {
 }
 const CASE_TEX: Record<CaseId | "LL", string> = { DC: "DC", EV: "EV", EHmax: "EHx", EHmin: "EHn", LS: "LS", WA: "WA", LL: "LL" };
 
-export function cbcCalcLines(i: CbcInputs, title: string): Line[] {
+export function cbcCalcLines(i: CbcInputs, title: string, figures?: { section?: Figure; moments?: Figure }): Line[] {
   const lines: Line[] = [];
   const text = (t: string, style?: "heading" | "subheading" | "note") => lines.push({ text: t, ...(style ? { style } : {}) });
   const m = (math: string, ref?: string, unit?: string) => lines.push({ math, ...(ref ? { ref } : {}), ...(unit ? { unit } : {}), ...(math.length > 110 && ref ? { wide: true } : {}) });
@@ -57,6 +58,8 @@ export function cbcCalcLines(i: CbcInputs, title: string): Line[] {
   m(`n_c\\coloneq ${n}`, "Cells");
   m(n > 1 ? "B_c\\coloneq n_c\\cdot S+2\\cdot T_s+\\left(n_c-1\\right)\\cdot T_i=" : "B_c\\coloneq S+2\\cdot T_s=", "Outside width", "ft");
   m(n > 1 ? "B\\coloneq B_c-T_s=" : "B\\coloneq S+T_s=", "Between the exterior walls' centerlines (the frame)", "ft");
+
+  if (figures?.section) lines.push({ region: figures.section });
 
   // --- loads -----------------------------------------------------------------------------------
   text("Dead load (DC)", "subheading");
@@ -115,6 +118,10 @@ export function cbcCalcLines(i: CbcInputs, title: string): Line[] {
     "note",
   );
   text(C.map((c) => `${c.name}: ${(["DC", "EV", "LL", "EHmax", "EHmin", "LS", "WA"] as const).filter((k) => c.f[k]).map((k) => `${num(c.f[k], 4)} ${k}`).join(" + ")}`).join("\n"), "note");
+  if (figures?.moments) {
+    text("Factored moment envelope (the strength combinations), kip·in, drawn on each member's tension side:", "note");
+    lines.push({ region: figures.moments });
+  }
   m(`\\eta\\coloneq ${num(i.eta)}`, "Load modifier on EV and EH (AASHTO 12.5.4)");
   m(`\\phi_f\\coloneq ${num(i.phiF)}`, "Flexure (precast), MnDOT 12.2.3");
   m(`\\phi_v\\coloneq ${num(i.phiV)}`, "Shear");

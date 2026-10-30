@@ -1,4 +1,5 @@
 import type { Line } from "@/lib/calcs/library/templates";
+import type { Figure } from "../figures";
 import { BARS } from "./cip";
 import { designMseWall, PHI_PO, PHI_PO_EE, type MseInputs } from "./mse";
 
@@ -9,7 +10,7 @@ import { designMseWall, PHI_PO, PHI_PO_EE, type MseInputs } from "./mse";
 const num = (v: number) => String(+v.toFixed(6));
 const ok = (demand: string, capacity: string) => `\\operatorname{if}\\left(${demand}\\le ${capacity},\\text{OK},\\text{NG}\\right)=`;
 
-export function mseCalcLines(i: MseInputs, title: string): Line[] {
+export function mseCalcLines(i: MseInputs, title: string, figures?: { section?: Figure }): Line[] {
   const lines: Line[] = [];
   const text = (t: string, style?: "heading" | "subheading" | "note") => lines.push({ text: t, ...(style ? { style } : {}) });
   const m = (math: string, ref?: string, unit?: string) => lines.push({ math, ...(ref ? { ref } : {}), ...(unit ? { unit } : {}), ...(math.length > 110 && ref ? { wide: true } : {}) });
@@ -65,6 +66,8 @@ export function mseCalcLines(i: MseInputs, title: string): Line[] {
   m(ok(`\\max\\left(2\\mathrm{ft},\\frac{H}{${i.wallType === "abutment" ? 10 : 20}}\\right)`, "d_{emb}"), `Minimum embedment, AASHTO 11.10.2.2 (${i.wallType === "abutment" ? "abutment" : "wall"}, level ground in front)`);
   m("h\\coloneq H+L\\cdot\\tan\\left(\\beta\\right)=", "Height at the back of the reinforced zone", "ft");
   if (live) m(`h_{eq}\\coloneq ${num(r.soil.heq)}\\mathrm{ft}`, i.wallType === "abutment" ? "Live load surcharge, AASHTO T. 3.11.6.4-1 (abutment)" : "Live load surcharge, AASHTO T. 3.11.6.4-2 (parallel to traffic)");
+
+  if (figures?.section) lines.push({ region: figures.section });
 
   // --- external loads -------------------------------------------------------------------------
   text("External stability: loads", "subheading");

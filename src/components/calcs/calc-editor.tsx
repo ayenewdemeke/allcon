@@ -133,7 +133,7 @@ function Workspace({ doc, calc, projects, backHref }: { doc: CalcDocument; calc:
     void answers;
     const items = readingOrder([...doc.regions.values()]).flatMap((r): SheetItem[] => {
       if (r.kind === "math") return [{ id: r.id, kind: "math", latex: drafts.get(r.id) ?? r.latex, displayUnit: r.displayUnit }];
-      if (r.kind === "text") return [];
+      if (r.kind === "text" || r.kind === "image") return [];
       return [r];
     });
     return evaluateSheet(items, doc.settings);

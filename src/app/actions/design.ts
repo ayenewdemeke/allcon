@@ -11,6 +11,7 @@ import { CALC_FILE, newCalcKey } from "@/lib/calcs/server";
 import { emptyCalc } from "@/lib/calcs/types";
 import { cbcInputs, cipInputs, designInputs, kindInfo, mseInputs } from "@/lib/design/kinds";
 import { cbcCalcLines } from "@/lib/design/culverts/cbc-calc";
+import { cbcFigures, cipFigures, mseFigures } from "@/lib/design/figures";
 import { cipCalcLines } from "@/lib/design/walls/cip-calc";
 import { mseCalcLines } from "@/lib/design/walls/mse-calc";
 import { db } from "@/lib/db";
@@ -79,7 +80,23 @@ export async function deleteDesign(designId: string) {
 /** The design written out as a Calcs worksheet (the calc package), filed with the design. */
 export async function createCalcFromDesign(designId: string): Promise<{ calcId: string }> {
   const { user, design } = await ownDesign(designId);
-  const lines = design.kind === "cip-cantilever-wall" ? cipCalcLines(cipInputs(design.inputs), design.name) : design.kind === "mse-wall" ? mseCalcLines(mseInputs(design.inputs), design.name) : design.kind === "box-culvert" ? cbcCalcLines(cbcInputs(design.inputs), design.name) : null;
+  // The editor's sketches go in as pictures (or the calc goes without them if one can't be drawn).
+  const figures = <T>(draw: () => T) => {
+    try {
+      return draw();
+    } catch (e) {
+      console.error("Could not draw the design's figures", e);
+      return undefined;
+    }
+  };
+  const lines =
+    design.kind === "cip-cantilever-wall"
+      ? cipCalcLines(cipInputs(design.inputs), design.name, figures(() => cipFigures(cipInputs(design.inputs))))
+      : design.kind === "mse-wall"
+        ? mseCalcLines(mseInputs(design.inputs), design.name, figures(() => mseFigures(mseInputs(design.inputs))))
+        : design.kind === "box-culvert"
+          ? cbcCalcLines(cbcInputs(design.inputs), design.name, figures(() => cbcFigures(cbcInputs(design.inputs))))
+          : null;
   if (!lines) throw new Error("Calc packages for this design type are coming");
   const data = emptyCalc("USCS");
   data.header = { ...data.header, title: design.name, by: user.name ?? "" };

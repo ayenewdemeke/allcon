@@ -1,6 +1,6 @@
 import { newId } from "../document";
 import type { UnitSystem } from "../evaluate";
-import { contentSize, GRID, type Paper, type PlotRegion, type Region, type SolveRegion, type TableRegion, type TextRegion } from "../types";
+import { contentSize, GRID, type ImageRegion, type Paper, type PlotRegion, type Region, type SolveRegion, type TableRegion, type TextRegion } from "../types";
 import type { Snippet } from "./materials";
 
 // Worksheet templates: complete calcs to start from (AISC 360-22 and ACI 318-19, LRFD), laid out
@@ -11,12 +11,12 @@ import type { Snippet } from "./materials";
 export type Body<T> = T extends unknown ? Omit<T, "id" | "x" | "y"> : never;
 
 /** A line of a template: text, math (with the code reference beside it, or above it for math too
- * wide to share the line), a steel section, or a table, plot or solve block. */
+ * wide to share the line), a steel section, or a table, plot, solve block or picture. */
 export type Line =
   | { text: string; style?: TextRegion["style"] }
   | { math: string; ref?: string; unit?: string; wide?: boolean }
   | { shape: string; suffix?: string; compact?: boolean }
-  | { region: Body<TableRegion> | Body<PlotRegion> | Body<SolveRegion> };
+  | { region: Body<TableRegion> | Body<PlotRegion> | Body<SolveRegion> | Body<ImageRegion> };
 
 /** Space a math region takes on the page, roughly: taller for fractions, piecewise and roots. */
 function mathHeight(latex: string) {
@@ -47,6 +47,8 @@ export function regionHeight(r: Body<Region>): number {
       return r.height + 48;
     case "solve":
       return 72 + (r.guesses.length + r.constraints.length + 1) * 30;
+    case "image":
+      return r.height + 8;
   }
 }
 

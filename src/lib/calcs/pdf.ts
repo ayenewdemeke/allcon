@@ -121,6 +121,12 @@ class Sheet {
     for (let i = 1; i < points.length; i++) this.line(points[i - 1][0], points[i - 1][1], points[i][0], points[i][1], hex, width);
   }
 
+  /** An SVG drawing with its top left at (x, y), at a size, on white (not over the grid). */
+  picture(svg: string, x: number, y: number, width: number, height: number) {
+    this.page.drawRectangle({ x: x * K, y: (this.height - y - height) * K, width: width * K, height: height * K, color: rgb(1, 1, 1) });
+    this.page.drawSvg(svg, { x: x * K, y: (this.height - y) * K, width: width * K, height: height * K, fonts: { Helvetica: this.fonts.regular } });
+  }
+
   dot(x: number, y: number, r: number, hex: string) {
     this.page.drawCircle({ x: x * K, y: (this.height - y) * K, size: r * K, color: color(hex) });
   }
@@ -156,6 +162,18 @@ const TEXT_STYLE: Record<TextRegion["style"], { size: number; font: keyof Fonts;
   subheading: { size: 16, font: "bold", color: "#171717" },
   note: { size: 12, font: "italic", color: "#525252" },
 };
+
+/** A picture's SVG as the PDF draws it: hatching (patterns) as a light fill (lighter for a fill
+ * pattern than for soil), polylines as paths, no markers, and text in Helvetica (the PDF's
+ * font). Dashed lines print solid. */
+const forPdf = (svg: string) =>
+  svg
+    .replace(/<defs>[^]*?<\/defs>/g, "")
+    .replace(/fill="url\(#([^)]*)\)"/g, (_, id: string) => `fill="${id.endsWith("fill") ? "#f7f3ee" : "#efe8df"}"`)
+    .replace(/<polyline\b([^>]*?) points="([^"]*)"/g, '<path$1 d="M$2"')
+    .replace(/ marker-(start|mid|end)="[^"]*"/g, "")
+    .replace(/^<svg([^>]*?) font-family="[^"]*"/, "<svg$1")
+    .replace("<svg ", '<svg font-family="Helvetica" ');
 
 function drawRegion(s: Sheet, r: Region, result: Result | undefined, x: number, y: number, maxWidth: number) {
   const err = (message: string, at: number) => s.text(message, x + 4, at, 10, { color: "#dc2626" });
@@ -267,6 +285,13 @@ function drawRegion(s: Sheet, r: Region, result: Result | undefined, x: number, 
       if (failed?.error) err(failed.error, below + 18);
       return;
     }
+    case "image":
+      try {
+        s.picture(forPdf(r.svg), x + 4, y + 4, r.width, r.height);
+      } catch {
+        err("This picture couldn't be drawn", y + 4);
+      }
+      return;
     case "solve": {
       const res = result?.kind === "solve" ? result : null;
       const solved = res?.solver.kind === "ok" ? res.solver.result : undefined;

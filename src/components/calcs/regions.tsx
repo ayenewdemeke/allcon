@@ -2,12 +2,12 @@
 
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { uprightUnits, type Result } from "@/lib/calcs/evaluate";
-import type { MathRegion, TextRegion } from "@/lib/calcs/types";
+import type { ImageRegion, MathRegion, TextRegion } from "@/lib/calcs/types";
 import { cn } from "@/lib/utils";
 import { loadMathLive, makeField, type MathfieldElement } from "./mathlive";
 
 // A worksheet's regions: math (typed in a MathLive field, shown as rendered math with its
-// result) and text. Results show after "=" as Mathcad does, with an optional unit to show
+// result), text and pictures. Results show after "=" as Mathcad does, with an optional unit to show
 // them in; errors mark the region red.
 
 type MathLive = Awaited<ReturnType<typeof loadMathLive>>;
@@ -291,6 +291,16 @@ export function TextRegionView({
   return (
     <div style={{ maxWidth }} className={cn("rounded-sm px-1 py-0.5 leading-snug whitespace-pre-wrap", style, selected && "ring-1 ring-primary", !region.text && "text-neutral-400")}>
       {region.text || "Text"}
+    </div>
+  );
+}
+
+/** A picture, drawn as an image (so its markup can't run anything). */
+export function ImageRegionView({ region, selected }: { region: ImageRegion; selected: boolean }) {
+  return (
+    <div className={cn("rounded-sm p-1", selected && "ring-1 ring-primary")}>
+      {/* eslint-disable-next-line @next/next/no-img-element -- a drawing held in the worksheet */}
+      <img src={`data:image/svg+xml;charset=utf-8,${encodeURIComponent(region.svg)}`} width={region.width} height={region.height} alt="" draggable={false} className="block bg-white select-none" />
     </div>
   );
 }

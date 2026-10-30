@@ -1,5 +1,3 @@
-"use client";
-
 import type { CbcInputs, CbcResult } from "@/lib/design/culverts/cbc";
 import type { CipInputs, CipResult } from "@/lib/design/walls/cip";
 import type { MseInputs, MseResult } from "@/lib/design/walls/mse";
@@ -31,7 +29,8 @@ export function CipSketch({ inputs, result }: { inputs: CipInputs; result: CipRe
   const ymin = -dKey - 0.25 * span * 0.3;
   const ymax = H + Math.min(rise, 0.6 * span) + 0.2 * span;
   const s = Math.min((W - 40) / (xmax - xmin), (HPX - 30) / (ymax - ymin));
-  const X = (x: number) => 20 + (x - xmin) * s;
+  const ox = 20 + (W - 40 - (xmax - xmin) * s) / 2; // centered across the frame
+  const X = (x: number) => ox + (x - xmin) * s;
   const Y = (y: number) => HPX - 15 - (y - ymin) * s;
   const pts = (p: [number, number][]) => p.map(([x, y]) => `${X(x).toFixed(1)},${Y(y).toFixed(1)}`).join(" ");
 
@@ -141,7 +140,8 @@ export function MseSketch({ inputs, result }: { inputs: MseInputs; result: MseRe
   const ymin = -0.12 * span;
   const ymax = H + rise + 0.12 * span;
   const s = Math.min((W - 40) / (xmax - xmin), (HPX - 30) / (ymax - ymin));
-  const X = (x: number) => 20 + (x - xmin) * s;
+  const ox = 20 + (W - 40 - (xmax - xmin) * s) / 2; // centered across the frame
+  const X = (x: number) => ox + (x - xmin) * s;
   const Y = (y: number) => HPX - 15 - (y - ymin) * s;
   const pts = (p: [number, number][]) => p.map(([x, y]) => `${X(x).toFixed(1)},${Y(y).toFixed(1)}`).join(" ");
   const top = (x: number) => H + Math.min((x - tp) * tanB, rise);
@@ -241,7 +241,8 @@ export function CbcSketch({ inputs, result, moments }: { inputs: CbcInputs; resu
   const ymin = outer.y0 - 0.14 * span;
   const ymax = outer.y1 + fillShown + 0.1 * span;
   const s = Math.min((W - 40) / (xmax - xmin), (HPX - 30) / (ymax - ymin));
-  const X = (x: number) => 20 + (x - xmin) * s;
+  const ox = 20 + (W - 40 - (xmax - xmin) * s) / 2; // centered across the frame
+  const X = (x: number) => ox + (x - xmin) * s;
   const Y = (y: number) => HPX - 15 - (y - ymin) * s;
   const pts = (p: [number, number][]) => p.map(([x, y]) => `${X(x).toFixed(1)},${Y(y).toFixed(1)}`).join(" ");
   const cells = Array.from({ length: n }, (_, k) => {

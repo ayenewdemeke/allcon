@@ -1,4 +1,5 @@
 import type { Line } from "@/lib/calcs/library/templates";
+import type { Figure } from "../figures";
 import { BARS, COMBOS, type Combo, type CipInputs } from "./cip";
 
 // A CIP cantilever wall design as a Calcs worksheet: its inputs as definitions and every step as
@@ -11,7 +12,7 @@ const combName = (c: Combo) => COMBOS.find((x) => x.id === c)!.name;
 const SUB: Record<Combo, string> = { StrIa: "Ia", StrIb: "Ib", StrIV: "IV", ExtIIa: "IIa", ExtIIb: "IIb", SerI: "SI" };
 const ok = (demand: string, capacity: string) => `\\operatorname{if}\\left(${demand}\\le ${capacity},\\text{OK},\\text{NG}\\right)=`;
 
-export function cipCalcLines(i: CipInputs, title: string): Line[] {
+export function cipCalcLines(i: CipInputs, title: string, figures?: { section?: Figure }): Line[] {
   const lines: Line[] = [];
   const text = (t: string, style?: "heading" | "subheading" | "note") => lines.push({ text: t, ...(style ? { style } : {}) });
   const m = (math: string, ref?: string, unit?: string) => lines.push({ math, ...(ref ? { ref } : {}), ...(unit ? { unit } : {}), ...(math.length > 110 && ref ? { wide: true } : {}) });
@@ -87,6 +88,8 @@ export function cipCalcLines(i: CipInputs, title: string): Line[] {
   m("C\\coloneq B-A-T_b=", "Heel", "in");
   m(`t\\coloneq ${num(i.pavementThickness)}\\mathrm{in}`, "Pavement");
   m("h\\coloneq H-t+\\left(T_2+C\\right)\\cdot\\tan\\left(\\beta\\right)=", "Retained height at the heel", "ft");
+
+  if (figures?.section) lines.push({ region: figures.section });
 
   // --- loads --------------------------------------------------------------------------------
   text("Loads (unfactored)", "subheading");

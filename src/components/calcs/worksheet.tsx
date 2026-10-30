@@ -7,7 +7,7 @@ import { greekify } from "@/lib/calcs/parse";
 import { contentSize, gridStep, PAGES, type Header, type MathRegion, type PlotRegion, type Region, type SectionRegion, type SolveRegion, type TableRegion, type TextRegion } from "@/lib/calcs/types";
 import { cn } from "@/lib/utils";
 import { loadMathLive, type MathfieldElement } from "./mathlive";
-import { MathRegionView, TextRegionView } from "./regions";
+import { ImageRegionView, MathRegionView, TextRegionView } from "./regions";
 import { PlotRegionView, SolveRegionView, TableRegionView } from "./regions-more";
 import { SectionRegionView } from "./section-region";
 
@@ -431,7 +431,7 @@ export function Worksheet({
             const g = doc.regions.get(id);
             if (g) doc.put({ ...g, x: Math.max(0, g.x + last.dx), y: Math.max(0, g.y + last.dy) });
           }));
-      } else setEditing(r.id); // a click: edit it
+      } else if (r.kind !== "image") setEditing(r.id); // a click: edit it (a picture is only selected)
     };
     window.addEventListener("pointermove", move);
     window.addEventListener("pointerup", up);
@@ -552,6 +552,8 @@ export function Worksheet({
                           <TableRegionView ml={ml} region={r} result={results.get(r.id)} editing={editing === r.id} selected={selection.has(r.id)} onChange={change<TableRegion>(r.id)} />
                         ) : r.kind === "plot" ? (
                           <PlotRegionView ml={ml} region={r} result={results.get(r.id)} editing={editing === r.id} selected={selection.has(r.id)} onChange={change<PlotRegion>(r.id)} />
+                        ) : r.kind === "image" ? (
+                          <ImageRegionView region={r} selected={selection.has(r.id)} />
                         ) : r.kind === "section" ? (
                           <SectionRegionView ml={ml} region={r} result={results.get(r.id)} editing={editing === r.id} selected={selection.has(r.id)} onChange={change<SectionRegion>(r.id)} />
                         ) : (

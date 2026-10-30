@@ -16,7 +16,9 @@ export type SolveRegion = { id: string; kind: "solve"; x: number; y: number; gue
 /** A steel shape from the AISC tables: defines its properties (A, I_x, Z_x...), with an optional
  * subscript added to each name (A_b, I_{x,b}) to tell several apart. */
 export type SectionRegion = { id: string; kind: "section"; x: number; y: number; shape: string; suffix?: string; compact?: boolean };
-export type Region = MathRegion | TextRegion | TableRegion | PlotRegion | SolveRegion | SectionRegion;
+/** A picture (Mathcad's image region): an SVG drawing, such as a design's sketch, shown at its size. */
+export type ImageRegion = { id: string; kind: "image"; x: number; y: number; width: number; height: number; svg: string };
+export type Region = MathRegion | TextRegion | TableRegion | PlotRegion | SolveRegion | SectionRegion | ImageRegion;
 
 /** The calc paper's header: what each printed page carries. */
 export type Header = { project: string; title: string; by: string; checked: string; date: string; number: string };
