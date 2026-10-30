@@ -32,9 +32,21 @@ export function mathcadKey(mf: MathfieldElement, key: string, previous: string) 
 }
 
 /** Rendered math (when it isn't being edited). */
+/** Rendered math, kept by its LaTeX: re-rendering a large worksheet doesn't set it all again. */
+const markup = new Map<string, string>();
+function markupOf(ml: MathLive, latex: string) {
+  let html = markup.get(latex);
+  if (html === undefined) {
+    html = ml.convertLatexToMarkup(latex);
+    markup.set(latex, html);
+    if (markup.size > 5000) markup.delete(markup.keys().next().value!);
+  }
+  return html;
+}
+
 export function StaticMath({ ml, latex, className }: { ml: MathLive | null; latex: string; className?: string }) {
   if (!ml) return <span className={cn("font-mono text-sm", className)}>{latex}</span>;
-  return <span className={className} dangerouslySetInnerHTML={{ __html: ml.convertLatexToMarkup(latex) }} />;
+  return <span className={className} dangerouslySetInnerHTML={{ __html: markupOf(ml, latex) }} />;
 }
 
 export function MathRegionView({

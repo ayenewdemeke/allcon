@@ -437,15 +437,44 @@ export function Worksheet({
     window.addEventListener("pointerup", up);
   };
 
-  const measure = (id: string) => (el: HTMLDivElement | null) => {
-    if (!el) return;
-    const s = { w: el.offsetWidth, h: el.offsetHeight };
-    requestAnimationFrame(() =>
+  // Sizes come from one ResizeObserver: a region is measured when it appears or changes size,
+  // not on every render (which, on a large worksheet, would lay the page out hundreds of times).
+  const observer = useRef<ResizeObserver | null>(null);
+  const measured = useRef(new Map<string, { el: HTMLDivElement | null; ref: (el: HTMLDivElement | null) => void }>());
+  const sizeObserver = () =>
+    (observer.current ??= new ResizeObserver((entries) =>
       setSizes((prev) => {
-        const old = prev.get(id);
-        return old && old.w === s.w && old.h === s.h ? prev : new Map(prev).set(id, s);
+        let next = prev;
+        for (const entry of entries) {
+          const el = entry.target as HTMLDivElement;
+          const id = el.dataset.region;
+          if (!id) continue;
+          const s = { w: el.offsetWidth, h: el.offsetHeight };
+          const old = prev.get(id);
+          if (old && old.w === s.w && old.h === s.h) continue;
+          if (next === prev) next = new Map(prev);
+          next.set(id, s);
+        }
+        return next;
       }),
-    );
+    ));
+  useEffect(() => () => observer.current?.disconnect(), []);
+  const measure = (id: string) => {
+    let entry = measured.current.get(id);
+    if (!entry) {
+      const e: { el: HTMLDivElement | null; ref: (el: HTMLDivElement | null) => void } = {
+        el: null,
+        ref: (el) => {
+          if (e.el && e.el !== el) sizeObserver().unobserve(e.el);
+          e.el = el;
+          if (el) sizeObserver().observe(el);
+          else measured.current.delete(id);
+        },
+      };
+      entry = e;
+      measured.current.set(id, entry);
+    }
+    return entry.ref;
   };
 
   // --- drawing ---------------------------------------------------------------------------------

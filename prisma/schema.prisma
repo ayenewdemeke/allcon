@@ -19,6 +19,7 @@ model Organization {
   references Reference[]
   drawings   Drawing[]
   calcs      Calc[]
+  designs    Design[]
 
   @@map("organization")
 }
@@ -138,6 +139,7 @@ model Project {
   ifcModels           IfcModel[]
   drawings            Drawing[] // drawings filed under the project (optional)
   calcs               Calc[] // calculation worksheets filed under the project (optional)
+  designs             Design[] // designs (walls...) filed under the project (optional)
 
   @@index([orgId])
   @@map("project")
@@ -878,4 +880,24 @@ model CalcPresence {
 
   @@unique([calcId, userId, clientId])
   @@map("calc_presence")
+}
+
+// A design made in the Design section (a CIP cantilever wall, an MSE wall...): its inputs, worked
+// out in the app as they change. Filed under a project if wanted.
+model Design {
+  id          String       @id @default(uuid()) @db.Uuid
+  orgId       String       @map("org_id") @db.Uuid
+  projectId   String?      @map("project_id") @db.Uuid
+  kind        String // "cip-cantilever-wall", "mse-wall"
+  name        String
+  inputs      Json
+  createdById String?      @map("created_by") @db.Uuid
+  createdAt   DateTime     @default(now()) @map("created_at")
+  updatedAt   DateTime     @default(now()) @updatedAt @map("updated_at")
+  org         Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  project     Project?     @relation(fields: [projectId], references: [id], onDelete: SetNull)
+
+  @@index([orgId])
+  @@index([projectId])
+  @@map("design")
 }
