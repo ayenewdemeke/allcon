@@ -1,88 +1,47 @@
 import type { Metadata } from "next";
-import Link from "next/link";
-import { BrickWall } from "lucide-react";
-import { DesignRowActions, NewDesignButton } from "@/components/design/design-list-actions";
-import { LocalTime } from "@/components/local-time";
+import { DesignList } from "@/components/design/design-list";
+import { DesignCatalog, NewDesignMenu } from "@/components/design/design-list-actions";
 import { PageBody, PageHeader } from "@/components/shell/page-header";
-import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { requireUser } from "@/lib/auth/session";
 import { CATEGORIES, kindInfo } from "@/lib/design/kinds";
 import { db } from "@/lib/db";
 
 export const metadata: Metadata = { title: "Design" };
 
-/** The Design section: what can be designed, by category, and the designs made. */
+/** The Design section: the designs made, and a menu of what can be designed. */
 export default async function DesignPage() {
   const user = await requireUser();
-  const [designs, projects] = await Promise.all([
-    db.design.findMany({ where: { orgId: user.orgId }, orderBy: { updatedAt: "desc" }, include: { project: { select: { id: true, name: true } } } }),
-    db.project.findMany({ where: { orgId: user.orgId }, orderBy: { name: "asc" }, select: { id: true, name: true } }),
-  ]);
+  const designs = await db.design.findMany({ where: { orgId: user.orgId }, orderBy: { updatedAt: "desc" }, include: { project: { select: { id: true, name: true } } } });
+  const categories = CATEGORIES.map((c) => ({ id: c.id, name: c.name, kinds: c.kinds.map((k) => ({ id: k.id, name: k.name, short: k.short, available: k.available })) }));
+  const categoryOf = (kind: string) => CATEGORIES.find((c) => c.kinds.some((k) => k.id === kind))?.id ?? "other";
 
   return (
     <PageBody>
-      <PageHeader title="Design" description="Structural designs worked out as you enter them, with every check and its code reference, and a calc package to print." />
-      {CATEGORIES.map((category) => (
-        <section key={category.id} className="space-y-3">
-          <h2 className="flex items-center gap-2 text-sm font-semibold">
-            <BrickWall className="size-4 text-muted-foreground" />
-            {category.name}
-          </h2>
-          <div className="grid gap-3 sm:grid-cols-2">
-            {category.kinds.map((k) => (
-              <Card key={k.id} className={k.available ? "" : "opacity-70"}>
-                <CardContent className="flex h-full flex-col gap-3 py-4">
-                  <div className="space-y-1">
-                    <p className="flex items-center gap-2 font-medium">
-                      {k.name}
-                      {!k.available && <Badge variant="secondary">Next</Badge>}
-                    </p>
-                    <p className="text-sm text-muted-foreground">{k.description}</p>
-                  </div>
-                  <div className="mt-auto">
-                    <NewDesignButton kind={k.id} available={k.available} projects={projects} />
-                  </div>
-                </CardContent>
-              </Card>
-            ))}
-          </div>
-        </section>
-      ))}
-      {designs.length > 0 && (
+      <PageHeader title="Design" description="Structural designs worked out as you enter them, with every check and its code reference, and a calc package to print." actions={<NewDesignMenu categories={categories} />} />
+      {designs.length === 0 ? (
         <Card>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Design</TableHead>
-                <TableHead>Type</TableHead>
-                <TableHead>Project</TableHead>
-                <TableHead>Updated</TableHead>
-                <TableHead className="w-24" />
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {designs.map((d) => (
-                <TableRow key={d.id}>
-                  <TableCell>
-                    <Link href={`/design/${d.id}`} className="font-medium hover:text-primary hover:underline">
-                      {d.name}
-                    </Link>
-                  </TableCell>
-                  <TableCell className="text-muted-foreground">{kindInfo(d.kind)?.name ?? d.kind}</TableCell>
-                  <TableCell className="text-muted-foreground">{d.project ? <Link href={`/projects/${d.project.id}`} className="hover:text-primary hover:underline">{d.project.name}</Link> : "—"}</TableCell>
-                  <TableCell className="text-muted-foreground">
-                    <LocalTime date={d.updatedAt} />
-                  </TableCell>
-                  <TableCell>
-                    <DesignRowActions id={d.id} name={d.name} />
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+          <CardContent className="space-y-4 py-5">
+            <p className="text-sm text-muted-foreground">Start a design:</p>
+            <DesignCatalog categories={categories} />
+          </CardContent>
         </Card>
+      ) : (
+        <>
+          <DesignList
+            designs={designs.map((d) => ({ id: d.id, name: d.name, kindName: kindInfo(d.kind)?.name ?? d.kind, category: categoryOf(d.kind), project: d.project, updatedAt: d.updatedAt.toISOString() }))}
+            categories={categories}
+          />
+          <details className="group rounded-lg border bg-card px-4 py-2">
+            <summary className="cursor-pointer list-none py-1 text-sm font-medium select-none">
+              <span className="mr-1 inline-block transition-transform group-open:rotate-90">›</span>
+              All design types
+            </summary>
+            <div className="pt-3 pb-2">
+              <DesignCatalog categories={categories} />
+            </div>
+          </details>
+        </>
       )}
     </PageBody>
   );

@@ -1,10 +1,11 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
+import { CbcEditor } from "@/components/design/cbc-editor";
 import { CipEditor } from "@/components/design/cip-editor";
 import { MseEditor } from "@/components/design/mse-editor";
 import { PageBody } from "@/components/shell/page-header";
 import { isUuid, requireUser } from "@/lib/auth/session";
-import { cipInputs, mseInputs } from "@/lib/design/kinds";
+import { cbcInputs, cipInputs, mseInputs } from "@/lib/design/kinds";
 import { db } from "@/lib/db";
 
 export async function generateMetadata({ params }: PageProps<"/design/[designId]">): Promise<Metadata> {
@@ -32,6 +33,12 @@ export default async function DesignEditorPage({ params }: PageProps<"/design/[d
     return (
       <PageBody>
         <MseEditor design={{ ...base, inputs: mseInputs(design.inputs) }} projects={projects} />
+      </PageBody>
+    );
+  if (design.kind === "box-culvert")
+    return (
+      <PageBody>
+        <CbcEditor design={{ ...base, inputs: cbcInputs(design.inputs) }} projects={projects} />
       </PageBody>
     );
   notFound();

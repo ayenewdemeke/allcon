@@ -1,5 +1,6 @@
 "use client";
 
+import type { CbcInputs, CbcResult } from "@/lib/design/culverts/cbc";
 import type { CipInputs, CipResult } from "@/lib/design/walls/cip";
 import type { MseInputs, MseResult } from "@/lib/design/walls/mse";
 
@@ -218,6 +219,129 @@ export function MseSketch({ inputs, result }: { inputs: MseInputs; result: MseRe
       <text x={X(active[active.length - 1][0]) + 4} y={Y(H) + 12} fontSize="9" fill="#dc2626">
         active zone
       </text>
+    </svg>
+  );
+}
+
+/** A box culvert's section, to scale: the cells with their haunches, the fill over it, and
+ * (optionally) the factored moment envelope drawn on the members' tension side. */
+export function CbcSketch({ inputs, result, moments }: { inputs: CbcInputs; result: CbcResult; moments: boolean }) {
+  const { xs, B, yTop, n, members, nodes } = result.model;
+  const tt = inputs.Tt / 12;
+  const tb = inputs.Tb / 12;
+  const ts = inputs.Ts / 12;
+  const ti = inputs.Ti / 12;
+  const th = inputs.haunch / 12;
+  const wallT = (k: number) => (k === 0 || k === n ? ts : ti);
+  const outer = { x0: -ts / 2, x1: B + ts / 2, y0: -tb / 2, y1: yTop + tt / 2 };
+  const fillShown = Math.min(inputs.fill, 0.6 * (outer.y1 - outer.y0));
+  const span = Math.max(outer.x1 - outer.x0, outer.y1 - outer.y0 + fillShown);
+  const xmin = outer.x0 - 0.18 * span;
+  const xmax = outer.x1 + 0.12 * span;
+  const ymin = outer.y0 - 0.14 * span;
+  const ymax = outer.y1 + fillShown + 0.1 * span;
+  const s = Math.min((W - 40) / (xmax - xmin), (HPX - 30) / (ymax - ymin));
+  const X = (x: number) => 20 + (x - xmin) * s;
+  const Y = (y: number) => HPX - 15 - (y - ymin) * s;
+  const pts = (p: [number, number][]) => p.map(([x, y]) => `${X(x).toFixed(1)},${Y(y).toFixed(1)}`).join(" ");
+  const cells = Array.from({ length: n }, (_, k) => {
+    const a = xs[k] + wallT(k) / 2;
+    const b = xs[k + 1] - wallT(k + 1) / 2;
+    const c = tb / 2;
+    const d = tb / 2 + inputs.rise;
+    const h = Math.min(th, (b - a) / 2, (d - c) / 2);
+    return [
+      [a + h, c],
+      [b - h, c],
+      [b, c + h],
+      [b, d - h],
+      [b - h, d],
+      [a + h, d],
+      [a, d - h],
+      [a, c + h],
+    ] as [number, number][];
+  });
+  const box = `M ${pts([[outer.x0, outer.y0], [outer.x1, outer.y0], [outer.x1, outer.y1], [outer.x0, outer.y1]])} Z ${cells.map((c) => `M ${pts(c)} Z`).join(" ")}`;
+  const maxM = Math.max(1e-9, ...result.diagram.flatMap((d) => d.flatMap((p) => [Math.abs(p.max), Math.abs(p.min)])));
+  const k = (0.12 * span) / maxM;
+  const curve = (mi: number, key: "max" | "min") => {
+    const mem = members[mi];
+    const a = nodes[mem.start];
+    const b = nodes[mem.end];
+    const cx = (b.x - a.x) / mem.L;
+    const cy = (b.y - a.y) / mem.L;
+    // Positive moment (inside tension) plotted to the member's −y side.
+    return result.diagram[mi].map((p) => [a.x + cx * p.s + cy * p[key] * k, a.y + cy * p.s - cx * p[key] * k] as [number, number]);
+  };
+  const label = (mi: number) => {
+    const d = result.diagram[mi];
+    const big = d.reduce((w, p) => (Math.max(Math.abs(p.max), Math.abs(p.min)) > Math.max(Math.abs(w.max), Math.abs(w.min)) ? p : w), d[0]);
+    const v = Math.abs(big.max) >= Math.abs(big.min) ? big.max : big.min;
+    const mem = members[mi];
+    const a = nodes[mem.start];
+    const b = nodes[mem.end];
+    const cx = (b.x - a.x) / mem.L;
+    const cy = (b.y - a.y) / mem.L;
+    // Nudged toward the member's middle, so labels at a shared joint don't overlap.
+    const sl = big.s + Math.sign(mem.L / 2 - big.s) * Math.min(Math.abs(mem.L / 2 - big.s), 0.08 * mem.L);
+    return { x: a.x + cx * sl + cy * v * k, y: a.y + cy * sl - cx * v * k, v: v * 12 };
+  };
+  const centerline = members.map((mem) => [nodes[mem.start], nodes[mem.end]]);
+
+  return (
+    <svg viewBox={`0 0 ${W} ${HPX}`} className="h-auto w-full" role="img" aria-label="Box culvert section">
+      <defs>
+        <pattern id="cbc-soil" width="8" height="8" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+          <line x1="0" y1="0" x2="0" y2="8" stroke="#b08968" strokeWidth="1" opacity="0.45" />
+        </pattern>
+      </defs>
+      {fillShown > 0 && <rect x={X(xmin)} y={Y(outer.y1 + fillShown)} width={(xmax - xmin) * s} height={fillShown * s} fill="url(#cbc-soil)" />}
+      {fillShown > 0 && <line x1={X(xmin)} y1={Y(outer.y1 + fillShown)} x2={X(xmax)} y2={Y(outer.y1 + fillShown)} stroke="#8a6a4f" strokeWidth="1.2" strokeDasharray={fillShown < inputs.fill ? "6 3" : undefined} />}
+      <path d={box} fill="#d4d4d8" fillRule="evenodd" stroke="#3f3f46" strokeWidth="1.2" />
+      {moments && (
+        <g>
+          {centerline.map(([a, b], mi) => (
+            <line key={mi} x1={X(a.x)} y1={Y(a.y)} x2={X(b.x)} y2={Y(b.y)} stroke="#71717a" strokeWidth="0.6" strokeDasharray="3 2" />
+          ))}
+          {members.map((_, mi) => {
+            const up = curve(mi, "max");
+            const down = curve(mi, "min");
+            const mem = members[mi];
+            const a = nodes[mem.start];
+            const b = nodes[mem.end];
+            const d = result.diagram[mi];
+            if (!d.length) return null;
+            const on = (u: number) => [a.x + ((b.x - a.x) * u) / mem.L, a.y + ((b.y - a.y) * u) / mem.L] as [number, number];
+            return <polygon key={mi} points={pts([on(d[0].s), ...up, on(d[d.length - 1].s), ...down.reverse()])} fill="#2563eb" fillOpacity="0.16" stroke="#2563eb" strokeWidth="0.9" />;
+          })}
+          {members.map((_, mi) => {
+            if (!result.diagram[mi].length) return null;
+            const l = label(mi);
+            return (
+              <text key={mi} x={X(l.x)} y={Y(l.y) - 3} fontSize="9" textAnchor="middle" fill="#1d4ed8">
+                {Math.abs(l.v).toFixed(0)}
+              </text>
+            );
+          })}
+        </g>
+      )}
+      {/* Dimensions */}
+      <g className="text-muted-foreground" fill="currentColor" fontSize="10">
+        <line x1={X(xs[0] + ts / 2)} y1={Y(outer.y0 - 0.06 * span)} x2={X(xs[1] - wallT(1) / 2)} y2={Y(outer.y0 - 0.06 * span)} stroke="currentColor" strokeWidth="0.75" />
+        <text x={(X(xs[0] + ts / 2) + X(xs[1] - wallT(1) / 2)) / 2} y={Y(outer.y0 - 0.06 * span) + 13} textAnchor="middle">
+          {n > 1 ? `${n} cells × ` : ""}
+          {fmtFt(inputs.span)} span
+        </text>
+        <line x1={X(outer.x0 - 0.08 * span)} y1={Y(tb / 2)} x2={X(outer.x0 - 0.08 * span)} y2={Y(tb / 2 + inputs.rise)} stroke="currentColor" strokeWidth="0.75" />
+        <text x={X(outer.x0 - 0.08 * span) - 4} y={(Y(tb / 2) + Y(tb / 2 + inputs.rise)) / 2} textAnchor="end">
+          {fmtFt(inputs.rise)}
+        </text>
+        {inputs.fill > 0 && (
+          <text x={X(outer.x1 + 0.03 * span)} y={(Y(outer.y1) + Y(outer.y1 + fillShown)) / 2 + 3}>
+            H = {fmtFt(inputs.fill)}
+          </text>
+        )}
+      </g>
     </svg>
   );
 }

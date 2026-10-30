@@ -1,45 +1,84 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Loader2, Pencil, Plus, Trash2 } from "lucide-react";
+import { ChevronDown, Loader2, Pencil, Plus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { createDesign, deleteDesign, renameDesign } from "@/app/actions/design";
 import { Button } from "@/components/ui/button";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuGroup, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 
-/** Starts a design of a kind (filed under a project if one's chosen). */
-export function NewDesignButton({ kind, available, projects }: { kind: string; available: boolean; projects: { id: string; name: string }[] }) {
-  const [projectId, setProjectId] = useState("");
+type Kind = { id: string; name: string; short: string; available: boolean };
+type Category = { id: string; name: string; kinds: Kind[] };
+
+function useCreate() {
   const [pending, start] = useTransition();
-  if (!available) return <span className="text-xs text-muted-foreground">Coming next</span>;
+  const create = (kind: string) =>
+    start(async () => {
+      try {
+        await createDesign(kind, null); // opens it; filed under a project from the editor
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : "Could not start the design");
+      }
+    });
+  return { pending, create };
+}
+
+/** "New design": the design types by category, in a menu. */
+export function NewDesignMenu({ categories }: { categories: Category[] }) {
+  const { pending, create } = useCreate();
   return (
-    <div className="flex items-center gap-2">
-      {projects.length > 0 && (
-        <select value={projectId} onChange={(e) => setProjectId(e.target.value)} className="h-8 max-w-40 rounded-lg border border-input bg-transparent px-2 text-xs" aria-label="Project">
-          <option value="">No project</option>
-          {projects.map((p) => (
-            <option key={p.id} value={p.id}>
-              {p.name}
-            </option>
-          ))}
-        </select>
-      )}
-      <Button
-        size="sm"
-        disabled={pending}
-        onClick={() =>
-          start(async () => {
-            try {
-              await createDesign(kind, projectId || null); // opens it
-            } catch (err) {
-              toast.error(err instanceof Error ? err.message : "Could not start the design");
-            }
-          })
-        }
-      >
+    <DropdownMenu>
+      <DropdownMenuTrigger render={<Button disabled={pending} />}>
         {pending ? <Loader2 className="animate-spin" /> : <Plus />}
         New design
-      </Button>
+        <ChevronDown className="opacity-70" />
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="w-80">
+        {categories.map((c, k) => (
+          <DropdownMenuGroup key={c.id}>
+            {k > 0 && <DropdownMenuSeparator />}
+            <DropdownMenuLabel>{c.name}</DropdownMenuLabel>
+            {c.kinds.map((kind) => (
+              <DropdownMenuItem key={kind.id} disabled={!kind.available} onClick={() => create(kind.id)} className="flex-col items-start gap-0">
+                <span className="font-medium">{kind.name}</span>
+                <span className="text-xs text-muted-foreground">{kind.available ? kind.short : "Coming next"}</span>
+              </DropdownMenuItem>
+            ))}
+          </DropdownMenuGroup>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+/** The design types as small tiles, by category: a click starts one. */
+export function DesignCatalog({ categories }: { categories: Category[] }) {
+  const { pending, create } = useCreate();
+  return (
+    <div className="space-y-3">
+      {categories.map((c) => (
+        <div key={c.id} className="grid gap-2 sm:grid-cols-[7rem_1fr] sm:items-start">
+          <p className="pt-2 text-xs font-semibold tracking-wide text-muted-foreground uppercase">{c.name}</p>
+          <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+            {c.kinds.map((k) => (
+              <button
+                key={k.id}
+                type="button"
+                disabled={!k.available || pending}
+                onClick={() => create(k.id)}
+                className="group flex items-center gap-3 rounded-lg border bg-card px-3 py-2 text-left transition-colors hover:border-primary/50 hover:bg-accent disabled:opacity-60"
+              >
+                <span className="min-w-0 flex-1">
+                  <span className="block text-sm font-medium">{k.name}</span>
+                  <span className="block truncate text-xs text-muted-foreground">{k.available ? k.short : "Coming next"}</span>
+                </span>
+                <Plus className="size-4 shrink-0 text-muted-foreground group-hover:text-primary" />
+              </button>
+            ))}
+          </div>
+        </div>
+      ))}
     </div>
   );
 }
