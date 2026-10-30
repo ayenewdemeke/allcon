@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { Calculator, ChartSpline, FileText, FolderKanban, Grid2x2, Grid3x3, Heading1, Heading2, LayoutTemplate, Loader2, Printer, Ruler, Send, Sigma, SquareFunction, StickyNote, Table2, Type } from "lucide-react";
 import type { CalcDocument } from "@/lib/calcs/document";
+import { CALC_COLORS } from "@/lib/calcs/colors";
 import { materials } from "@/lib/calcs/library/materials";
 import { layout, snippetLines, TEMPLATES } from "@/lib/calcs/library/templates";
 import { PAGES, type Paper } from "@/lib/calcs/types";
@@ -221,6 +222,22 @@ export function CalcRibbon({
                 <SmallButton icon={StickyNote} label="Note" onClick={() => worksheet.current?.addText("note")} />
               </div>
               <Big icon={SquareFunction} label="Solve block" title="A solve block: guess values, constraints and a solver (find)" onClick={() => worksheet.current?.addSolve()} />
+            </Panel>
+            <Panel title="Color">
+              <div className="grid grid-cols-4 gap-1 pt-1">
+                {CALC_COLORS.map((c) => (
+                  <button
+                    key={c.name}
+                    type="button"
+                    title={`${c.name}: the selected text and math`}
+                    aria-label={`Color ${c.name}`}
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={() => worksheet.current?.setColor(c.value)}
+                    className="size-5 rounded-full border border-black/10 hover:ring-2 hover:ring-primary/40"
+                    style={{ background: c.value ?? "#171717" }}
+                  />
+                ))}
+              </div>
             </Panel>
             <Panel title="Operators">
               <div className="grid grid-cols-6 gap-0.5 pt-0.5">

@@ -1,4 +1,5 @@
 import type { Line } from "@/lib/calcs/library/templates";
+import { COLOR_NOTE, INPUT_COLOR, isInput } from "../calc-style";
 import type { Figure } from "../figures";
 import { BARS, COMBOS, type Combo, type CipInputs } from "./cip";
 
@@ -15,7 +16,7 @@ const ok = (demand: string, capacity: string) => `\\operatorname{if}\\left(${dem
 export function cipCalcLines(i: CipInputs, title: string, figures?: { section?: Figure }): Line[] {
   const lines: Line[] = [];
   const text = (t: string, style?: "heading" | "subheading" | "note") => lines.push({ text: t, ...(style ? { style } : {}) });
-  const m = (math: string, ref?: string, unit?: string) => lines.push({ math, ...(ref ? { ref } : {}), ...(unit ? { unit } : {}), ...(math.length > 110 && ref ? { wide: true } : {}) });
+  const m = (math: string, ref?: string, unit?: string) => lines.push({ math, ...(ref ? { ref } : {}), ...(unit ? { unit } : {}), ...(math.length > 110 && ref ? { wide: true } : {}), ...(isInput(math) ? { color: INPUT_COLOR } : {}) });
 
   const batter = i.frontBatter > 0 || i.backBatter > 0;
   const live = i.liveLoad;
@@ -25,6 +26,8 @@ export function cipCalcLines(i: CipInputs, title: string, figures?: { section?: 
 
   text(title.toUpperCase(), "heading");
   text("Cast-in-place cantilever retaining wall, per foot of wall. AASHTO LRFD Bridge Design Specifications (9th ed.) with CDOT Bridge Design Manual practice. Moments are taken about the toe.");
+
+  text(COLOR_NOTE, "note");
 
   // --- materials and soil -------------------------------------------------------------------
   text("Soil", "subheading");

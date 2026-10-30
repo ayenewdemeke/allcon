@@ -1,4 +1,5 @@
 import type { Line } from "@/lib/calcs/library/templates";
+import { COLOR_NOTE, INPUT_COLOR, isInput } from "../calc-style";
 import type { Figure } from "../figures";
 import { BARS } from "./cip";
 import { designMseWall, PHI_PO, PHI_PO_EE, type MseInputs } from "./mse";
@@ -13,7 +14,9 @@ const ok = (demand: string, capacity: string) => `\\operatorname{if}\\left(${dem
 export function mseCalcLines(i: MseInputs, title: string, figures?: { section?: Figure }): Line[] {
   const lines: Line[] = [];
   const text = (t: string, style?: "heading" | "subheading" | "note") => lines.push({ text: t, ...(style ? { style } : {}) });
-  const m = (math: string, ref?: string, unit?: string) => lines.push({ math, ...(ref ? { ref } : {}), ...(unit ? { unit } : {}), ...(math.length > 110 && ref ? { wide: true } : {}) });
+  const m = (math: string, ref?: string, unit?: string) => lines.push({ math, ...(ref ? { ref } : {}), ...(unit ? { unit } : {}), ...(math.length > 110 && ref ? { wide: true } : {}), ...(isInput(math) ? { color: INPUT_COLOR } : {}) });
+  /** A value from the analysis (not entered): not in the inputs' color. */
+  const given = (math: string, ref?: string) => lines.push({ math, ...(ref ? { ref } : {}) });
 
   const r = designMseWall(i);
   const f = i.factors;
@@ -27,6 +30,8 @@ export function mseCalcLines(i: MseInputs, title: string, figures?: { section?: 
 
   text(title.toUpperCase(), "heading");
   text(`Mechanically stabilized earth wall with ${kind.name.toLowerCase()} reinforcement and precast concrete facing panels, per foot of wall. AASHTO LRFD Bridge Design Specifications (9th ed.), Section 11.10. External moments are taken about the center of the base, overturning positive.`);
+
+  text(COLOR_NOTE, "note");
 
   // --- soils ----------------------------------------------------------------------------------
   text("Soils", "subheading");
@@ -65,7 +70,7 @@ export function mseCalcLines(i: MseInputs, title: string, figures?: { section?: 
   m(`d_{emb}\\coloneq ${num(i.embedment)}\\mathrm{ft}`, "Embedment");
   m(ok(`\\max\\left(2\\mathrm{ft},\\frac{H}{${i.wallType === "abutment" ? 10 : 20}}\\right)`, "d_{emb}"), `Minimum embedment, AASHTO 11.10.2.2 (${i.wallType === "abutment" ? "abutment" : "wall"}, level ground in front)`);
   m("h\\coloneq H+L\\cdot\\tan\\left(\\beta\\right)=", "Height at the back of the reinforced zone", "ft");
-  if (live) m(`h_{eq}\\coloneq ${num(r.soil.heq)}\\mathrm{ft}`, i.wallType === "abutment" ? "Live load surcharge, AASHTO T. 3.11.6.4-1 (abutment)" : "Live load surcharge, AASHTO T. 3.11.6.4-2 (parallel to traffic)");
+  if (live) given(`h_{eq}\\coloneq ${num(r.soil.heq)}\\mathrm{ft}`, i.wallType === "abutment" ? "Live load surcharge, AASHTO T. 3.11.6.4-1 (abutment)" : "Live load surcharge, AASHTO T. 3.11.6.4-2 (parallel to traffic)");
 
   if (figures?.section) lines.push({ region: figures.section });
 

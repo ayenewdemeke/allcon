@@ -13,8 +13,8 @@ export type Body<T> = T extends unknown ? Omit<T, "id" | "x" | "y"> : never;
 /** A line of a template: text, math (with the code reference beside it, or above it for math too
  * wide to share the line), a steel section, or a table, plot, solve block or picture. */
 export type Line =
-  | { text: string; style?: TextRegion["style"] }
-  | { math: string; ref?: string; unit?: string; wide?: boolean }
+  | { text: string; style?: TextRegion["style"]; color?: string }
+  | { math: string; ref?: string; unit?: string; wide?: boolean; color?: string }
   | { shape: string; suffix?: string; compact?: boolean }
   | { region: Body<TableRegion> | Body<PlotRegion> | Body<SolveRegion> | Body<ImageRegion> };
 
@@ -24,6 +24,7 @@ function mathHeight(latex: string) {
     const rows = latex.split("\\\\").length;
     return rows * (latex.includes("\\frac") ? 34 : 26) + 16;
   }
+  if ((latex.match(/\\frac/g) ?? []).length >= 3 && latex.includes("\\sqrt")) return 72; // fractions within fractions
   if (/\\frac[^]*\\frac/.test(latex) && latex.includes("\\sqrt")) return 56;
   if (latex.includes("\\frac") || latex.includes("\\sum") || latex.includes("\\int")) return 48;
   return 32;
@@ -70,9 +71,9 @@ export function layout(lines: Line[], at: { x: number; y: number }, paper: Paper
     }
     if ("text" in line) {
       const style = line.style ?? "normal";
-      out.push({ id: newId(), kind: "text", x: at.x, y, text: line.text, style, width: style === "normal" || style === "note" ? 600 : 640 });
+      out.push({ id: newId(), kind: "text", x: at.x, y, text: line.text, style, width: style === "normal" || style === "note" ? 600 : 640, ...(line.color ? { color: line.color } : {}) });
     } else if ("math" in line) {
-      out.push({ id: newId(), kind: "math", x: at.x, y, latex: line.math, ...(line.unit ? { displayUnit: line.unit } : {}) });
+      out.push({ id: newId(), kind: "math", x: at.x, y, latex: line.math, ...(line.unit ? { displayUnit: line.unit } : {}), ...(line.color ? { color: line.color } : {}) });
       if (line.ref && !line.wide) out.push({ id: newId(), kind: "text", x: at.x + REF_X, y: y + Math.max(0, (h - 32) / 2), text: line.ref, style: "note", width: 230 });
     } else if ("shape" in line) out.push({ id: newId(), kind: "section", x: at.x, y, shape: line.shape, ...(line.suffix ? { suffix: line.suffix } : {}), ...(line.compact ? { compact: true } : {}) });
     else out.push({ ...line.region, id: newId(), x: at.x, y } as Region);

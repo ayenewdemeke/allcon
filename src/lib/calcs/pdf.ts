@@ -7,6 +7,7 @@ import { AllPackages } from "mathjax-full/js/input/tex/AllPackages.js";
 import { mathjax } from "mathjax-full/js/mathjax.js";
 import { SVG } from "mathjax-full/js/output/svg.js";
 import { axes, PLOT_COLORS, tickLabel } from "./axes";
+import { verdictColor } from "./colors";
 import { uprightUnits, type Result } from "./evaluate";
 import { SHAPES_SOURCE } from "./library/shapes";
 import { regionHeight } from "./library/templates";
@@ -182,13 +183,16 @@ function drawRegion(s: Sheet, r: Region, result: Result | undefined, x: number, 
       const st = TEXT_STYLE[r.style];
       const font = s.fonts[st.font];
       const lines = s.wrap(r.text, st.size, Math.min(r.width || 320, maxWidth) - 8, font);
-      lines.forEach((line, i) => s.text(line, x + 4, y + 2 + i * st.size * 1.375, st.size, { font, color: st.color }));
+      lines.forEach((line, i) => s.text(line, x + 4, y + 2 + i * st.size * 1.375, st.size, { font, color: r.color ?? st.color }));
       return;
     }
     case "math": {
       const ok = result?.kind === "ok" ? result : null;
-      const shown = (ok?.result ? `${uprightUnits(r.latex, ok.units ?? [])}${ok.result}` : uprightUnits(r.latex, ok?.units ?? [])) || "\\square";
-      const m = setMath(shown, 16, result?.kind === "error" && !result.incomplete ? "#b91c1c" : undefined);
+      // A check's verdict in its color (OK green, NG red).
+      const verdict = verdictColor(ok?.result);
+      const value = ok?.result && verdict ? `\\textcolor{${verdict}}{${ok.result}}` : ok?.result;
+      const shown = (value ? `${uprightUnits(r.latex, ok?.units ?? [])}${value}` : uprightUnits(r.latex, ok?.units ?? [])) || "\\square";
+      const m = setMath(shown, 16, result?.kind === "error" && !result.incomplete ? "#b91c1c" : (r.color ?? undefined));
       if (m) s.math(m, x + 4, y + 2);
       else s.text(r.latex, x + 4, y + 2, 12, { color: "#b91c1c" });
       if (result?.kind === "error" && !result.incomplete) err(result.message, y + 4 + (m?.height ?? 16));

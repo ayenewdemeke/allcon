@@ -38,6 +38,8 @@ export type WorksheetHandle = {
   addSection: () => void;
   /** Adds regions (placed from 0, 0) at the crosshair, or below everything, as one undo step. */
   insertRegions: (regions: Region[]) => void;
+  /** Sets the color of the selected text and math (and what's being edited); none is black. */
+  setColor: (color: string | undefined) => void;
   /** Where this person is, for others: the region they're editing, or their crosshair. */
   presence: () => { region: string | null; cursor: [number, number] | null };
 };
@@ -215,6 +217,19 @@ export function Worksheet({
     addSection: () => {
       const at = cursor ?? { x: 0, y: snap(bottom) };
       startRegion({ id: newId(), kind: "section", x: at.x, y: at.y, shape: "" });
+    },
+    setColor: (color: string | undefined) => {
+      const ids = new Set([...selection, ...(editingNow.current ? [editingNow.current] : [])]);
+      doc.transact(() =>
+        ids.forEach((id) => {
+          const r = doc.regions.get(id);
+          if ((r?.kind === "math" || r?.kind === "text") && r.color !== color) {
+            const { color: _old, ...rest } = r;
+            void _old;
+            doc.put(color ? { ...rest, color } : rest);
+          }
+        }),
+      );
     },
     presence: () => {
       const c = cursorNow.current;

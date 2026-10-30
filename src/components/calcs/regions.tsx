@@ -2,6 +2,7 @@
 
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { uprightUnits, type Result } from "@/lib/calcs/evaluate";
+import { verdictColor } from "@/lib/calcs/colors";
 import type { ImageRegion, MathRegion, TextRegion } from "@/lib/calcs/types";
 import { cn } from "@/lib/utils";
 import { loadMathLive, makeField, type MathfieldElement } from "./mathlive";
@@ -188,13 +189,17 @@ export function MathRegionView({
   const error = result?.kind === "error" && !(editing && result.incomplete) ? result : null;
   const shown = result?.kind === "ok" ? result.result : undefined;
   return (
-    <span className={cn("inline-flex items-baseline gap-1 rounded-sm px-1 py-0.5 text-[16px] leading-tight", error && "bg-red-50 ring-1 ring-red-500", selected && !editing && "ring-1 ring-primary")}>
+    <span style={{ color: region.color }} className={cn("inline-flex items-baseline gap-1 rounded-sm px-1 py-0.5 text-[16px] leading-tight", error && "bg-red-50 ring-1 ring-red-500", selected && !editing && "ring-1 ring-primary")}>
       {editing ? (
         <span ref={host} className="calc-field inline-block min-w-8" />
       ) : (
         <StaticMath ml={ml} latex={region.latex ? uprightUnits(region.latex, result?.kind === "ok" ? (result.units ?? []) : []) : "\\placeholder{}"} />
       )}
-      {shown && <StaticMath ml={ml} latex={shown} />}
+      {shown && (
+        <span style={{ color: verdictColor(shown) }}>
+          <StaticMath ml={ml} latex={shown} />
+        </span>
+      )}
       {shown && (selected || editing || region.displayUnit) && shown.includes("\\mathrm") && (
         <UnitBox value={region.displayUnit ?? ""} onCommit={onUnit} visible={selected || editing} />
       )}
@@ -285,11 +290,12 @@ export function TextRegionView({
           }
         }}
         rows={1}
+        style={{ color: region.color }}
         className={cn("block resize-none overflow-hidden rounded-sm bg-white px-1 py-0.5 leading-snug outline-none ring-1 ring-primary", style)}
       />
     );
   return (
-    <div style={{ maxWidth }} className={cn("rounded-sm px-1 py-0.5 leading-snug whitespace-pre-wrap", style, selected && "ring-1 ring-primary", !region.text && "text-neutral-400")}>
+    <div style={{ maxWidth, color: region.text ? region.color : undefined }} className={cn("rounded-sm px-1 py-0.5 leading-snug whitespace-pre-wrap", style, selected && "ring-1 ring-primary", !region.text && "text-neutral-400")}>
       {region.text || "Text"}
     </div>
   );

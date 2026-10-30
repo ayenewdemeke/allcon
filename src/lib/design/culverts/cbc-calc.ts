@@ -1,4 +1,5 @@
 import type { Line } from "@/lib/calcs/library/templates";
+import { COLOR_NOTE, INPUT_COLOR, isInput } from "../calc-style";
 import type { Figure } from "../figures";
 import { BARS } from "../walls/cip";
 import { CASES, combos, designCbc, type CaseId, type CbcInputs, type Face } from "./cbc";
@@ -21,7 +22,9 @@ const CASE_TEX: Record<CaseId | "LL", string> = { DC: "DC", EV: "EV", EHmax: "EH
 export function cbcCalcLines(i: CbcInputs, title: string, figures?: { section?: Figure; moments?: Figure }): Line[] {
   const lines: Line[] = [];
   const text = (t: string, style?: "heading" | "subheading" | "note") => lines.push({ text: t, ...(style ? { style } : {}) });
-  const m = (math: string, ref?: string, unit?: string) => lines.push({ math, ...(ref ? { ref } : {}), ...(unit ? { unit } : {}), ...(math.length > 110 && ref ? { wide: true } : {}) });
+  const m = (math: string, ref?: string, unit?: string) => lines.push({ math, ...(ref ? { ref } : {}), ...(unit ? { unit } : {}), ...(math.length > 110 && ref ? { wide: true } : {}), ...(isInput(math) ? { color: INPUT_COLOR } : {}) });
+  /** A value from the analysis (not entered): not in the inputs' color. */
+  const given = (math: string, ref?: string) => lines.push({ math, ...(ref ? { ref } : {}) });
 
   const r = designCbc(i);
   const n = r.model.n;
@@ -32,6 +35,8 @@ export function cbcCalcLines(i: CbcInputs, title: string, figures?: { section?: 
   text(
     `Reinforced concrete box culvert, ${n === 1 ? "single cell" : `${n} cells`}, per foot of barrel. AASHTO LRFD Bridge Design Specifications (9th ed.) Section 12.11, ${i.construction === "precast" ? "precast" : "cast in place"}, reinforced with ${i.reinf === "bars" ? "bars" : "welded wire"}. Moments are positive with tension on the inside face of a cell; thrust is positive in compression.`,
   );
+
+  text(COLOR_NOTE, "note");
 
   // --- materials and geometry ------------------------------------------------------------------
   text("Materials", "subheading");
@@ -47,8 +52,8 @@ export function cbcCalcLines(i: CbcInputs, title: string, figures?: { section?: 
     m(`d_w\\coloneq ${num(i.dw)}\\mathrm{in}`, "Welded wire diameter");
     m(`s_w\\coloneq ${num(i.spacing)}\\mathrm{in}`, "Welded wire spacing");
   }
-  m("b\\coloneq12\\mathrm{in}", "Design strip");
-  m("w\\coloneq1\\mathrm{ft}", "Strip width, for klf");
+  given("b\\coloneq12\\mathrm{in}", "Design strip");
+  given("w\\coloneq1\\mathrm{ft}", "Strip width, for klf");
 
   text("Geometry", "subheading");
   m(`S\\coloneq ${num(i.span)}\\mathrm{ft}`, n > 1 ? "Clear span of each cell" : "Clear span");
@@ -86,8 +91,8 @@ export function cbcCalcLines(i: CbcInputs, title: string, figures?: { section?: 
 
   text("Live load surcharge (LS)", "subheading");
   m(`k_a\\coloneq ${num(i.ka)}`, "Lateral earth pressure coefficient, AASHTO 3.11.6.4");
-  m(`h_{eq1}\\coloneq ${num(r.loads.heq1, 4)}\\mathrm{ft}`, "At H, AASHTO T. 3.11.6.4-1 (interpolated)");
-  m(`h_{eq2}\\coloneq ${num(r.loads.heq2, 4)}\\mathrm{ft}`, "At H2");
+  given(`h_{eq1}\\coloneq ${num(r.loads.heq1, 4)}\\mathrm{ft}`, "At H, AASHTO T. 3.11.6.4-1 (interpolated)");
+  given(`h_{eq2}\\coloneq ${num(r.loads.heq2, 4)}\\mathrm{ft}`, "At H2");
   m("LS_t\\coloneq k_a\\cdot\\gamma_s\\cdot h_{eq1}\\cdot w=", "Top, AASHTO Eq. 3.11.6.4-1", "klf");
   m("LS_b\\coloneq k_a\\cdot\\gamma_s\\cdot h_{eq2}\\cdot w=", "Bottom", "klf");
   if (i.water) {
@@ -137,11 +142,11 @@ export function cbcCalcLines(i: CbcInputs, title: string, figures?: { section?: 
     const unit = effect === "M" ? "\\mathrm{kip}\\cdot\\mathrm{in}" : "\\mathrm{kip}";
     for (const c of CASES) {
       const v = r.unfactored[c.id][idx][effect] * (effect === "M" ? 12 : 1);
-      m(`${effect}_{${CASE_TEX[c.id]}${key}}\\coloneq ${num(v, 8)}${unit}`, c.name);
+      given(`${effect}_{${CASE_TEX[c.id]}${key}}\\coloneq ${num(v, 8)}${unit}`, c.name);
     }
     const env = r.env[idx];
     const lv = llPick === "pos" ? env.pos[effect] : llPick === "neg" ? env.neg[effect] : 0;
-    m(`${effect}_{LL${key}}\\coloneq ${num(lv * (effect === "M" ? 12 : 1), 8)}${unit}`, llPick === "none" ? "No live load in this group" : `LL + IM, the ${llPick === "pos" ? "largest positive" : "largest negative"} moment's position`);
+    given(`${effect}_{LL${key}}\\coloneq ${num(lv * (effect === "M" ? 12 : 1), 8)}${unit}`, llPick === "none" ? "No live load in this group" : `LL + IM, the ${llPick === "pos" ? "largest positive" : "largest negative"} moment's position`);
   };
   const combination = (target: string, key: string, comboId: string, effect: "M" | "N") => {
     const c = C.find((x) => x.id === comboId)!;
@@ -214,8 +219,8 @@ export function cbcCalcLines(i: CbcInputs, title: string, figures?: { section?: 
       const s = mine.reduce((w, x) => (x.Vu / x.Vr > w.Vu / w.Vr ? x : w), mine[0]);
       const kv = `${g.kind[0]}v`;
       text(`${g.label.split(",")[0]}: shear, at ${s.station.name}, ${C.find((c) => c.id === s.combo)!.name}`, "subheading");
-      m(`V_{u${kv}}\\coloneq ${num(s.Vu, 8)}\\mathrm{kip}`, "Frame analysis, at dv past the haunch tip");
-      m(`M_{u${kv}}\\coloneq ${num(s.Mu * 12, 8)}\\mathrm{kip}\\cdot\\mathrm{in}`, "The largest moment there (conservative)");
+      given(`V_{u${kv}}\\coloneq ${num(s.Vu, 8)}\\mathrm{kip}`, "Frame analysis, at dv past the haunch tip");
+      given(`M_{u${kv}}\\coloneq ${num(s.Mu * 12, 8)}\\mathrm{kip}\\cdot\\mathrm{in}`, "The largest moment there (conservative)");
       m(`h_{${kv}}\\coloneq ${num(s.h)}\\mathrm{in}`);
       const fk = faceKey(s.face);
       const which = s.rule === "slab" ? "The lesser face" : "Tension face";
@@ -223,8 +228,8 @@ export function cbcCalcLines(i: CbcInputs, title: string, figures?: { section?: 
         m(`d_{${kv}}\\coloneq d_{${fk}}=`, which, "in");
         m(`A_{s${kv}}\\coloneq A_{s${fk}}=`, undefined, "in^2");
       } else {
-        m(`d_{${kv}}\\coloneq ${num(s.d, 8)}\\mathrm{in}`, which);
-        m(`A_{s${kv}}\\coloneq ${num(s.As, 8)}\\mathrm{in}^{2}`);
+        given(`d_{${kv}}\\coloneq ${num(s.d, 8)}\\mathrm{in}`, which);
+        given(`A_{s${kv}}\\coloneq ${num(s.As, 8)}\\mathrm{in}^{2}`);
       }
       if (s.rule === "slab") {
         m(`r_{${kv}}\\coloneq\\min\\left(1,\\frac{V_{u${kv}}\\cdot d_{${kv}}}{M_{u${kv}}}\\right)=`);
@@ -244,7 +249,7 @@ export function cbcCalcLines(i: CbcInputs, title: string, figures?: { section?: 
     if (t) {
       const kt = `${g.kind[0]}p`;
       text(`${g.label.split(",")[0]}: thrust`, "subheading");
-      m(`P_{u${kt}}\\coloneq ${num(t.Pu, 8)}\\mathrm{kip}`, `Frame analysis, ${t.station.name}, ${C.find((c) => c.id === t.combo)!.name}`);
+      given(`P_{u${kt}}\\coloneq ${num(t.Pu, 8)}\\mathrm{kip}`, `Frame analysis, ${t.station.name}, ${C.find((c) => c.id === t.combo)!.name}`);
       m(ok(`P_{u${kt}}`, `${num(i.phiC)}\\cdot0.10\\cdot f'_{c}\\cdot b\\cdot${num(t.h)}\\mathrm{in}`), "Axial load below 0.10 φ f'c Ag: designed for flexure (AASHTO 5.6.4.5)");
     }
   });

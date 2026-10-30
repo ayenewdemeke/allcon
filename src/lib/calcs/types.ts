@@ -4,9 +4,10 @@ import { DEFAULT_SETTINGS, type Settings } from "./evaluate";
 // pixels at 100%), read top to bottom, then left to right. Pages stack: page n's content area
 // starts at y = n × the content height.
 
-export type MathRegion = { id: string; kind: "math"; x: number; y: number; latex: string; displayUnit?: string };
+/** Text and math can have a color (hex); none is black. */
+export type MathRegion = { id: string; kind: "math"; x: number; y: number; latex: string; displayUnit?: string; color?: string };
 export type TextStyle = "normal" | "heading" | "subheading" | "note";
-export type TextRegion = { id: string; kind: "text"; x: number; y: number; text: string; style: TextStyle; width: number };
+export type TextRegion = { id: string; kind: "text"; x: number; y: number; text: string; style: TextStyle; width: number; color?: string };
 /** A table (Mathcad's): each column a vector, named by its header, in its unit. */
 export type TableRegion = { id: string; kind: "table"; x: number; y: number; columns: { name: string; unit: string }[]; rows: string[][] };
 /** An X-Y plot: traces of y against x (expressions, usually in a range variable or vectors). */
