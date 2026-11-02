@@ -30,6 +30,9 @@ const schema = z.object({
   GOOGLE_MAP_ID: optional,
   // Who sees everyone's feedback (and sets its status), comma-separated emails.
   ADMIN_EMAILS: optional,
+  // Lets the daily feedback check read feedback over HTTPS (/api/feedback/export); at least 32
+  // characters, e.g. from: openssl rand -hex 32. Without it the export answers to no one.
+  FEEDBACK_EXPORT_TOKEN: optional,
 });
 
 let cached: z.infer<typeof schema> | undefined;
