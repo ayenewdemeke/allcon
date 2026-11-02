@@ -28,6 +28,8 @@ const schema = z.object({
   // placed on photorealistic 3D tiles. The key is sent to browsers, so restrict it to the app's sites.
   GOOGLE_MAPS_API_KEY: optional,
   GOOGLE_MAP_ID: optional,
+  // Who sees everyone's feedback (and sets its status), comma-separated emails.
+  ADMIN_EMAILS: optional,
 });
 
 let cached: z.infer<typeof schema> | undefined;
@@ -51,3 +53,11 @@ export const emailSignInEnabled = () =>
   Boolean(env().RESEND_API_KEY && env().EMAIL_FROM) || process.env.NODE_ENV !== "production";
 
 export const planReviewEnabled = () => Boolean(env().ANTHROPIC_API_KEY);
+
+/** Whether this email is an admin's (sees everyone's feedback). */
+export const isAdminEmail = (email: string) =>
+  (env().ADMIN_EMAILS ?? "")
+    .split(",")
+    .map((e) => e.trim().toLowerCase())
+    .filter(Boolean)
+    .includes(email.trim().toLowerCase());

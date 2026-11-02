@@ -1,5 +1,6 @@
 "use client";
 
+import { Suspense, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import {
@@ -19,6 +20,8 @@ import {
   LayoutDashboard,
   ListChecks,
   LogOut,
+  MessageSquare,
+  MessageSquarePlus,
   Map as MapIcon,
   Plug,
   Settings,
@@ -50,6 +53,7 @@ import {
 } from "@/components/ui/sidebar";
 import { LogoMark, Wordmark } from "@/components/brand/logo";
 import { BOQ } from "@/lib/line-items/terms";
+import { FeedbackDialog } from "@/components/feedback/feedback-dialog";
 import { authClient } from "@/lib/auth/client";
 import { cn } from "@/lib/utils";
 
@@ -174,39 +178,55 @@ function ProjectSwitcher({ current, projects }: { current: SidebarProject; proje
 
 function UserMenu({ user }: { user: SidebarUser }) {
   const router = useRouter();
+  const [feedback, setFeedback] = useState(false);
   async function signOut() {
     await authClient.signOut();
     router.push("/");
     router.refresh();
   }
   return (
-    <DropdownMenu>
-      <DropdownMenuTrigger render={<SidebarMenuButton size="lg" className="data-popup-open:bg-sidebar-accent" />}>
-        <Avatar className="size-8 rounded-md">
-          <AvatarFallback className="rounded-md bg-sidebar-primary text-xs text-sidebar-primary-foreground">
-            {initials(user)}
-          </AvatarFallback>
-        </Avatar>
-        <div className="grid min-w-0 flex-1 text-left leading-tight">
-          <span className="truncate text-sm font-medium">{user.name ?? user.email}</span>
-          {user.name && <span className="truncate text-xs text-sidebar-foreground/60">{user.email}</span>}
-        </div>
-        <ChevronsUpDown className="ml-auto size-4 text-sidebar-foreground/50" />
-      </DropdownMenuTrigger>
-      <DropdownMenuContent className="w-(--anchor-width) min-w-56" side="top" align="start">
-        <DropdownMenuGroup>
-          <DropdownMenuLabel className="font-normal">
-            <p className="truncate text-sm font-medium text-foreground">{user.name ?? user.email}</p>
-            {user.name && <p className="truncate text-xs">{user.email}</p>}
-          </DropdownMenuLabel>
-        </DropdownMenuGroup>
-        <DropdownMenuSeparator />
-        <DropdownMenuItem onClick={signOut}>
-          <LogOut />
-          Sign out
-        </DropdownMenuItem>
-      </DropdownMenuContent>
-    </DropdownMenu>
+    <>
+      <DropdownMenu>
+        <DropdownMenuTrigger render={<SidebarMenuButton size="lg" className="data-popup-open:bg-sidebar-accent" />}>
+          <Avatar className="size-8 rounded-md">
+            <AvatarFallback className="rounded-md bg-sidebar-primary text-xs text-sidebar-primary-foreground">
+              {initials(user)}
+            </AvatarFallback>
+          </Avatar>
+          <div className="grid min-w-0 flex-1 text-left leading-tight">
+            <span className="truncate text-sm font-medium">{user.name ?? user.email}</span>
+            {user.name && <span className="truncate text-xs text-sidebar-foreground/60">{user.email}</span>}
+          </div>
+          <ChevronsUpDown className="ml-auto size-4 text-sidebar-foreground/50" />
+        </DropdownMenuTrigger>
+        <DropdownMenuContent className="w-(--anchor-width) min-w-56" side="top" align="start">
+          <DropdownMenuGroup>
+            <DropdownMenuLabel className="font-normal">
+              <p className="truncate text-sm font-medium text-foreground">{user.name ?? user.email}</p>
+              {user.name && <p className="truncate text-xs">{user.email}</p>}
+            </DropdownMenuLabel>
+          </DropdownMenuGroup>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem onClick={() => setFeedback(true)}>
+            <MessageSquarePlus />
+            Send feedback
+          </DropdownMenuItem>
+          <DropdownMenuItem render={<Link href="/feedback" />}>
+            <MessageSquare />
+            Your feedback
+          </DropdownMenuItem>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem onClick={signOut}>
+            <LogOut />
+            Sign out
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+      {/* The page it's sent from goes with it (reading the search params needs Suspense). */}
+      <Suspense>
+        <FeedbackDialog open={feedback} onOpenChange={setFeedback} />
+      </Suspense>
+    </>
   );
 }
 

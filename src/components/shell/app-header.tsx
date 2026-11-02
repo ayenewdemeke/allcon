@@ -37,6 +37,7 @@ function useCrumbs(projectName?: string) {
   const segments = pathname.split("/").filter(Boolean);
   if (segments[0] === "library") return { crumbs: [{ label: "Library", href: "/library" }], pathname };
   if (segments[0] === "connections") return { crumbs: [{ label: "Connections", href: "/connections" }], pathname };
+  if (segments[0] === "feedback") return { crumbs: [{ label: "Feedback", href: "/feedback" }], pathname };
   if (segments[0] === "map") return { crumbs: [{ label: "Map", href: "/map" }], pathname };
   if (segments[0] === "drafting") return { crumbs: [{ label: "Drafting", href: "/drafting" }], pathname };
   if (segments[0] === "calcs") return { crumbs: [{ label: "Calcs", href: "/calcs" }], pathname };
