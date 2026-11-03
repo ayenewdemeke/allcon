@@ -15,8 +15,9 @@ import { SectionRegionView } from "./section-region";
 // The worksheet, as Mathcad's: pages with the calc paper's header, regions placed anywhere on
 // them. Click empty space for the crosshair and type to start math there (" starts text);
 // click a region to edit it; drag to move; drag on empty space to select several. Enter ends
-// math or text and moves the crosshair below it, ready for the next line; on empty space it moves
-// the crosshair down a line.
+// math or text and moves the crosshair below it, ready for the next line. At the crosshair, Enter
+// adds a line (what's below moves down), and Backspace and Delete remove an empty line above or
+// below it, as Mathcad's Add and Remove Space.
 
 type MathLive = Awaited<ReturnType<typeof loadMathLive>>;
 export type Cursor = { x: number; y: number };
@@ -41,6 +42,11 @@ export type WorksheetHandle = {
   insertRegions: (regions: Region[]) => void;
   /** Sets the color of the selected text and math (and what's being edited); none is black. */
   setColor: (color: string | undefined) => void;
+  /** Mathcad's Add Space at the crosshair: a line or a page; what's below moves down. */
+  addSpace: (amount: "line" | "page") => void;
+  /** Mathcad's Remove Space at the crosshair: an empty line below it, or all the empty space down
+   * to the next region. */
+  removeSpace: (amount: "line" | "empty") => void;
   /** Sets the font or size of the selected text (and what's being edited). */
   setTextFormat: (format: Pick<TextFormat, "font" | "size">) => void;
   /** Turns bold, italic or underline on for the selected text, or off if it's all on already. */
@@ -250,7 +256,42 @@ export function Worksheet({
     onTextLook?.(lookKey ? (JSON.parse(lookKey) as TextLook) : null);
   }, [lookKey, onTextLook]);
 
+  // --- space, as Mathcad's: the regions at and below the crosshair's line move ---------------
+
+  /** The top of the crosshair's line (where a region started there would begin). */
+  const lineTop = (c: Cursor) => Math.max(0, c.y - MATH_MIDDLE);
+  const shiftFrom = (y: number, dy: number) =>
+    doc.transact(() => [...doc.regions.values()].forEach((r) => r.y >= y - 0.5 && doc.put({ ...r, y: Math.max(0, r.y + dy) })));
+  /** No region on the band from y0 to y1. */
+  const emptyBetween = (y0: number, y1: number) => ![...doc.regions.values()].some((r) => r.y < y1 - 0.5 && r.y + (sizes.get(r.id)?.h ?? 24) > y0 + 0.5);
+  const addSpace = (amount: "line" | "page") => {
+    const c = cursorNow.current;
+    if (!c) return;
+    const dy = amount === "line" ? step : content.height;
+    shiftFrom(lineTop(c), dy);
+    if (amount === "line") setCursor({ ...c, y: c.y + dy });
+  };
+  const removeSpace = (amount: "line" | "empty" | "above") => {
+    const c = cursorNow.current;
+    if (!c) return;
+    const top = lineTop(c);
+    if (amount === "above") {
+      if (top < step - 0.5 || !emptyBetween(top - step, top)) return;
+      shiftFrom(top, -step);
+      setCursor({ ...c, y: c.y - step });
+    } else if (amount === "line") {
+      if (emptyBetween(top, top + step)) shiftFrom(top, -step);
+    } else {
+      const next = Math.min(...[...doc.regions.values()].filter((r) => r.y >= top - 0.5).map((r) => r.y));
+      const from = Math.max(top, ...[...doc.regions.values()].filter((r) => r.y < top - 0.5).map((r) => r.y + (sizes.get(r.id)?.h ?? 24)));
+      const gap = Math.floor((next - from) / step) * step;
+      if (Number.isFinite(gap) && gap > 0) shiftFrom(top, -gap);
+    }
+  };
+
   useImperativeHandle(handle, () => ({
+    addSpace,
+    removeSpace: (amount) => removeSpace(amount),
     insertMath: (latex: string) => {
       // Into the math being typed: a region's, or a piece of a table, plot or solve block.
       const active = document.activeElement;
@@ -413,13 +454,15 @@ export function Worksheet({
         setSelection(new Set());
         return;
       }
-      if (e.key === "Escape") {
-        setSelection(new Set());
+      // At the crosshair: Enter adds a line, Backspace and Delete remove an empty one above or below.
+      if (cursor && !selection.size && !ctrl && !e.altKey && (e.key === "Enter" || e.key === "Backspace" || e.key === "Delete")) {
+        e.preventDefault();
+        if (e.key === "Enter") addSpace("line");
+        else removeSpace(e.key === "Backspace" ? "above" : "line");
         return;
       }
-      if (e.key === "Enter" && cursor && !selection.size) {
-        e.preventDefault();
-        setCursor({ x: cursor.x, y: below(cursor.y + MATH_MIDDLE + 8) });
+      if (e.key === "Escape") {
+        setSelection(new Set());
         return;
       }
       if (e.key.startsWith("Arrow")) {

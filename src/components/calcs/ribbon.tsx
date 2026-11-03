@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { AArrowDown, AArrowUp, Bold, Calculator, ChartSpline, FileText, FolderKanban, Grid2x2, Grid3x3, Heading1, Heading2, Italic, LayoutTemplate, Loader2, Printer, Ruler, Send, Sigma, SquareFunction, StickyNote, Table2, Type, Underline } from "lucide-react";
+import { AArrowDown, AArrowUp, BetweenHorizontalEnd, BetweenHorizontalStart, Bold, Calculator, ChartSpline, FilePlus, FileText, FoldVertical, FolderKanban, Grid2x2, Grid3x3, Heading1, Heading2, Italic, LayoutTemplate, Loader2, Printer, Ruler, Send, Sigma, SquareFunction, StickyNote, Table2, Type, Underline } from "lucide-react";
 import type { CalcDocument } from "@/lib/calcs/document";
 import { CALC_COLORS } from "@/lib/calcs/colors";
 import { materials } from "@/lib/calcs/library/materials";
@@ -356,7 +356,7 @@ export function CalcRibbon({
               <Colors worksheet={worksheet} />
             </Panel>
             <Panel title="Keys">
-              <div className="w-44 pt-0.5 text-[11px] leading-snug text-muted-foreground">Enter ends the text and moves below it (on empty space, down a line). Shift+Enter starts a new line.</div>
+              <div className="w-44 pt-0.5 text-[11px] leading-snug text-muted-foreground">Enter ends the text and moves below it. Shift+Enter starts a new line.</div>
             </Panel>
           </>
         )}
@@ -503,6 +503,16 @@ export function CalcRibbon({
                 </label>
               </div>
             </Panel>
+            <Panel title="Spacing">
+              <div className="flex flex-col gap-0.5 pt-0.5">
+                <SmallButton icon={BetweenHorizontalStart} label="Add line" title="Add a line at the crosshair: what's below moves down (Enter)" onClick={() => worksheet.current?.addSpace("line")} />
+                <SmallButton icon={FilePlus} label="Add page" title="Add a page at the crosshair" onClick={() => worksheet.current?.addSpace("page")} />
+              </div>
+              <div className="flex flex-col gap-0.5 pt-0.5">
+                <SmallButton icon={BetweenHorizontalEnd} label="Remove line" title="Remove an empty line below the crosshair (Delete; Backspace removes one above)" onClick={() => worksheet.current?.removeSpace("line")} />
+                <SmallButton icon={FoldVertical} label="Remove empty space" title="Remove the empty space below the crosshair, down to the next region" onClick={() => worksheet.current?.removeSpace("empty")} />
+              </div>
+            </Panel>
             <Panel title="Grid">
               <Big icon={Grid2x2} label="Show Grid" title="Show and print the gridlines regions line up on" onClick={() => doc.setMeta({ grid: { ...doc.grid, show: !doc.grid.show } })} active={doc.grid.show} />
               <div className="flex flex-col gap-1 pt-1 text-[11px]">
@@ -552,9 +562,9 @@ export function CalcRibbon({
   );
 }
 
-function SmallButton({ icon: Icon, label, onClick }: { icon: React.ComponentType<{ className?: string }>; label: string; onClick: () => void }) {
+function SmallButton({ icon: Icon, label, title, onClick }: { icon: React.ComponentType<{ className?: string }>; label: string; title?: string; onClick: () => void }) {
   return (
-    <button type="button" onMouseDown={(e) => e.preventDefault()} onClick={onClick} className="flex h-6 items-center gap-1.5 rounded px-1.5 text-[11px] hover:bg-accent">
+    <button type="button" title={title} onMouseDown={(e) => e.preventDefault()} onClick={onClick} className="flex h-6 items-center gap-1.5 rounded px-1.5 text-[11px] hover:bg-accent">
       <Icon className="size-4" />
       {label}
     </button>
