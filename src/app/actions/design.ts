@@ -12,12 +12,13 @@ import { emptyCalc } from "@/lib/calcs/types";
 import { bearingCalcLines } from "@/lib/design/bearings/elastomeric-calc";
 import { deckCalcLines } from "@/lib/design/decks/deck-calc";
 import { haunchCalcLines } from "@/lib/design/girders/haunch-calc";
-import { bearingInputs, cbcInputs, cipInputs, collisionInputs, deckInputs, designInputs, haunchInputs, kindInfo, mseInputs, ptfeInputs, signInputs, wingwallInputs, zone1Inputs } from "@/lib/design/kinds";
+import { stripSealCalcLines } from "@/lib/design/joints/strip-seal-calc";
+import { bearingInputs, cbcInputs, cipInputs, collisionInputs, deckInputs, designInputs, haunchInputs, kindInfo, mseInputs, ptfeInputs, signInputs, stripSealInputs, wingwallInputs, zone1Inputs } from "@/lib/design/kinds";
 import { signCalcLines } from "@/lib/design/signs/cantilever-calc";
 import { collisionCalcLines } from "@/lib/design/piers/collision-calc";
 import { zone1CalcLines } from "@/lib/design/seismic/zone1-calc";
 import { cbcCalcLines } from "@/lib/design/culverts/cbc-calc";
-import { bearingFigures, cbcFigures, cipFigures, collisionFigures, deckFigures, haunchFigures, mseFigures, signFigures, wingwallFigures } from "@/lib/design/figures";
+import { bearingFigures, cbcFigures, cipFigures, collisionFigures, deckFigures, haunchFigures, mseFigures, signFigures, stripSealFigures, wingwallFigures } from "@/lib/design/figures";
 import { cipCalcLines } from "@/lib/design/walls/cip-calc";
 import { mseCalcLines } from "@/lib/design/walls/mse-calc";
 import { wingwallCalcLines } from "@/lib/design/walls/wingwall-calc";
@@ -119,7 +120,9 @@ export async function createCalcFromDesign(designId: string): Promise<{ calcId: 
                         ? signCalcLines(signInputs(design.inputs), design.name, figures(() => signFigures(signInputs(design.inputs))))
                         : design.kind === "ptfe-bearing"
                           ? bearingCalcLines(ptfeInputs(design.inputs), design.name, figures(() => bearingFigures(ptfeInputs(design.inputs))))
-                          : null;
+                          : design.kind === "strip-seal-joint"
+                            ? stripSealCalcLines(stripSealInputs(design.inputs), design.name, figures(() => stripSealFigures(stripSealInputs(design.inputs))))
+                            : null;
   if (!lines) throw new Error("Calc packages for this design type are coming");
   const data = emptyCalc("USCS");
   data.header = { ...data.header, title: design.name, by: user.name ?? "" };

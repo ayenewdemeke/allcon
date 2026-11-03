@@ -8,11 +8,12 @@ import { DeckEditor } from "@/components/design/deck-editor";
 import { HaunchEditor } from "@/components/design/haunch-editor";
 import { MseEditor } from "@/components/design/mse-editor";
 import { SignEditor } from "@/components/design/sign-editor";
+import { StripSealEditor } from "@/components/design/strip-seal-editor";
 import { WingwallEditor } from "@/components/design/wingwall-editor";
 import { Zone1Editor } from "@/components/design/zone1-editor";
 import { PageBody } from "@/components/shell/page-header";
 import { isUuid, requireUser } from "@/lib/auth/session";
-import { bearingInputs, cbcInputs, cipInputs, collisionInputs, deckInputs, haunchInputs, mseInputs, ptfeInputs, signInputs, wingwallInputs, zone1Inputs } from "@/lib/design/kinds";
+import { bearingInputs, cbcInputs, cipInputs, collisionInputs, deckInputs, haunchInputs, mseInputs, ptfeInputs, signInputs, stripSealInputs, wingwallInputs, zone1Inputs } from "@/lib/design/kinds";
 import { db } from "@/lib/db";
 
 export async function generateMetadata({ params }: PageProps<"/design/[designId]">): Promise<Metadata> {
@@ -82,6 +83,12 @@ export default async function DesignEditorPage({ params }: PageProps<"/design/[d
     return (
       <PageBody>
         <WingwallEditor design={{ ...base, inputs: wingwallInputs(design.inputs) }} projects={projects} />
+      </PageBody>
+    );
+  if (design.kind === "strip-seal-joint")
+    return (
+      <PageBody>
+        <StripSealEditor design={{ ...base, inputs: stripSealInputs(design.inputs) }} projects={projects} />
       </PageBody>
     );
   if (design.kind === "ptfe-bearing")

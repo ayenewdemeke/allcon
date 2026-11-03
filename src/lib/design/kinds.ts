@@ -1,6 +1,7 @@
 import { BEARING_DEFAULTS, PTFE_DEFAULTS, type BearingInputs } from "./bearings/elastomeric";
 import { CBC_DEFAULTS, type CbcInputs } from "./culverts/cbc";
 import { DECK_DEFAULTS, type DeckInputs } from "./decks/deck";
+import { STRIP_SEAL_DEFAULTS, type StripSealInputs } from "./joints/strip-seal";
 import { HAUNCH_DEFAULTS, type HaunchInputs } from "./girders/haunch";
 import { COLLISION_DEFAULTS, type CollisionInputs } from "./piers/collision";
 import { ZONE1_DEFAULTS, type Zone1Inputs } from "./seismic/zone1";
@@ -40,7 +41,7 @@ export const CATEGORIES: { id: string; name: string; kinds: { id: DesignKind; na
       { id: "pier-collision", name: "Pier Column Collision", short: "600 kip vehicle collision on a round column", description: "A round pier column for vehicle collision in Extreme Event II: the equivalent static force, the column's shear and moments, shear by the simplified procedure and axial load with bending by strain compatibility. AASHTO LRFD 3.6.5.1, 5.7.3.3 and 5.6.4.", available: true },
       { id: "elastomeric-bearing", name: "Elastomeric Bearing", short: "Plain or steel-reinforced pads", description: "Elastomeric bearing pads, plain or steel-reinforced, by Method A or B: compression, shear strains, deflection, stability, shims and anchorage. AASHTO LRFD 14.7.5 and 14.7.6.", available: true },
       { id: "ptfe-bearing", name: "PTFE Sliding Bearing", short: "Sliding surface on an elastomeric pad", description: "A steel-reinforced elastomeric pad with a PTFE sliding surface: contact stresses (average and edge), the pad's deformation to the first slip and the sliding beyond, with the pad's own checks. AASHTO LRFD 14.7.2 and 14.7.5.", available: true },
-      { id: "strip-seal-joint", name: "Strip Seal Expansion Joint", short: "Movement and seal size", description: "Strip seal deck joint: thermal movement and the seal's opening range. AASHTO LRFD 3.12.2 and 14.5.", available: false },
+      { id: "strip-seal-joint", name: "Strip Seal Expansion Joint", short: "Movement and seal size", description: "A strip seal deck joint: the movement from temperature, creep and shrinkage normal to the skewed joint against the seal's range, and the gap to set at each installation temperature. AASHTO LRFD 3.12.2 and 14.5.3.", available: true },
     ],
   },
   {
@@ -131,7 +132,13 @@ export function ptfeInputs(saved: unknown): BearingInputs {
   return { ...PTFE_DEFAULTS, ...s, sliding: true };
 }
 
+/** A strip seal joint's inputs as saved, filled in from the defaults. */
+export function stripSealInputs(saved: unknown): StripSealInputs {
+  const s = (saved && typeof saved === "object" ? saved : {}) as Partial<StripSealInputs>;
+  return { ...STRIP_SEAL_DEFAULTS, ...s };
+}
+
 /** A design's inputs as saved, filled in from its kind's defaults. */
 export function designInputs(kind: string, saved: unknown) {
-  return kind === "mse-wall" ? mseInputs(saved) : kind === "box-culvert" ? cbcInputs(saved) : kind === "elastomeric-bearing" ? bearingInputs(saved) : kind === "cantilever-wingwall" ? wingwallInputs(saved) : kind === "deck-slab" ? deckInputs(saved) : kind === "seismic-zone1" ? zone1Inputs(saved) : kind === "pier-collision" ? collisionInputs(saved) : kind === "camber-haunch" ? haunchInputs(saved) : kind === "sign-cantilever" ? signInputs(saved) : kind === "ptfe-bearing" ? ptfeInputs(saved) : cipInputs(saved);
+  return kind === "mse-wall" ? mseInputs(saved) : kind === "box-culvert" ? cbcInputs(saved) : kind === "elastomeric-bearing" ? bearingInputs(saved) : kind === "cantilever-wingwall" ? wingwallInputs(saved) : kind === "deck-slab" ? deckInputs(saved) : kind === "seismic-zone1" ? zone1Inputs(saved) : kind === "pier-collision" ? collisionInputs(saved) : kind === "camber-haunch" ? haunchInputs(saved) : kind === "sign-cantilever" ? signInputs(saved) : kind === "ptfe-bearing" ? ptfeInputs(saved) : kind === "strip-seal-joint" ? stripSealInputs(saved) : cipInputs(saved);
 }

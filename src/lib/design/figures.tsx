@@ -4,6 +4,7 @@ import { CollisionSketch } from "@/components/design/collision-sketch";
 import { DeckSketch } from "@/components/design/deck-sketch";
 import { HaunchSketch } from "@/components/design/haunch-sketch";
 import { SignSketch } from "@/components/design/sign-sketch";
+import { StripSealSketch } from "@/components/design/strip-seal-sketch";
 import { CbcSketch, CipSketch, MseSketch } from "@/components/design/wall-sketch";
 import { WingwallSketch } from "@/components/design/wingwall-sketch";
 import type { Body } from "@/lib/calcs/library/templates";
@@ -11,6 +12,7 @@ import type { ImageRegion } from "@/lib/calcs/types";
 import { designBearing, type BearingInputs } from "./bearings/elastomeric";
 import { designCbc, type CbcInputs } from "./culverts/cbc";
 import { designDeck, type DeckInputs } from "./decks/deck";
+import { designStripSeal, type StripSealInputs } from "./joints/strip-seal";
 import { designHaunch, type HaunchInputs } from "./girders/haunch";
 import { designCollision, type CollisionInputs } from "./piers/collision";
 import { designSign, type SignInputs } from "./signs/cantilever";
@@ -87,3 +89,5 @@ export const collisionFigures = (i: CollisionInputs) => ({ section: figure(<Coll
 export const haunchFigures = (i: HaunchInputs) => ({ section: figure(<HaunchSketch inputs={i} result={designHaunch(i)} />) });
 
 export const signFigures = (i: SignInputs) => ({ section: figure(<SignSketch inputs={i} result={designSign(i)} />) });
+
+export const stripSealFigures = (i: StripSealInputs) => ({ section: figure(<StripSealSketch inputs={i} result={designStripSeal(i)} />) });
