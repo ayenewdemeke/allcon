@@ -356,7 +356,7 @@ export function CalcRibbon({
               <Colors worksheet={worksheet} />
             </Panel>
             <Panel title="Keys">
-              <div className="w-44 pt-0.5 text-[11px] leading-snug text-muted-foreground">Enter ends the text and moves below it. Shift+Enter starts a new line.</div>
+              <div className="w-44 pt-0.5 text-[11px] leading-snug text-muted-foreground">Enter ends the text and moves below it (on empty space, down a line). Shift+Enter starts a new line.</div>
             </Panel>
           </>
         )}

@@ -15,7 +15,8 @@ import { SectionRegionView } from "./section-region";
 // The worksheet, as Mathcad's: pages with the calc paper's header, regions placed anywhere on
 // them. Click empty space for the crosshair and type to start math there (" starts text);
 // click a region to edit it; drag to move; drag on empty space to select several. Enter ends
-// math and moves the crosshair below it, ready for the next line.
+// math or text and moves the crosshair below it, ready for the next line; on empty space it moves
+// the crosshair down a line.
 
 type MathLive = Awaited<ReturnType<typeof loadMathLive>>;
 export type Cursor = { x: number; y: number };
@@ -414,6 +415,11 @@ export function Worksheet({
       }
       if (e.key === "Escape") {
         setSelection(new Set());
+        return;
+      }
+      if (e.key === "Enter" && cursor && !selection.size) {
+        e.preventDefault();
+        setCursor({ x: cursor.x, y: below(cursor.y + MATH_MIDDLE + 8) });
         return;
       }
       if (e.key.startsWith("Arrow")) {
