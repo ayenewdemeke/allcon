@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { cbcCalcLines } from "./culverts/cbc-calc";
 import { CBC_DEFAULTS } from "./culverts/cbc";
-import { cbcFigures, cipFigures, mseFigures } from "./figures";
+import { bearingCalcLines } from "./bearings/elastomeric-calc";
+import { BEARING_DEFAULTS } from "./bearings/elastomeric";
+import { bearingFigures, cbcFigures, cipFigures, mseFigures } from "./figures";
 import { cipCalcLines } from "./walls/cip-calc";
 import { CIP_DEFAULTS } from "./walls/cip";
 import { mseCalcLines } from "./walls/mse-calc";
@@ -25,6 +27,16 @@ describe("design figures", () => {
     // The envelope (and its peak labels) only on the moment figure.
     expect(moments.svg).toContain("#2563eb");
     expect(section.svg).not.toContain("#2563eb");
+  });
+
+  it("draws a bearing pad's plan and section, layer by layer", () => {
+    const { section } = bearingFigures(BEARING_DEFAULTS);
+    expect(section.width).toBe(520);
+    expect(section.height).toBe(260);
+    expect(section.svg).not.toMatch(/className|class=|strokeWidth/);
+    expect(section.svg.match(/fill="#64748b"/g)).toHaveLength(BEARING_DEFAULTS.n + 1); // the shims
+    expect(section.svg).toContain("9 layers of 0.5&quot;");
+    expect(pictures(bearingCalcLines(BEARING_DEFAULTS, "Bearing", bearingFigures(BEARING_DEFAULTS)))).toHaveLength(1);
   });
 
   it("puts them in the calc packages", () => {

@@ -1,3 +1,4 @@
+import { BEARING_DEFAULTS, type BearingInputs } from "./bearings/elastomeric";
 import { CBC_DEFAULTS, type CbcInputs } from "./culverts/cbc";
 import { CIP_DEFAULTS, DEFAULT_FACTORS, type CipInputs, type Combo } from "./walls/cip";
 import { MSE_DEFAULTS, MSE_FACTORS, type MseInputs } from "./walls/mse";
@@ -27,7 +28,7 @@ export const CATEGORIES: { id: string; name: string; kinds: { id: DesignKind; na
     id: "bridge-components",
     name: "Bridge Components",
     kinds: [
-      { id: "elastomeric-bearing", name: "Elastomeric Bearing", short: "Plain or steel-reinforced pads", description: "Elastomeric bearing pads, plain or steel-reinforced: shear, compression, rotation and stability. AASHTO LRFD 14.7.5 and 14.7.6.", available: false },
+      { id: "elastomeric-bearing", name: "Elastomeric Bearing", short: "Plain or steel-reinforced pads", description: "Elastomeric bearing pads, plain or steel-reinforced, by Method A or B: compression, shear strains, deflection, stability, shims and anchorage. AASHTO LRFD 14.7.5 and 14.7.6.", available: true },
       { id: "ptfe-bearing", name: "PTFE Sliding Bearing", short: "Sliding surface on an elastomeric pad", description: "PTFE sliding bearing: contact pressure, friction and the mating surface. AASHTO LRFD 14.7.2.", available: false },
       { id: "strip-seal-joint", name: "Strip Seal Expansion Joint", short: "Movement and seal size", description: "Strip seal deck joint: thermal movement and the seal's opening range. AASHTO LRFD 3.12.2 and 14.5.", available: false },
     ],
@@ -58,7 +59,13 @@ export function cbcInputs(saved: unknown): CbcInputs {
   return { ...CBC_DEFAULTS, ...old, ...s, steel: { ...CBC_DEFAULTS.steel, ...(s.steel ?? {}) }, bars: { ...CBC_DEFAULTS.bars, ...(s.bars ?? {}) } };
 }
 
+/** An elastomeric bearing's inputs as saved, filled in from the defaults. */
+export function bearingInputs(saved: unknown): BearingInputs {
+  const s = (saved && typeof saved === "object" ? saved : {}) as Partial<BearingInputs>;
+  return { ...BEARING_DEFAULTS, ...s };
+}
+
 /** A design's inputs as saved, filled in from its kind's defaults. */
 export function designInputs(kind: string, saved: unknown) {
-  return kind === "mse-wall" ? mseInputs(saved) : kind === "box-culvert" ? cbcInputs(saved) : cipInputs(saved);
+  return kind === "mse-wall" ? mseInputs(saved) : kind === "box-culvert" ? cbcInputs(saved) : kind === "elastomeric-bearing" ? bearingInputs(saved) : cipInputs(saved);
 }

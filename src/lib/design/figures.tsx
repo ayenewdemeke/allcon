@@ -1,7 +1,9 @@
 import { Fragment, isValidElement, type ReactElement, type ReactNode } from "react";
+import { BearingSketch } from "@/components/design/bearing-sketch";
 import { CbcSketch, CipSketch, MseSketch } from "@/components/design/wall-sketch";
 import type { Body } from "@/lib/calcs/library/templates";
 import type { ImageRegion } from "@/lib/calcs/types";
+import { designBearing, type BearingInputs } from "./bearings/elastomeric";
 import { designCbc, type CbcInputs } from "./culverts/cbc";
 import { designCipWall, type CipInputs } from "./walls/cip";
 import { designMseWall, type MseInputs } from "./walls/mse";
@@ -63,3 +65,5 @@ export function cbcFigures(i: CbcInputs) {
   const r = designCbc(i);
   return { section: figure(<CbcSketch inputs={i} result={r} moments={false} />), moments: figure(<CbcSketch inputs={i} result={r} moments />) };
 }
+
+export const bearingFigures = (i: BearingInputs) => ({ section: figure(<BearingSketch inputs={i} result={designBearing(i)} />) });

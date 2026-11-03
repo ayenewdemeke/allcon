@@ -9,9 +9,10 @@ import { getCurrentUser, isUuid, requireUser } from "@/lib/auth/session";
 import { layout } from "@/lib/calcs/library/templates";
 import { CALC_FILE, newCalcKey } from "@/lib/calcs/server";
 import { emptyCalc } from "@/lib/calcs/types";
-import { cbcInputs, cipInputs, designInputs, kindInfo, mseInputs } from "@/lib/design/kinds";
+import { bearingCalcLines } from "@/lib/design/bearings/elastomeric-calc";
+import { bearingInputs, cbcInputs, cipInputs, designInputs, kindInfo, mseInputs } from "@/lib/design/kinds";
 import { cbcCalcLines } from "@/lib/design/culverts/cbc-calc";
-import { cbcFigures, cipFigures, mseFigures } from "@/lib/design/figures";
+import { bearingFigures, cbcFigures, cipFigures, mseFigures } from "@/lib/design/figures";
 import { cipCalcLines } from "@/lib/design/walls/cip-calc";
 import { mseCalcLines } from "@/lib/design/walls/mse-calc";
 import { db } from "@/lib/db";
@@ -96,7 +97,9 @@ export async function createCalcFromDesign(designId: string): Promise<{ calcId: 
         ? mseCalcLines(mseInputs(design.inputs), design.name, figures(() => mseFigures(mseInputs(design.inputs))))
         : design.kind === "box-culvert"
           ? cbcCalcLines(cbcInputs(design.inputs), design.name, figures(() => cbcFigures(cbcInputs(design.inputs))))
-          : null;
+          : design.kind === "elastomeric-bearing"
+            ? bearingCalcLines(bearingInputs(design.inputs), design.name, figures(() => bearingFigures(bearingInputs(design.inputs))))
+            : null;
   if (!lines) throw new Error("Calc packages for this design type are coming");
   const data = emptyCalc("USCS");
   data.header = { ...data.header, title: design.name, by: user.name ?? "" };
