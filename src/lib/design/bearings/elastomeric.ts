@@ -4,7 +4,8 @@ import { DesignError, type Check } from "../walls/cip";
 // (14.7.6) or, for steel-reinforced pads, Method B (14.7.5). Per bearing, at the service limit
 // state: the shape factor, compressive stress (A) or shear strains (B), deflections, shear
 // deformation, stability, the steel shims, and anchorage. Kip, inch and ksi throughout; rotations
-// in radians, temperatures in °F.
+// in radians, temperatures in °F. With a PTFE sliding surface on top (14.7.2): its contact
+// stresses, and the pad's shear deformation only up to the first slip.
 
 export type Pad = "plain" | "steel";
 export type Method = "A" | "B";
@@ -19,7 +20,8 @@ export type BearingInputs = {
   // Layers: a plain pad is one layer hri thick
   hri: number; // in, each interior layer
   n: number; // interior layers
-  hre: number; // in, each of the two cover layers
+  hre: number; // in, each cover layer
+  covers: 1 | 2; // cover layers: 2, or 1 under a plate bonded on top (a sliding bearing's)
   hs: number; // in, steel shim thickness
   Fy: number; // ksi, shims
   dFth: number; // ksi, constant-amplitude fatigue threshold (Table 6.6.1.2.3-1, Category A)
@@ -49,6 +51,13 @@ export type BearingInputs = {
   deckFree: boolean; // the deck is free to translate horizontally (stability, 14.7.5.3.4)
   // Anchorage
   mu: number; // friction coefficient (C14.8.3.1)
+  // PTFE sliding surface (14.7.2)
+  sliding: boolean;
+  muPTFE: number; // at the lowest temperature and the average pressure, Table 14.7.2.5-1
+  avgDead: number; // ksi, average contact stress limit, permanent loads (Table 14.7.2.4-1)
+  avgTotal: number; // ksi, all loads
+  edgeDead: number; // ksi, edge contact stress limit, permanent loads
+  edgeTotal: number; // ksi, all loads
 };
 
 /** The defaults: a steel-reinforced pad designed by Method B. */
@@ -60,6 +69,7 @@ export const BEARING_DEFAULTS: BearingInputs = {
   hri: 0.5,
   n: 9,
   hre: 0.125,
+  covers: 2,
   hs: 0.125,
   Fy: 36,
   dFth: 24,
@@ -84,6 +94,32 @@ export const BEARING_DEFAULTS: BearingInputs = {
   thetaL: 0.001,
   deckFree: true,
   mu: 0.2,
+  sliding: false,
+  muPTFE: 0.044,
+  avgDead: 1.5,
+  avgTotal: 2.5,
+  edgeDead: 2.0,
+  edgeTotal: 3.0,
+};
+
+/** The defaults with a PTFE sliding surface: a 10 × 24 in pad under 200 kip dead load. */
+export const PTFE_DEFAULTS: BearingInputs = {
+  ...BEARING_DEFAULTS,
+  sliding: true,
+  covers: 1,
+  L: 10,
+  W: 24,
+  n: 5,
+  DL: 200,
+  LL: 60,
+  alpha: 6e-6,
+  expansionLength: 150,
+  Tmax: 110,
+  Tmin: -10,
+  otherStatic: 1.23,
+  cyclic: 0.1,
+  thetaD: 0.001,
+  thetaL: 0.006,
 };
 
 /** AASHTO Table 14.7.6.2-1: shear modulus at 73°F (ksi) and creep deflection factor, by hardness. */
@@ -106,9 +142,10 @@ export function designBearing(i: BearingInputs) {
 
   // --- the pad ---------------------------------------------------------------------------------
   const A = i.L * i.W;
-  const hrt = steel ? i.n * i.hri + 2 * i.hre : i.hri;
+  const covers = i.covers === 1 ? 1 : 2;
+  const hrt = steel ? i.n * i.hri + covers * i.hre : i.hri;
   const n = steel ? i.n : 1;
-  const shims = steel ? i.n + 1 : 0;
+  const shims = steel ? i.n + covers - 1 : 0;
   const height = hrt + shims * i.hs;
   const S = A / (2 * i.hri * (i.L + i.W)); // AASHTO Eq. 14.7.5.1-1
   const byHardness = method === "A" && i.byHardness;
@@ -122,6 +159,12 @@ export function designBearing(i: BearingInputs) {
   const thermal = i.alpha * i.expansionLength * 12 * (i.Tmax - i.Tmin); // AASHTO Eq. 3.12.2.3-1
   const dsStatic = i.gammaTU * i.thermalFactor * thermal + i.otherStatic;
   const ds = dsStatic + i.cyclic;
+  // With a sliding surface, the pad deforms only until the PTFE first slips under μ DL (14.7.5.3.2).
+  const slipForce = i.muPTFE * i.DL; // AASHTO Eq. 14.6.3.1-1
+  const slip = i.sliding ? (slipForce * hrt) / (G.Gmin * A) : Infinity; // AASHTO Eq. 14.6.3.1-2
+  const dsPad = Math.min(ds, slip);
+  const dsPadStatic = Math.min(dsStatic, slip);
+  const slide = ds - dsPad;
 
   // --- material and proportions ------------------------------------------------------------------
   const gLimit = method === "A" ? 0.25 : 0.175;
@@ -151,7 +194,7 @@ export function designBearing(i: BearingInputs) {
   if (method === "A") add({ id: "defl-layer", name: "Deflection of a layer ≤ 0.09 hri", demand: epsS * i.hri, capacity: 0.09 * i.hri, unit: "in", ref: "AASHTO 14.7.6.3.3" });
 
   // --- shear deformation ------------------------------------------------------------------------
-  add({ id: "shear-hrt", name: "Elastomer thickness hrt ≥ 2 Δs", demand: 2 * ds, capacity: hrt, unit: "in", ref: method === "A" ? "AASHTO 14.7.6.3.4" : "AASHTO 14.7.5.3.2" });
+  add({ id: "shear-hrt", name: i.sliding ? "Elastomer thickness hrt ≥ 2 Δs (to the first slip)" : "Elastomer thickness hrt ≥ 2 Δs", demand: 2 * dsPad, capacity: hrt, unit: "in", ref: method === "A" ? "AASHTO 14.7.6.3.4" : "AASHTO 14.7.5.3.2" });
 
   // --- shear strains: compression, rotation and shear (Method B) ----------------------------------
   const Da = 1.4;
@@ -163,7 +206,7 @@ export function designBearing(i: BearingInputs) {
     aCy: (Da * sigmaL) / (G.Gmin * S),
     rSt: (Dr * (i.L / i.hri) ** 2 * thetaSt) / n, // AASHTO Eq. 14.7.5.3.3-6
     rCy: (Dr * (i.L / i.hri) ** 2 * thetaCy) / n,
-    sSt: dsStatic / hrt, // AASHTO Eq. 14.7.5.3.3-10
+    sSt: dsPadStatic / hrt, // AASHTO Eq. 14.7.5.3.3-10
     sCy: i.cyclic / hrt,
   };
   const gammaTotal = gamma.aSt + gamma.rSt + gamma.sSt + 1.75 * (gamma.aCy + gamma.rCy + gamma.sCy);
@@ -203,9 +246,24 @@ export function designBearing(i: BearingInputs) {
   const thetaS = thetaSt + 1.75 * thetaCy;
   const epsA = epsD + 1.75 * epsL;
   if (method === "B") add({ id: "anchor-restraint", name: "No restraint system needed: θs/n ≤ 3 εa/S", demand: thetaS / n, capacity: (3 * epsA) / S, unit: "", ref: "AASHTO 14.7.5.4-1" });
-  // The pad doesn't slip while the shear force stays under friction on the permanent load (14.8.3).
+  // The pad doesn't slip while the shear force stays under friction on the permanent load (14.8.3);
+  // a sliding bearing slides by design.
   const dsAllow = (i.mu * i.DL * hrt) / (G.Gmax * A); // AASHTO Eqs. 14.6.3.1-1 and -2
-  add({ id: "anchor-slip", name: "Pad doesn't slip: Δs ≤ μ DL hrt / (Gmax A)", demand: ds, capacity: dsAllow, unit: "in", ref: "AASHTO 14.8.3" });
+  if (!i.sliding) add({ id: "anchor-slip", name: "Pad doesn't slip: Δs ≤ μ DL hrt / (Gmax A)", demand: ds, capacity: dsAllow, unit: "in", ref: "AASHTO 14.8.3" });
+
+  // --- PTFE contact stresses (14.7.2.4), the edge's from the moment the rotation needs (14.6.3.2) -------
+  const Ec = 4.8 * G.Gmax * S ** 2; // AASHTO Eq. C14.6.3.2-1
+  const I = (i.W * i.L ** 3) / 12;
+  const thetaAll = thetaSt + thetaCy;
+  const moment = (theta: number) => (0.5 * Ec * I * theta) / hrt; // AASHTO Eq. 14.6.3.2-3, kip·in
+  const Sx = (i.W * i.L ** 2) / 6;
+  const ptfe = { Ec, I, thetaAll, Mdead: moment(thetaSt), Mtotal: moment(thetaAll), edgeDead: sigmaD + moment(thetaSt) / Sx, edgeTotal: sigmaS + moment(thetaAll) / Sx, slipForce, slip, slide };
+  if (i.sliding) {
+    add({ id: "ptfe-avg-dead", name: "PTFE average contact stress, permanent loads", demand: sigmaD, capacity: i.avgDead, unit: "ksi", ref: "AASHTO 14.7.2.4" });
+    add({ id: "ptfe-avg-total", name: "PTFE average contact stress, all loads", demand: sigmaS, capacity: i.avgTotal, unit: "ksi", ref: "AASHTO 14.7.2.4" });
+    add({ id: "ptfe-edge-dead", name: "PTFE edge contact stress, permanent loads", demand: ptfe.edgeDead, capacity: i.edgeDead, unit: "ksi", ref: "AASHTO 14.7.2.4" });
+    add({ id: "ptfe-edge-total", name: "PTFE edge contact stress, all loads", demand: ptfe.edgeTotal, capacity: i.edgeTotal, unit: "ksi", ref: "AASHTO 14.7.2.4" });
+  }
 
   return {
     ok: checks.every((c) => c.ok),
@@ -213,7 +271,8 @@ export function designBearing(i: BearingInputs) {
     method,
     pad: { A, hrt, n, shims, height, S, G, acr },
     loads: { sigmaD, sigmaL, sigmaS },
-    movement: { thermal, dsStatic, ds },
+    movement: { thermal, dsStatic, ds, dsPad },
+    ptfe,
     deflection: { epsL, epsD, epsS, dL, dD, dLong },
     strains: { Da, Dr, thetaSt, thetaCy, ...gamma, total: gammaTotal },
     stability: stab,

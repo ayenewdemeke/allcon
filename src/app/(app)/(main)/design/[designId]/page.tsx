@@ -12,7 +12,7 @@ import { WingwallEditor } from "@/components/design/wingwall-editor";
 import { Zone1Editor } from "@/components/design/zone1-editor";
 import { PageBody } from "@/components/shell/page-header";
 import { isUuid, requireUser } from "@/lib/auth/session";
-import { bearingInputs, cbcInputs, cipInputs, collisionInputs, deckInputs, haunchInputs, mseInputs, signInputs, wingwallInputs, zone1Inputs } from "@/lib/design/kinds";
+import { bearingInputs, cbcInputs, cipInputs, collisionInputs, deckInputs, haunchInputs, mseInputs, ptfeInputs, signInputs, wingwallInputs, zone1Inputs } from "@/lib/design/kinds";
 import { db } from "@/lib/db";
 
 export async function generateMetadata({ params }: PageProps<"/design/[designId]">): Promise<Metadata> {
@@ -82,6 +82,12 @@ export default async function DesignEditorPage({ params }: PageProps<"/design/[d
     return (
       <PageBody>
         <WingwallEditor design={{ ...base, inputs: wingwallInputs(design.inputs) }} projects={projects} />
+      </PageBody>
+    );
+  if (design.kind === "ptfe-bearing")
+    return (
+      <PageBody>
+        <BearingEditor design={{ ...base, inputs: ptfeInputs(design.inputs) }} projects={projects} />
       </PageBody>
     );
   if (design.kind === "elastomeric-bearing")

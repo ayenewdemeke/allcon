@@ -11,7 +11,7 @@ import { ChecksBanner, ChecksTable, Choice, DesignErrorCard, DesignHeader, Field
 // checks and the working) on the right, saved as you go.
 
 const groupOf = (id: string) =>
-  id.startsWith("mat") || id.startsWith("geo") ? "Material and proportions" : id.startsWith("comp") || id.startsWith("strain") ? "Compression and shear strains" : id.startsWith("defl") ? "Deflection" : id.startsWith("shear") ? "Shear deformation" : id.startsWith("stab") ? "Stability" : id.startsWith("shim") ? "Steel shims" : "Anchorage";
+  id.startsWith("ptfe") ? "PTFE sliding surface" : id.startsWith("mat") || id.startsWith("geo") ? "Material and proportions" : id.startsWith("comp") || id.startsWith("strain") ? "Compression and shear strains" : id.startsWith("defl") ? "Deflection" : id.startsWith("shear") ? "Shear deformation" : id.startsWith("stab") ? "Stability" : id.startsWith("shim") ? "Steel shims" : "Anchorage";
 
 export function BearingEditor({ design, projects }: { design: { id: string; name: string; projectId: string | null; inputs: BearingInputs }; projects: { id: string; name: string }[] }) {
   const [inputs, setInputs] = useState(design.inputs);
@@ -31,7 +31,7 @@ export function BearingEditor({ design, projects }: { design: { id: string; name
 
   return (
     <div className="space-y-4">
-      <DesignHeader design={design} projects={projects} inputs={inputs} label={`Elastomeric Bearing · AASHTO LRFD, Method ${methodB ? "B" : "A"}`} canMakeCalc={!!r} />
+      <DesignHeader design={design} projects={projects} inputs={inputs} label={`${inputs.sliding ? "PTFE Sliding Bearing" : "Elastomeric Bearing"} · AASHTO LRFD, Method ${methodB ? "B" : "A"}`} canMakeCalc={!!r} />
 
       <div className="grid gap-4 lg:grid-cols-[minmax(300px,360px)_1fr]">
         {/* Inputs */}
@@ -64,7 +64,16 @@ export function BearingEditor({ design, projects }: { design: { id: string; name
               {steel && (
                 <>
                   <Field label="Interior layers n" value={inputs.n} onChange={(v) => set("n")(Math.max(1, Math.round(v)))} />
-                  <Field label="Cover layer hre (top and bottom)" unit="in" value={inputs.hre} onChange={set("hre")} step={0.0625} />
+                  <Field label="Cover layer hre" unit="in" value={inputs.hre} onChange={set("hre")} step={0.0625} />
+                  <Choice
+                    label="Cover layers"
+                    value={inputs.covers}
+                    options={[
+                      { value: 2, label: "Top and bottom" },
+                      { value: 1, label: "Bottom only (plate bonded on top)" },
+                    ]}
+                    onChange={(v) => set("covers")(Number(v) === 1 ? 1 : 2)}
+                  />
                   <Field label="Steel shim hs" unit="in" value={inputs.hs} onChange={set("hs")} step={0.0625} />
                   <Field label="Shim yield strength Fy" unit="ksi" value={inputs.Fy} onChange={set("Fy")} />
                   <Field label="Fatigue threshold ΔFTH (T. 6.6.1.2.3-1)" unit="ksi" value={inputs.dFth} onChange={set("dFth")} />
@@ -111,9 +120,19 @@ export function BearingEditor({ design, projects }: { design: { id: string; name
                 <Toggle label="Deck free to translate horizontally" value={inputs.deckFree} onChange={set("deckFree")} />
               </Section>
             )}
-            <Section title="Anchorage">
-              <Field label="Friction coefficient μ (C14.8.3.1)" value={inputs.mu} onChange={set("mu")} step={0.05} />
-            </Section>
+            {inputs.sliding ? (
+              <Section title="PTFE sliding surface (14.7.2)" open>
+                <Field label="Friction μ (T. 14.7.2.5-1)" value={inputs.muPTFE} onChange={set("muPTFE")} step={0.005} hint="For the PTFE and its lubrication, at the lowest temperature and the average pressure" />
+                <Field label="Average stress limit, permanent" unit="ksi" value={inputs.avgDead} onChange={set("avgDead")} step={0.1} hint="T. 14.7.2.4-1, for the PTFE's type" />
+                <Field label="Average stress limit, all loads" unit="ksi" value={inputs.avgTotal} onChange={set("avgTotal")} step={0.1} />
+                <Field label="Edge stress limit, permanent" unit="ksi" value={inputs.edgeDead} onChange={set("edgeDead")} step={0.1} />
+                <Field label="Edge stress limit, all loads" unit="ksi" value={inputs.edgeTotal} onChange={set("edgeTotal")} step={0.1} />
+              </Section>
+            ) : (
+              <Section title="Anchorage">
+                <Field label="Friction coefficient μ (C14.8.3.1)" value={inputs.mu} onChange={set("mu")} step={0.05} />
+              </Section>
+            )}
           </CardContent>
         </Card>
 
@@ -157,7 +176,13 @@ export function BearingEditor({ design, projects }: { design: { id: string; name
                               ["Shear strains γa, γr, γs (cyclic)", `${fmt(r.strains.aCy)}, ${fmt(r.strains.rCy)}, ${fmt(r.strains.sCy)}`],
                             ]
                           : []),
-                        ["Allowed movement before slip", `${fmt(r.anchorage.dsAllow, 4)} in`],
+                        ...(inputs.sliding
+                          ? [
+                              ["Pad's deformation at the first slip", `${fmt(r.ptfe.slip, 4)} in`],
+                              ["Taken by the PTFE sliding", `${fmt(r.ptfe.slide, 4)} in`],
+                              ["PTFE edge stress, permanent / all", `${fmt(r.ptfe.edgeDead, 4)} / ${fmt(r.ptfe.edgeTotal, 4)} ksi`],
+                            ]
+                          : [["Allowed movement before slip", `${fmt(r.anchorage.dsAllow, 4)} in`]]),
                       ] as [string, string][]
                     }
                   />

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { BEARING_DEFAULTS, designBearing, type BearingInputs } from "./elastomeric";
+import { BEARING_DEFAULTS, designBearing, PTFE_DEFAULTS, type BearingInputs } from "./elastomeric";
 
 // Validation against a state DOT's worked examples (elastomeric pads, AASHTO 7th edition
 // provisions, which these follow): a plain leveling pad and a plain pad (Method A), and
@@ -115,5 +115,40 @@ describe("elastomeric bearing: checks that bite", () => {
   it("a thin pad fails shear deformation; a tall one fails Method A stability", () => {
     expect(check(designBearing({ ...BEARING_DEFAULTS, n: 2 }), "shear-hrt").ok).toBe(false);
     expect(check(designBearing({ ...BEARING_DEFAULTS, method: "A", n: 12 }), "stab-height").ok).toBe(false);
+  });
+});
+
+describe("PTFE sliding bearing on a steel-reinforced pad (Method B)", () => {
+  // The example's rotations, its allowance netted as in its other examples: 0.004 permanent, 0.010 in all.
+  const r = designBearing({ ...PTFE_DEFAULTS, thetaD: 0.001, thetaU: 0.003, muPTFE: 0.04403 });
+  it("movement, shape factor and stresses", () => {
+    near(r.movement.ds, 2.8852);
+    near(r.pad.S, 7.0588);
+    near(r.loads.sigmaS, 1.0833);
+    near(r.loads.sigmaD, 0.8333);
+  });
+  it("edge contact stresses from the rotation's moment (14.6.3.2)", () => {
+    near(r.ptfe.Ec, 41.2567, 0.002);
+    near(r.ptfe.I, 2000);
+    near(r.ptfe.Mtotal, 157.1686, 0.002);
+    near(r.ptfe.edgeTotal, 1.4763);
+    near(r.ptfe.Mdead, 62.8674, 0.002);
+    near(r.ptfe.edgeDead, 0.9905);
+  });
+  it("the pad deforms to the first slip; the PTFE takes the rest", () => {
+    near(r.ptfe.slipForce, 8.8056);
+    near(r.ptfe.slip, 0.7554);
+    near(check(r, "shear-hrt").demand, 1.5108);
+    near(r.ptfe.slide, 2.1298);
+  });
+  it("shear strains and stability as the example (it counted no static shear before the slip)", () => {
+    near(r.strains.aSt, 1.2963);
+    near(r.strains.rSt, 0.16);
+    near(r.strains.rCy, 0.24);
+    near(r.strains.sCy, 0.0381);
+    near(r.strains.sSt, 0.7554 / 2.625);
+    near(check(r, "stab").capacity, 1.8847);
+    expect(r.checks.some((c) => c.id === "anchor-slip")).toBe(false);
+    expect(r.ok).toBe(true);
   });
 });

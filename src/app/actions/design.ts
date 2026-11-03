@@ -12,7 +12,7 @@ import { emptyCalc } from "@/lib/calcs/types";
 import { bearingCalcLines } from "@/lib/design/bearings/elastomeric-calc";
 import { deckCalcLines } from "@/lib/design/decks/deck-calc";
 import { haunchCalcLines } from "@/lib/design/girders/haunch-calc";
-import { bearingInputs, cbcInputs, cipInputs, collisionInputs, deckInputs, designInputs, haunchInputs, kindInfo, mseInputs, signInputs, wingwallInputs, zone1Inputs } from "@/lib/design/kinds";
+import { bearingInputs, cbcInputs, cipInputs, collisionInputs, deckInputs, designInputs, haunchInputs, kindInfo, mseInputs, ptfeInputs, signInputs, wingwallInputs, zone1Inputs } from "@/lib/design/kinds";
 import { signCalcLines } from "@/lib/design/signs/cantilever-calc";
 import { collisionCalcLines } from "@/lib/design/piers/collision-calc";
 import { zone1CalcLines } from "@/lib/design/seismic/zone1-calc";
@@ -117,7 +117,9 @@ export async function createCalcFromDesign(designId: string): Promise<{ calcId: 
                       ? haunchCalcLines(haunchInputs(design.inputs), design.name, figures(() => haunchFigures(haunchInputs(design.inputs))))
                       : design.kind === "sign-cantilever"
                         ? signCalcLines(signInputs(design.inputs), design.name, figures(() => signFigures(signInputs(design.inputs))))
-                        : null;
+                        : design.kind === "ptfe-bearing"
+                          ? bearingCalcLines(ptfeInputs(design.inputs), design.name, figures(() => bearingFigures(ptfeInputs(design.inputs))))
+                          : null;
   if (!lines) throw new Error("Calc packages for this design type are coming");
   const data = emptyCalc("USCS");
   data.header = { ...data.header, title: design.name, by: user.name ?? "" };

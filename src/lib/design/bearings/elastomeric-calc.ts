@@ -20,7 +20,7 @@ export function bearingCalcLines(i: BearingInputs, title: string, figures?: { se
   const byHardness = A && i.byHardness;
 
   text(title.toUpperCase(), "heading");
-  text(`${steel ? "Steel-reinforced" : "Plain"} elastomeric bearing pad, Method ${r.method} (AASHTO LRFD ${A ? "14.7.6" : "14.7.5"}), per bearing at the service limit state. Rectangular, without holes.`);
+  text(`${steel ? "Steel-reinforced" : "Plain"} elastomeric bearing pad${i.sliding ? " with a PTFE sliding surface" : ""}, Method ${r.method} (AASHTO LRFD ${A ? "14.7.6" : "14.7.5"}), per bearing at the service limit state. Rectangular, without holes.`);
   text(COLOR_NOTE, "note");
 
   // --- the pad ---------------------------------------------------------------------------------
@@ -30,10 +30,11 @@ export function bearingCalcLines(i: BearingInputs, title: string, figures?: { se
   m(`h_{ri}\\coloneq ${num(i.hri)}\\mathrm{in}`, steel ? "Interior layer" : "Pad thickness");
   if (steel) {
     m(`n\\coloneq ${num(i.n)}`, "Interior layers");
-    m(`h_{re}\\coloneq ${num(i.hre)}\\mathrm{in}`, "Cover layer (top and bottom)");
+    const covers = i.covers === 1 ? 1 : 2;
+    m(`h_{re}\\coloneq ${num(i.hre)}\\mathrm{in}`, covers === 2 ? "Cover layer (top and bottom)" : "Cover layer (bottom; the top bonds to the sliding plate)");
     m(`h_s\\coloneq ${num(i.hs)}\\mathrm{in}`, "Steel shim");
-    m("h_{rt}\\coloneq n\\cdot h_{ri}+2\\cdot h_{re}=", "Total elastomer", "in");
-    m("h_t\\coloneq h_{rt}+\\left(n+1\\right)\\cdot h_s=", "Total height", "in");
+    m(`h_{rt}\\coloneq n\\cdot h_{ri}+${covers}\\cdot h_{re}=`, "Total elastomer", "in");
+    m(`h_t\\coloneq h_{rt}+${covers === 2 ? "\\left(n+1\\right)" : "n"}\\cdot h_s=`, "Total height", "in");
   } else {
     m("n\\coloneq1");
     m("h_{rt}\\coloneq h_{ri}=", "Total elastomer", "in");
@@ -85,6 +86,22 @@ export function bearingCalcLines(i: BearingInputs, title: string, figures?: { se
   m(`\\Delta_{cy}\\coloneq ${num(i.cyclic)}\\mathrm{in}`, "Live load and other cyclic movement");
   m("\\Delta_{st}\\coloneq\\gamma_{TU}\\cdot f_T\\cdot\\Delta_T+\\Delta_o=", "Static shear deformation", "in");
   m("\\Delta_s\\coloneq\\Delta_{st}+\\Delta_{cy}=", "Total shear deformation", "in");
+  if (i.sliding) {
+    text("PTFE sliding surface (AASHTO 14.7.2)", "subheading");
+    m(`\\mu_{p}\\coloneq ${num(i.muPTFE)}`, "Friction at the lowest temperature and the average pressure, AASHTO T. 14.7.2.5-1");
+    m("H_{sl}\\coloneq\\mu_{p}\\cdot DL=", "Shear force at the first slip, AASHTO Eq. 14.6.3.1-1", "kip");
+    m("\\Delta_{sl}\\coloneq\\frac{H_{sl}\\cdot h_{rt}}{G_{min}\\cdot A_b}=", "The pad's deformation at the first slip, AASHTO Eq. 14.6.3.1-2", "in");
+    m("\\Delta_{p}\\coloneq\\min\\left(\\Delta_s,\\Delta_{sl}\\right)=", "The pad's shear deformation (14.7.5.3.2)", "in");
+    m("\\Delta_{pt}\\coloneq\\Delta_s-\\Delta_p=", "Taken by the PTFE sliding", "in");
+    m(ok("\\sigma_d", `${num(i.avgDead)}\\mathrm{ksi}`), "Average contact stress, permanent loads, AASHTO T. 14.7.2.4-1");
+    m(ok("\\sigma_s", `${num(i.avgTotal)}\\mathrm{ksi}`), "All loads");
+    m("E_c\\coloneq4.8\\cdot G_{max}\\cdot S^{2}=", "AASHTO Eq. C14.6.3.2-1", "ksi");
+    m("I_b\\coloneq\\frac{W\\cdot L^{3}}{12}=", undefined, "in^4");
+    m(`\\theta_{pd}\\coloneq\\left|${num(i.thetaD)}\\right|+${num(i.thetaU)}=`, "Permanent rotation with the allowance (14.4.2.1)");
+    m(`\\theta_{pt}\\coloneq\\theta_{pd}+\\left|${num(i.thetaL)}\\right|=`, "With the live load's");
+    m(ok("\\sigma_d+\\frac{0.5\\cdot E_c\\cdot I_b\\cdot\\theta_{pd}}{h_{rt}}\\cdot\\frac{6}{W\\cdot L^{2}}", `${num(i.edgeDead)}\\mathrm{ksi}`), "Edge contact stress, permanent loads (moment by AASHTO Eq. 14.6.3.2-3)");
+    m(ok("\\sigma_s+\\frac{0.5\\cdot E_c\\cdot I_b\\cdot\\theta_{pt}}{h_{rt}}\\cdot\\frac{6}{W\\cdot L^{2}}", `${num(i.edgeTotal)}\\mathrm{ksi}`), "All loads");
+  }
 
   // --- compressive stress (Method A) ---------------------------------------------------------------
   if (A) {
@@ -110,7 +127,7 @@ export function bearingCalcLines(i: BearingInputs, title: string, figures?: { se
 
   // --- shear deformation -----------------------------------------------------------------------------
   text(`Shear deformation (${A ? "AASHTO 14.7.6.3.4" : "AASHTO 14.7.5.3.2"})`, "subheading");
-  m(ok("2\\cdot\\Delta_s", "h_{rt}"));
+  m(ok(i.sliding ? "2\\cdot\\Delta_p" : "2\\cdot\\Delta_s", "h_{rt}"));
 
   // --- shear strains (Method B) -----------------------------------------------------------------------
   if (!A) {
@@ -127,7 +144,7 @@ export function bearingCalcLines(i: BearingInputs, title: string, figures?: { se
     m("\\gamma_{acy}\\coloneq\\frac{D_a\\cdot\\sigma_L}{G_{min}\\cdot S}=");
     m("\\gamma_{rst}\\coloneq\\frac{D_r\\cdot\\left(\\frac{L}{h_{ri}}\\right)^{2}\\cdot\\theta_{st}}{n}=", "AASHTO Eq. 14.7.5.3.3-6");
     m("\\gamma_{rcy}\\coloneq\\frac{D_r\\cdot\\left(\\frac{L}{h_{ri}}\\right)^{2}\\cdot\\theta_{cy}}{n}=");
-    m("\\gamma_{sst}\\coloneq\\frac{\\Delta_{st}}{h_{rt}}=", "AASHTO Eq. 14.7.5.3.3-10");
+    m(i.sliding ? "\\gamma_{sst}\\coloneq\\frac{\\min\\left(\\Delta_{st},\\Delta_{sl}\\right)}{h_{rt}}=" : "\\gamma_{sst}\\coloneq\\frac{\\Delta_{st}}{h_{rt}}=", i.sliding ? "AASHTO Eq. 14.7.5.3.3-10, to the first slip" : "AASHTO Eq. 14.7.5.3.3-10");
     m("\\gamma_{scy}\\coloneq\\frac{\\Delta_{cy}}{h_{rt}}=");
     m(ok("\\gamma_{ast}", "3"), "AASHTO Eq. 14.7.5.3.3-1");
     m("\\gamma_{tot}\\coloneq\\gamma_{ast}+\\gamma_{rst}+\\gamma_{sst}+1.75\\cdot\\left(\\gamma_{acy}+\\gamma_{rcy}+\\gamma_{scy}\\right)=");
@@ -165,8 +182,10 @@ export function bearingCalcLines(i: BearingInputs, title: string, figures?: { se
     m("\\varepsilon_a\\coloneq\\varepsilon_d+1.75\\cdot\\varepsilon_L=", "Axial strain");
     m(ok("\\frac{\\theta_s}{n}", "\\frac{3\\cdot\\varepsilon_a}{S}"), "No restraint system needed (NG: provide one), AASHTO Eq. 14.7.5.4-1");
   }
-  m(`\\mu\\coloneq ${num(i.mu)}`, "Friction coefficient, AASHTO C14.8.3.1");
-  m("\\Delta_{allow}\\coloneq\\frac{\\mu\\cdot DL\\cdot h_{rt}}{G_{max}\\cdot A_b}=", "Shear force under friction on the dead load, AASHTO Eqs. 14.6.3.1-1, -2", "in");
-  m(ok("\\Delta_s", "\\Delta_{allow}"), "The pad doesn't slip (NG: anchor it), AASHTO 14.8.3");
+  if (!i.sliding) {
+    m(`\\mu\\coloneq ${num(i.mu)}`, "Friction coefficient, AASHTO C14.8.3.1");
+    m("\\Delta_{allow}\\coloneq\\frac{\\mu\\cdot DL\\cdot h_{rt}}{G_{max}\\cdot A_b}=", "Shear force under friction on the dead load, AASHTO Eqs. 14.6.3.1-1, -2", "in");
+    m(ok("\\Delta_s", "\\Delta_{allow}"), "The pad doesn't slip (NG: anchor it), AASHTO 14.8.3");
+  } else text("The bearing slides on its PTFE surface; size the stainless steel plate, sole plate and anchor bolt slots for the sliding movement.", "note");
   return lines;
 }

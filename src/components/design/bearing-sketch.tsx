@@ -23,7 +23,7 @@ export function BearingSketch({ inputs, result }: { inputs: BearingInputs; resul
   const sx = 280 + (180 - L * ss) / 2;
   const sb = 40 + 150 / 2 + (result.pad.height * ss) / 2; // bottom of the pad
   const layers: { h: number; steel: boolean }[] = steel
-    ? [{ h: inputs.hre, steel: false }, ...Array.from({ length: inputs.n }, () => [{ h: inputs.hs, steel: true }, { h: inputs.hri, steel: false }]).flat(), { h: inputs.hs, steel: true }, { h: inputs.hre, steel: false }]
+    ? [{ h: inputs.hre, steel: false }, ...Array.from({ length: inputs.n }, () => [{ h: inputs.hs, steel: true }, { h: inputs.hri, steel: false }]).flat(), ...(inputs.covers === 1 ? [] : [{ h: inputs.hs, steel: true }, { h: inputs.hre, steel: false }])]
     : [{ h: inputs.hri, steel: false }];
   let y = sb;
   const rects = layers.map((layer, k) => {

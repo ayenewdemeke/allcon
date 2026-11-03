@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { DEFAULT_SETTINGS, evaluateSheet, type SheetItem, type Value } from "@/lib/calcs/evaluate";
 import { layout } from "@/lib/calcs/library/templates";
 import { readingOrder } from "@/lib/calcs/types";
-import { BEARING_DEFAULTS, designBearing, type BearingInputs } from "./elastomeric";
+import { BEARING_DEFAULTS, designBearing, PTFE_DEFAULTS, type BearingInputs } from "./elastomeric";
 import { bearingCalcLines } from "./elastomeric-calc";
 
 // The calc package, worked out by Calcs, agrees with the design engine.
@@ -31,6 +31,8 @@ describe("elastomeric bearing calc package", () => {
     ["the default steel-reinforced pad (Method B)", BEARING_DEFAULTS],
     ["Method B, long and narrow, deck fixed, unstable", { ...BEARING_DEFAULTS, L: 24, W: 10, n: 14, deckFree: false }],
     ["steel-reinforced by Method A, by hardness, shear prevented", { ...BEARING_DEFAULTS, method: "A", byHardness: true, hardness: 50, L: 12, W: 25, n: 5, shearPrevented: true }],
+    ["a PTFE sliding bearing", PTFE_DEFAULTS],
+    ["a PTFE sliding bearing by Method A, its edge overstressed", { ...PTFE_DEFAULTS, method: "A", thetaL: 0.02, edgeTotal: 1.2 }],
     ["a plain pad that slips, no deck joint", { ...BEARING_DEFAULTS, pad: "plain", method: "A", L: 12, W: 25, hri: 2, DL: 40, LL: 20, expansionLength: 40, jointed: false }],
   ] as [string, BearingInputs][]) {
     it(`works out ${name} with no errors, matching the engine`, () => {
@@ -42,7 +44,8 @@ describe("elastomeric bearing calc package", () => {
       close(c.value("\\Delta_s\\coloneq", "in"), r.movement.ds);
       close(c.value("\\delta_L\\coloneq", "in"), r.deflection.dL);
       close(c.value("\\delta_{lt}\\coloneq", "in"), r.deflection.dLong);
-      close(c.value("\\Delta_{allow}\\coloneq", "in"), r.anchorage.dsAllow);
+      if (!inputs.sliding) close(c.value("\\Delta_{allow}\\coloneq", "in"), r.anchorage.dsAllow);
+      else close(c.value("\\Delta_{pt}\\coloneq", "in"), r.ptfe.slide);
       if (r.method === "B") {
         close(c.value("\\gamma_{tot}\\coloneq"), r.strains.total);
         close(c.value("A_s\\coloneq"), r.stability.reduce((a, b) => (b.limit < a.limit ? b : a)).A);
