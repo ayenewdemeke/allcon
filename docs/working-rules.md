@@ -62,4 +62,11 @@ Its attached files are in file storage under the keys in `attachments`.
   - whether it fits the direction above;
   - a rough effort;
   - a recommendation: do, later, decline, or ask the sender to clarify.
+- **End the report with "Bottom line": your final take after the analysis**, short enough to
+  read on its own (the owner may read only this part):
+  - what to build, as a numbered list in the order you'd do it, one line each: what it is and how
+    it would be done (the approach, the library or AASHTO articles) and its effort;
+  - what to leave for later, decline or ask the sender about, in a line each, with why;
+  - anything the owner must do or decide first (supply a file, choose an option).
+  The owner should be able to approve from this alone (e.g. "do 1 and 2").
 - **Build only what the owner approves**, following the rules above.
