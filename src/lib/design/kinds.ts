@@ -4,6 +4,7 @@ import { DECK_DEFAULTS, type DeckInputs } from "./decks/deck";
 import { HAUNCH_DEFAULTS, type HaunchInputs } from "./girders/haunch";
 import { COLLISION_DEFAULTS, type CollisionInputs } from "./piers/collision";
 import { ZONE1_DEFAULTS, type Zone1Inputs } from "./seismic/zone1";
+import { SIGN_DEFAULTS, type SignInputs } from "./signs/cantilever";
 import { CIP_DEFAULTS, DEFAULT_FACTORS, type CipInputs, type Combo } from "./walls/cip";
 import { MSE_DEFAULTS, MSE_FACTORS, type MseInputs } from "./walls/mse";
 import { WINGWALL_DEFAULTS, type WingwallInputs } from "./walls/wingwall";
@@ -11,7 +12,7 @@ import { WINGWALL_DEFAULTS, type WingwallInputs } from "./walls/wingwall";
 // The Design section's categories and design types: highway structures to AASHTO LRFD, grouped
 // by element. What can be designed, and what's coming next.
 
-export type DesignKind = "cip-cantilever-wall" | "mse-wall" | "cantilever-wingwall" | "box-culvert" | "deck-slab" | "seismic-zone1" | "pier-collision" | "camber-haunch" | "elastomeric-bearing" | "ptfe-bearing" | "strip-seal-joint";
+export type DesignKind = "cip-cantilever-wall" | "mse-wall" | "cantilever-wingwall" | "box-culvert" | "deck-slab" | "seismic-zone1" | "pier-collision" | "camber-haunch" | "sign-cantilever" | "elastomeric-bearing" | "ptfe-bearing" | "strip-seal-joint";
 
 export const CATEGORIES: { id: string; name: string; kinds: { id: DesignKind; name: string; short: string; description: string; available: boolean }[] }[] = [
   {
@@ -47,6 +48,13 @@ export const CATEGORIES: { id: string; name: string; kinds: { id: DesignKind; na
     name: "Seismic",
     kinds: [
       { id: "seismic-zone1", name: "Seismic Zone 1 Check", short: "Connection forces, support lengths, confinement", description: "A bridge in Seismic Zone 1, where no seismic analysis is required: the zone, horizontal connection forces at each support, minimum support lengths, and confinement spirals in the columns' plastic hinge regions. AASHTO LRFD 3.10.6, 3.10.9.2, 4.7.4.4 and 5.11.", available: true },
+    ],
+  },
+  {
+    id: "signs",
+    name: "Sign Structures",
+    kinds: [
+      { id: "sign-cantilever", name: "Cantilever Sign Foundation", short: "Wind loads and the drilled shaft", description: "A cantilever sign structure's drilled shaft: dead and wind loads on the pole, arm and panel by AASHTO LTS, and the shaft's axial, bending, shear and torsion checks by AASHTO LRFD, for a p–y analysis's lateral response.", available: true },
     ],
   },
 ];
@@ -87,6 +95,12 @@ export function collisionInputs(saved: unknown): CollisionInputs {
   return { ...COLLISION_DEFAULTS, ...s };
 }
 
+/** A cantilever sign's inputs as saved, filled in from the defaults. */
+export function signInputs(saved: unknown): SignInputs {
+  const s = (saved && typeof saved === "object" ? saved : {}) as Partial<SignInputs>;
+  return { ...SIGN_DEFAULTS, ...s };
+}
+
 /** Seismic Zone 1 inputs as saved, filled in from the defaults. */
 export function zone1Inputs(saved: unknown): Zone1Inputs {
   const s = (saved && typeof saved === "object" ? saved : {}) as Partial<Zone1Inputs>;
@@ -113,5 +127,5 @@ export function bearingInputs(saved: unknown): BearingInputs {
 
 /** A design's inputs as saved, filled in from its kind's defaults. */
 export function designInputs(kind: string, saved: unknown) {
-  return kind === "mse-wall" ? mseInputs(saved) : kind === "box-culvert" ? cbcInputs(saved) : kind === "elastomeric-bearing" ? bearingInputs(saved) : kind === "cantilever-wingwall" ? wingwallInputs(saved) : kind === "deck-slab" ? deckInputs(saved) : kind === "seismic-zone1" ? zone1Inputs(saved) : kind === "pier-collision" ? collisionInputs(saved) : kind === "camber-haunch" ? haunchInputs(saved) : cipInputs(saved);
+  return kind === "mse-wall" ? mseInputs(saved) : kind === "box-culvert" ? cbcInputs(saved) : kind === "elastomeric-bearing" ? bearingInputs(saved) : kind === "cantilever-wingwall" ? wingwallInputs(saved) : kind === "deck-slab" ? deckInputs(saved) : kind === "seismic-zone1" ? zone1Inputs(saved) : kind === "pier-collision" ? collisionInputs(saved) : kind === "camber-haunch" ? haunchInputs(saved) : kind === "sign-cantilever" ? signInputs(saved) : cipInputs(saved);
 }
