@@ -48,6 +48,9 @@ export function CipEditor({ design, projects }: { design: { id: string; name: st
                 <>
                   <Field label="Key depth below footing" unit="in" value={inputs.keyDepth} onChange={set("keyDepth")} />
                   <Field label="Key width" unit="in" value={inputs.keyWidth} onChange={set("keyWidth")} />
+                  <Toggle label="Key centerline at B/3 from the heel" value={inputs.keyFromHeel === null} onChange={(third) => set("keyFromHeel")(third ? null : Math.round(inputs.B / 3))} />
+                  {inputs.keyFromHeel !== null && <Field label="Heel to key centerline" unit="in" value={inputs.keyFromHeel} onChange={set("keyFromHeel")} />}
+                  <Field label="Fill over toe neglected (may be removed)" unit="ft" value={inputs.toeFillIgnored} onChange={set("toeFillIgnored")} step={0.25} />
                 </>
               )}
             </Section>
@@ -58,7 +61,7 @@ export function CipEditor({ design, projects }: { design: { id: string; name: st
               {inputs.delta !== null && <Field label="Wall–backfill friction δ" unit="deg" value={inputs.delta} onChange={set("delta")} />}
               <Toggle label="Kp from AASHTO Fig. 3.11.5.4-1 (else Coulomb)" value={inputs.kpOverride !== null} onChange={(fig) => set("kpOverride")(fig ? 9 : null)} />
               {inputs.kpOverride !== null && <Field label="Passive coefficient Kp" value={inputs.kpOverride} onChange={set("kpOverride")} step={0.1} />}
-              <Field label="Minimum active EFW" unit="pcf" value={inputs.efwMin} scale={1000} onChange={set("efwMin")} />
+              <Field label="Minimum active EFW, if required (0 = none)" unit="pcf" value={inputs.efwMin} scale={1000} onChange={set("efwMin")} />
               <Field label="Nominal bearing resistance qn" unit="ksf" value={inputs.qn} onChange={set("qn")} step={0.1} />
               <Field label="Subgrade friction angle φsub" unit="deg" value={inputs.phiSub} onChange={set("phiSub")} />
             </Section>
@@ -67,6 +70,19 @@ export function CipEditor({ design, projects }: { design: { id: string; name: st
               {inputs.liveLoad && <Field label="Wall back face to edge of traffic" unit="ft" value={inputs.trafficDistance} onChange={set("trafficDistance")} />}
               <Field label="Pavement thickness" unit="in" value={inputs.pavementThickness} onChange={set("pavementThickness")} />
               <Field label="Pavement unit weight" unit="pcf" value={inputs.gammaPavement} scale={1000} onChange={set("gammaPavement")} />
+            </Section>
+            <Section title="Barrier and vehicle collision">
+              <Field label="Barrier weight (0 = none)" unit="plf" value={inputs.railWeight} scale={1000} onChange={set("railWeight")} />
+              {inputs.railWeight > 0 && <Field label="Barrier c.g. from stem front face" unit="in" value={inputs.railCg} onChange={set("railCg")} step={0.25} />}
+              <Toggle label="Vehicle collision (Extreme Event II)" value={inputs.collision} onChange={set("collision")} />
+              {inputs.collision && (
+                <>
+                  <Field label="Transverse force Ft (Table A13.2-1)" unit="kip" value={inputs.ctForce} onChange={set("ctForce")} />
+                  <Field label="Length Lt (Table A13.2-1)" unit="ft" value={inputs.ctLength} onChange={set("ctLength")} step={0.5} />
+                  <Field label="Top of wall to point of impact" unit="ft" value={inputs.ctHeight} onChange={set("ctHeight")} step={0.25} />
+                  <Toggle label="Near the wall's end (spread one way)" value={inputs.ctAtEnd} onChange={set("ctAtEnd")} />
+                </>
+              )}
             </Section>
             <Section title="Concrete and steel">
               <Field label="f'c" unit="ksi" value={inputs.fc} onChange={set("fc")} step={0.5} />
@@ -104,7 +120,7 @@ export function CipEditor({ design, projects }: { design: { id: string; name: st
                 <thead>
                   <tr className="text-muted-foreground">
                     <th className="text-left font-normal">Group</th>
-                    {(["dc", "ev", "lsv", "lsh", "eh"] as const).map((k) => (
+                    {(["dc", "ev", "lsv", "lsh", "eh", "ct"] as const).map((k) => (
                       <th key={k} className="font-normal">
                         γ{k.toUpperCase().replace("LSV", "LS,V").replace("LSH", "LS,H")}
                       </th>
@@ -112,12 +128,12 @@ export function CipEditor({ design, projects }: { design: { id: string; name: st
                   </tr>
                 </thead>
                 <tbody>
-                  {COMBOS.map((c) => (
+                  {COMBOS.filter((c) => inputs.collision || !c.id.startsWith("Ext")).map((c) => (
                     <tr key={c.id} title={c.use}>
                       <td className="pr-1 whitespace-nowrap">{c.name}</td>
-                      {(["dc", "ev", "lsv", "lsh", "eh"] as const).map((k) => (
+                      {(["dc", "ev", "lsv", "lsh", "eh", "ct"] as const).map((k) => (
                         <td key={k}>
-                          <input type="number" step={0.05} value={inputs.factors[c.id][k]} onChange={(e) => e.target.value !== "" && setFactor(c.id, k, Number(e.target.value))} className="h-6 w-full rounded border border-input bg-transparent px-0.5 text-right tabular-nums" aria-label={`${c.name} ${k}`} />
+                          <input type="number" step={0.05} value={inputs.factors[c.id][k]} onChange={(e) => e.target.value !== "" && setFactor(c.id, k, Number(e.target.value))} className="h-6 w-full min-w-0 rounded border border-input bg-transparent px-0 text-right text-[10px] tabular-nums" aria-label={`${c.name} ${k}`} />
                         </td>
                       ))}
                     </tr>
@@ -142,7 +158,7 @@ export function CipEditor({ design, projects }: { design: { id: string; name: st
                   </CardContent>
                 </Card>
                 <ChecksTable checks={r.checks} groupOf={groupOf} />
-                <Working r={r} />
+                <Working r={r} collision={inputs.collision} />
               </>
             )
           )}
@@ -153,7 +169,7 @@ export function CipEditor({ design, projects }: { design: { id: string; name: st
 }
 
 /** The working: soil, loads and load groups, for checking by hand. */
-function Working({ r }: { r: NonNullable<ReturnType<typeof designCipWall>> }) {
+function Working({ r, collision }: { r: NonNullable<ReturnType<typeof designCipWall>>; collision: boolean }) {
   const loads = [...Object.values(r.loads.vertical), ...Object.values(r.loads.horizontal)].filter((l) => Math.abs(l.force) > 1e-12);
   return (
     <div className="grid gap-4 xl:grid-cols-2">
@@ -216,7 +232,7 @@ function Working({ r }: { r: NonNullable<ReturnType<typeof designCipWall>> }) {
               </tr>
             </thead>
             <tbody>
-              {COMBOS.map((c) => {
+              {COMBOS.filter((c) => collision || !c.id.startsWith("Ext")).map((c) => {
                 const g = r.groups[c.id];
                 const X = (g.MV - g.MH) / g.V;
                 const e = Math.abs(r.geometry.B / 2 - X);
@@ -228,7 +244,7 @@ function Working({ r }: { r: NonNullable<ReturnType<typeof designCipWall>> }) {
                     <td className="text-right tabular-nums">{fmt(g.H)}</td>
                     <td className="text-right tabular-nums">{fmt(g.MH)}</td>
                     <td className="text-right tabular-nums">{fmt(e)}</td>
-                    <td className="text-right tabular-nums">{fmt(g.V / (r.geometry.B - 2 * e))}</td>
+                    <td className="text-right tabular-nums">{r.geometry.B - 2 * e > 0 ? fmt(g.V / (r.geometry.B - 2 * e)) : "outside the base"}</td>
                   </tr>
                 );
               })}

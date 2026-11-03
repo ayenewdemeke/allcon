@@ -20,7 +20,7 @@ export function CipSketch({ inputs, result }: { inputs: CipInputs; result: CipRe
   const { A, B, D, H, T1, Tt, Tb } = g;
   const dKey = inputs.shearKey ? inputs.keyDepth / 12 : 0;
   const Dw = inputs.keyWidth / 12;
-  const Xkey = B - B / 3 - Dw / 2;
+  const Xkey = result.stability.key.Xkey;
   const tanB = Math.tan((result.soil.beta * Math.PI) / 180);
   const span = Math.max(B, H);
   const xmin = -0.45 * span;

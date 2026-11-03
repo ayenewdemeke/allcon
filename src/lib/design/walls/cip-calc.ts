@@ -23,9 +23,13 @@ export function cipCalcLines(i: CipInputs, title: string, figures?: { section?: 
   const pave = i.pavementThickness > 0;
   const slope = i.backslope > 0;
   const toeFill = i.Df * 12 > i.D;
+  const rail = i.railWeight > 0;
+  const ct = i.collision;
+  // Extreme Event II (vehicle collision) only with a collision load.
+  const ext = (...combos: Combo[]) => (ct ? combos : []);
 
   text(title.toUpperCase(), "heading");
-  text("Cast-in-place cantilever retaining wall, per foot of wall. AASHTO LRFD Bridge Design Specifications (9th ed.) with CDOT Bridge Design Manual practice. Moments are taken about the toe.");
+  text("Cast-in-place cantilever retaining wall, per foot of wall. AASHTO LRFD Bridge Design Specifications (9th ed.). Moments are taken about the toe.");
 
   text(COLOR_NOTE, "note");
 
@@ -43,7 +47,8 @@ export function cipCalcLines(i: CipInputs, title: string, figures?: { section?: 
     m("\\Gamma_p\\coloneq\\left(1-\\sqrt{\\frac{\\sin\\left(\\phi+\\delta\\right)\\cdot\\sin\\left(\\phi+\\beta\\right)}{\\sin\\left(\\theta+\\delta\\right)\\cdot\\sin\\left(\\theta+\\beta\\right)}}\\right)^{2}=", "Coulomb passive");
     m("K_p\\coloneq\\frac{\\sin\\left(\\theta-\\phi\\right)^{2}}{\\Gamma_p\\cdot\\sin\\left(\\theta\\right)^{2}\\cdot\\sin\\left(\\theta+\\delta\\right)}=");
   }
-  m(`EFW_a\\coloneq\\max\\left(\\gamma_s\\cdot K_a,${num(i.efwMin * 1000)}\\mathrm{pcf}\\right)=`, "Active equivalent fluid weight (36 pcf min.)", "pcf");
+  if (i.efwMin > 0) m(`EFW_a\\coloneq\\max\\left(\\gamma_s\\cdot K_a,${num(i.efwMin * 1000)}\\mathrm{pcf}\\right)=`, "Active equivalent fluid weight (with the minimum set)", "pcf");
+  else m("EFW_a\\coloneq\\gamma_s\\cdot K_a=", "Active equivalent fluid weight", "pcf");
   m("EFW_p\\coloneq\\gamma_s\\cdot K_p=", "Passive equivalent fluid weight", "pcf");
   m(`q_n\\coloneq ${num(i.qn)}\\mathrm{ksf}`, "Nominal bearing resistance (geotechnical)");
   m(`\\phi_{sub}\\coloneq ${num(i.phiSub)}\\mathrm{deg}`, "Subgrade friction angle");
@@ -85,7 +90,6 @@ export function cipCalcLines(i: CipInputs, title: string, figures?: { section?: 
     m("T_2\\coloneq0\\mathrm{in}");
   }
   m("T_b\\coloneq T_t+T_1+T_2=", "Stem thickness at the bottom", "in");
-  m(i.backBatter > 0 ? `\\theta_w\\coloneq\\arctan\\left(\\frac{12}{${num(i.backBatter)}}\\right)=` : "\\theta_w\\coloneq90\\mathrm{deg}", "Back face of the wall to the horizontal", "deg");
   m(`B\\coloneq ${num(i.B)}\\mathrm{in}`, "Footing width");
   m(`A\\coloneq ${num(i.A)}\\mathrm{in}`, "Toe");
   m("C\\coloneq B-A-T_b=", "Heel", "in");
@@ -97,16 +101,31 @@ export function cipCalcLines(i: CipInputs, title: string, figures?: { section?: 
   // --- loads --------------------------------------------------------------------------------
   text("Loads (unfactored)", "subheading");
   m("P_a\\coloneq\\frac{1}{2}\\cdot EFW_a\\cdot h^{2}=", "Active earth force over the full height, AASHTO 3.11.5", "kip/ft");
-  m("\\omega\\coloneq90\\mathrm{deg}-\\theta_w+\\delta=", "Inclination of the earth force", "deg");
+  m("\\omega\\coloneq\\delta=", "Inclination of the earth force, on the vertical plane through the heel", "deg");
   if (live) {
     m(`h_{eq}\\coloneq ${num(liveHeq(i))}\\mathrm{ft}`, "Live load surcharge, AASHTO T. 3.11.6.4-2");
-    m("F_{sur}\\coloneq\\gamma_s\\cdot h_{eq}\\cdot h\\cdot K_a=", "Surcharge force", "kip/ft");
+    m(`d_{tr}\\coloneq ${num(i.trafficDistance)}\\mathrm{ft}`, "Wall back face to the edge of traffic");
+    m("F_{sur}\\coloneq EFW_a\\cdot h_{eq}\\cdot h=", "Surcharge force, horizontal, AASHTO 3.11.6.4", "kip/ft");
+    m("w_{LS}\\coloneq\\max\\left(T_2+C-d_{tr},0\\mathrm{ft}\\right)=", "Heel under traffic", "ft");
+  }
+  if (rail) {
+    m(`w_{rail}\\coloneq ${num(i.railWeight)}\\frac{\\mathrm{kip}}{\\mathrm{ft}}`, "Barrier on the wall");
+    m(`c_{rail}\\coloneq ${num(i.railCg)}\\mathrm{in}`, "Its center of gravity from the stem's front face");
+  }
+  if (ct) {
+    text("Vehicle collision on the barrier (AASHTO 3.6.5, Table A13.2-1), spread at 45° down the wall" + (i.ctAtEnd ? ", one way only near the wall's end." : ", both ways."), "note");
+    m(`F_t\\coloneq ${num(i.ctForce)}\\mathrm{kip}`, "Transverse collision force");
+    m(`L_t\\coloneq ${num(i.ctLength)}\\mathrm{ft}`, "Length it's spread over");
+    m(`h_{ct}\\coloneq ${num(i.ctHeight)}\\mathrm{ft}`, "Top of the wall to the point of impact");
+    m("h_T\\coloneq h_{ct}+H=", "Impact to the bottom of the footing", "ft");
+    m(i.ctAtEnd ? "CT\\coloneq\\frac{F_t}{\\frac{L_t}{2}+h_T}=" : "CT\\coloneq\\frac{F_t}{L_t+2\\cdot h_T}=", "At the bottom of the footing", "kip/ft");
   }
   const vert: [string, string, string, string][] = [];
   if (batter) vert.push(["DC_1", "\\frac{1}{2}\\cdot T_1\\cdot h_s\\cdot\\gamma_c", "A+\\frac{2}{3}\\cdot T_1", "Front batter of the stem"]);
   vert.push(["DC_2", "T_t\\cdot h_s\\cdot\\gamma_c", "A+T_1+\\frac{T_t}{2}", "Stem"]);
   if (batter) vert.push(["DC_3", "\\frac{1}{2}\\cdot T_2\\cdot h_s\\cdot\\gamma_c", "A+T_1+T_t+\\frac{T_2}{3}", "Back batter of the stem"]);
   vert.push(["DC_4", "B\\cdot D\\cdot\\gamma_c", "\\frac{B}{2}", "Footing"]);
+  if (rail) vert.push(["DC_5", "w_{rail}", "A+T_1+c_{rail}", "Barrier"]);
   if (pave) vert.push(["DC_6", `t\\cdot${num(i.gammaPavement)}\\mathrm{kcf}\\cdot\\left(T_2+C\\right)`, "B-\\frac{T_2+C}{2}", "Pavement"]);
   vert.push(["EV_1", "C\\cdot\\left(h_s-t\\right)\\cdot\\gamma_s", "B-\\frac{C}{2}", "Fill on the heel"]);
   if (batter) vert.push(["EV_2", "\\frac{1}{2}\\cdot T_2\\cdot\\left(h_s-t\\right)\\cdot\\gamma_s", "A+T_1+T_t+\\frac{2}{3}\\cdot T_2", "Fill on the back batter"]);
@@ -127,70 +146,80 @@ export function cipCalcLines(i: CipInputs, title: string, figures?: { section?: 
   m("EH_V\\coloneq P_a\\cdot\\sin\\left(\\omega\\right)=", "Vertical component of the earth force, at the heel", "kip/ft");
   m("EH_H\\coloneq P_a\\cdot\\cos\\left(\\omega\\right)=", "Horizontal component, at h/3", "kip/ft");
   if (live) {
-    m("LS_V\\coloneq h_{eq}\\cdot\\left(T_2+C\\right)\\cdot\\gamma_s=", "Surcharge over the heel", "kip/ft");
-    m("LS_H\\coloneq F_{sur}\\cdot\\cos\\left(\\omega\\right)=", "Surcharge, horizontal, at h/2", "kip/ft");
+    m("LS_V\\coloneq h_{eq}\\cdot w_{LS}\\cdot\\gamma_s=", "Surcharge over the heel, beyond the edge of traffic", "kip/ft");
+    m("LS_H\\coloneq F_{sur}=", "Surcharge, horizontal, at h/2", "kip/ft");
   }
 
   // --- load groups --------------------------------------------------------------------------
   text("Load groups (AASHTO Table 3.4.1-1)", "subheading");
-  const groups: Combo[] = ["StrIa", "StrIb", "StrIV", "ExtIIa", "ExtIIb", "SerI"];
+  const groups: Combo[] = ["StrIa", "StrIb", "StrIV", ...ext("ExtIIa", "ExtIIb"), "SerI"];
   for (const c of groups) {
     const f = i.factors[c];
     const s = SUB[c];
     const ls = live ? `+${num(f.lsv)}\\cdot LS_V` : "";
-    const lsM = live ? `+${num(f.lsv)}\\cdot LS_V\\cdot\\left(B-\\frac{T_2+C}{2}\\right)` : "";
+    const lsM = live ? `+${num(f.lsv)}\\cdot LS_V\\cdot\\left(B-\\frac{w_{LS}}{2}\\right)` : "";
     const lsH = live ? `+${num(f.lsh)}\\cdot LS_H` : "";
     const lsHM = live ? `+${num(f.lsh)}\\cdot LS_H\\cdot\\frac{h}{2}` : "";
+    const ctH = ct && f.ct ? `+${num(f.ct)}\\cdot CT` : "";
+    const ctHM = ct && f.ct ? `+${num(f.ct)}\\cdot CT\\cdot h_T` : "";
     m(`V_{${s}}\\coloneq ${num(f.dc)}\\cdot V_{DC}+${num(f.ev)}\\cdot V_{EV}${ls}+${num(f.eh)}\\cdot EH_V=`, combName(c), "kip/ft");
     m(`M_{V${s}}\\coloneq ${num(f.dc)}\\cdot M_{DC}+${num(f.ev)}\\cdot M_{EV}${lsM}+${num(f.eh)}\\cdot EH_V\\cdot B=`, undefined, "kip*ft/ft");
-    m(`H_{${s}}\\coloneq ${num(f.eh)}\\cdot EH_H${lsH}=`, undefined, "kip/ft");
-    m(`M_{H${s}}\\coloneq ${num(f.eh)}\\cdot EH_H\\cdot\\frac{h}{3}${lsHM}=`, undefined, "kip*ft/ft");
-    m(`e_{${s}}\\coloneq\\left|\\frac{B}{2}-\\frac{M_{V${s}}-M_{H${s}}}{V_{${s}}}\\right|=`, "Eccentricity of the resultant", "ft");
+    m(`H_{${s}}\\coloneq ${num(f.eh)}\\cdot EH_H${lsH}${ctH}=`, undefined, "kip/ft");
+    m(`M_{H${s}}\\coloneq ${num(f.eh)}\\cdot EH_H\\cdot\\frac{h}{3}${lsHM}${ctHM}=`, undefined, "kip*ft/ft");
+    m(`X_{${s}}\\coloneq\\frac{M_{V${s}}-M_{H${s}}}{V_{${s}}}=`, "Resultant from the toe", "ft");
+    m(`e_{${s}}\\coloneq\\left|\\frac{B}{2}-X_{${s}}\\right|=`, "Eccentricity of the resultant", "ft");
   }
 
   // --- stability ----------------------------------------------------------------------------
   text("Eccentricity (AASHTO 11.6.3.3)", "subheading");
   m("e_{max}\\coloneq\\frac{B}{3}=", "Footing on soil", "ft");
-  for (const c of ["StrIa", "StrIb", "ExtIIa"] as Combo[]) m(ok(`e_{${SUB[c]}}`, "e_{max}"), combName(c));
+  for (const c of ["StrIa", "StrIb", ...ext("ExtIIa")] as Combo[]) m(ok(`e_{${SUB[c]}}`, "e_{max}"), combName(c));
 
   text("Bearing (AASHTO 11.6.3.2)", "subheading");
   m("q_R\\coloneq\\phi_b\\cdot q_n=", undefined, "ksf");
-  m("q_{REE}\\coloneq\\phi_{EE}\\cdot q_n=", "Extreme event", "ksf");
-  for (const c of ["StrIb", "StrIV", "ExtIIb"] as Combo[]) {
+  if (ct) m("q_{REE}\\coloneq\\phi_{EE}\\cdot q_n=", "Extreme event", "ksf");
+  for (const c of ["StrIb", "StrIV", ...ext("ExtIIb")] as Combo[]) {
     const s = SUB[c];
-    m(`\\sigma_{${s}}\\coloneq\\frac{V_{${s}}}{B-2\\cdot e_{${s}}}=`, `${combName(c)}, uniform pressure over B − 2e`, "ksf");
+    m(`\\sigma_{${s}}\\coloneq\\frac{V_{${s}}}{\\max\\left(B-2\\cdot e_{${s}},0.001\\mathrm{ft}\\right)}=`, `${combName(c)}, uniform pressure over B − 2e`, "ksf");
     m(ok(`\\sigma_{${s}}`, c === "ExtIIb" ? "q_{REE}" : "q_R"));
   }
 
   text("Sliding (AASHTO 10.6.3.4)", "subheading");
   text("Passive pressure in front of the toe is neglected (AASHTO 11.6.3.5).", "note");
   m("R_{Ia}\\coloneq\\phi_{\\tau}\\cdot V_{Ia}\\cdot\\mu_n=", "Strength Ia, without a key", "kip/ft");
-  m("R_{IIa}\\coloneq\\phi_{EE}\\cdot V_{IIa}\\cdot\\mu_n=", "Extreme IIa, without a key", "kip/ft");
+  if (ct) m("R_{IIa}\\coloneq\\phi_{EE}\\cdot V_{IIa}\\cdot\\mu_n=", "Extreme IIa, without a key", "kip/ft");
   if (i.shearKey) {
-    m("\\operatorname{if}\\left(R_{Ia}<H_{Ia}\\lor R_{IIa}<H_{IIa},\\text{shear key required},\\text{no key needed}\\right)=");
-    text("Shear key (inert block). The top 1 ft of fill over the toe is ignored (CDOT BDM 11.5.1).", "note");
+    m(`\\operatorname{if}\\left(R_{Ia}<H_{Ia}${ct ? "\\lor R_{IIa}<H_{IIa}" : ""},\\text{shear key required},\\text{no key needed}\\right)=`);
+    text("Shear key: the passive resistance of the inert block in front of it, with the fill over the toe that may be removed neglected (AASHTO 11.6.3.5).", "note");
     m(`d_{key}\\coloneq ${num(i.keyDepth)}\\mathrm{in}`, "Key depth below the footing");
     m(`D_w\\coloneq ${num(i.keyWidth)}\\mathrm{in}`, "Key width");
-    m("X_{key}\\coloneq B-\\frac{B}{3}-\\frac{D_w}{2}=", "Toe to the front of the key (key at B/3 from the heel)", "ft");
+    m(i.keyFromHeel !== null ? `K_{key}\\coloneq ${num(i.keyFromHeel)}\\mathrm{in}` : "K_{key}\\coloneq\\frac{B}{3}=", "Heel to the key's centerline", "ft");
+    m("X_{key}\\coloneq B-K_{key}-\\frac{D_w}{2}=", "Toe to the front of the key", "ft");
     m("c_k\\coloneq d_{key}+X_{key}\\cdot\\tan\\left(\\delta_{sub}\\right)=", "Inert block depth", "ft");
-    m("y_1\\coloneq\\max\\left(D_f-D+D-1\\mathrm{ft},0\\mathrm{ft}\\right)=", "Top of passive zone", "ft");
+    m(`d_{ig}\\coloneq ${num(i.toeFillIgnored)}\\mathrm{ft}`, "Fill over the toe neglected");
+    m("y_1\\coloneq\\max\\left(D_f-d_{ig},0\\mathrm{ft}\\right)=", "Top of passive zone", "ft");
     m("y_2\\coloneq y_1+c_k=", undefined, "ft");
     m("R_{ep}\\coloneq EFW_p\\cdot\\frac{y_1+y_2}{2}\\cdot c_k=", "Passive resistance of the inert block", "kip/ft");
-    for (const c of ["StrIa", "ExtIIa"] as Combo[]) {
+    text("The base pressure is uniform over B − 2e on the resultant's side, as for bearing: R1 in front of the key, R2 behind it.", "note");
+    for (const c of ["StrIa", ...ext("ExtIIa")] as Combo[]) {
       const s = SUB[c];
       const ee = c === "ExtIIa";
-      m(`\\sigma_{k${s}}\\coloneq\\frac{V_{${s}}}{B-2\\cdot e_{${s}}}=`, combName(c), "ksf");
-      m(`R_{\\tau ${s}}\\coloneq\\sigma_{k${s}}\\cdot X_{key}\\cdot${ee ? "\\phi_{EE}" : "\\phi_{\\tau ss}"}\\cdot\\mu_n\\cdot\\cos\\left(\\delta_{sub}\\right)+\\sigma_{k${s}}\\cdot\\left(B-X_{key}\\right)\\cdot${ee ? "\\phi_{EE}" : "\\phi_{\\tau}"}\\cdot\\mu_n=`, "Soil on soil in front of the key, concrete on soil behind", "kip/ft");
+      m(`\\sigma_{k${s}}\\coloneq\\frac{V_{${s}}}{\\max\\left(B-2\\cdot e_{${s}},0.001\\mathrm{ft}\\right)}=`, combName(c), "ksf");
+      m(`x_{0${s}}\\coloneq\\max\\left(0\\mathrm{ft},2\\cdot X_{${s}}-B\\right)=`, "Where the pressure starts", "ft");
+      m(`x_{1${s}}\\coloneq\\min\\left(B,2\\cdot X_{${s}}\\right)=`, "Where it ends", "ft");
+      m(`R_{1${s}}\\coloneq\\sigma_{k${s}}\\cdot\\max\\left(0\\mathrm{ft},\\min\\left(X_{key},x_{1${s}}\\right)-x_{0${s}}\\right)=`, "In front of the key", "kip/ft");
+      m(`R_{2${s}}\\coloneq\\sigma_{k${s}}\\cdot\\max\\left(0\\mathrm{ft},x_{1${s}}-\\max\\left(X_{key},x_{0${s}}\\right)\\right)=`, "Behind it", "kip/ft");
+      m(`R_{\\tau ${s}}\\coloneq R_{1${s}}\\cdot${ee ? "\\phi_{EE}" : "\\phi_{\\tau ss}"}\\cdot\\mu_n\\cdot\\cos\\left(\\delta_{sub}\\right)+R_{2${s}}\\cdot${ee ? "\\phi_{EE}" : "\\phi_{\\tau}"}\\cdot\\mu_n=`, "Soil on soil in front of the key, concrete on soil behind", "kip/ft");
       m(`R_{R${s}}\\coloneq R_{\\tau ${s}}+\\phi_{ep}\\cdot R_{ep}=`, undefined, "kip/ft");
       m(ok(`H_{${s}}`, `R_{R${s}}`));
     }
   } else {
     m(ok("H_{Ia}", "R_{Ia}"), "Strength Ia");
-    m(ok("H_{IIa}", "R_{IIa}"), "Extreme IIa");
+    if (ct) m(ok("H_{IIa}", "R_{IIa}"), "Extreme IIa");
   }
 
   // --- members ------------------------------------------------------------------------------
-  const stemDead = vert.filter(([n]) => ["DC_1", "DC_2", "DC_3"].includes(n)).map(([n]) => n).join("+");
+  const stemDead = vert.filter(([n]) => ["DC_1", "DC_2", "DC_3", "DC_5"].includes(n)).map(([n]) => n).join("+");
   const member = (key: string, name: string, opts: { Mu: string; Ms: string; Vu: string; h: string; cover: number; bars: { bar: number; spacing: number }; exposure: number; shear: "general" | "simplified" | "none" }) => {
     const k = key;
     const bar = BARS[opts.bars.bar];
@@ -219,7 +248,7 @@ export function cipCalcLines(i: CipInputs, title: string, figures?: { section?: 
       m(`d_{v${k}}\\coloneq\\max\\left(d_{e${k}}-\\frac{a_{${k}}}{2},0.9\\cdot d_{e${k}},0.72\\cdot h_{${k}}\\right)=`, "AASHTO 5.7.2.8", "in");
       if (opts.shear === "general") {
         m(`N_{u${k}}\\coloneq-1.25\\cdot\\left(${stemDead}\\right)=`, "Axial compression from the stem's weight", "kip/ft");
-        m(`\\varepsilon_{s${k}}\\coloneq\\max\\left(0,\\frac{\\frac{\\max\\left(M_{u${k}},V_{u${k}}\\cdot d_{v${k}}\\right)}{d_{v${k}}}+0.5\\cdot N_{u${k}}+V_{u${k}}}{E_s\\cdot A_{s${k}}}\\right)=`, "AASHTO Eq. 5.7.3.4.2-4");
+        m(`\\varepsilon_{s${k}}\\coloneq\\min\\left(0.006,\\max\\left(0,\\frac{\\frac{\\max\\left(M_{u${k}},V_{u${k}}\\cdot d_{v${k}}\\right)}{d_{v${k}}}+0.5\\cdot N_{u${k}}+V_{u${k}}}{E_s\\cdot A_{s${k}}}\\right)\\right)=`, "AASHTO Eq. 5.7.3.4.2-4, at most 0.006");
         m(`\\beta_{v${k}}\\coloneq\\frac{4.8}{1+750\\cdot\\varepsilon_{s${k}}}\\cdot\\frac{51}{39+\\max\\left(12,\\frac{d_{v${k}}}{\\mathrm{in}}\\right)}=`, "AASHTO Eq. 5.7.3.4.2-2 (sxe = dv, ag = 3/4 in)");
       } else m(`\\beta_{v${k}}\\coloneq2`, "AASHTO 5.7.3.4.1");
       m(`V_{r${k}}\\coloneq\\phi_v\\cdot0.0316\\cdot\\beta_{v${k}}\\cdot\\sqrt{\\frac{f'_{c}}{\\mathrm{ksi}}}\\cdot\\mathrm{ksi}\\cdot d_{v${k}}=`, "AASHTO 5.7.3.3", "kip/ft");
@@ -227,13 +256,18 @@ export function cipCalcLines(i: CipInputs, title: string, figures?: { section?: 
     }
   };
 
-  const designGroups = ["StrIb", "StrIV", "ExtIIb"] as Combo[];
+  const designGroups = ["StrIb", "StrIV", ...ext("ExtIIb")] as Combo[];
   text("Stem (at its base)", "subheading");
   m("h_{ss}\\coloneq h_s-t=", undefined, "ft");
   m("EH_s\\coloneq\\cos\\left(\\delta\\right)\\cdot\\frac{1}{2}\\cdot EFW_a\\cdot h_{ss}^{2}=", "Earth pressure on the stem", "kip/ft");
   if (live) m("LS_s\\coloneq EFW_a\\cdot h_{eq}\\cdot h_{ss}=", "Surcharge on the stem", "kip/ft");
-  const stemV = designGroups.map((c) => `${num(i.factors[c].eh)}\\cdot EH_s${live ? `+${num(i.factors[c].lsh)}\\cdot LS_s` : ""}`);
-  const stemM = (c: Combo) => `${num(i.factors[c].eh)}\\cdot EH_s\\cdot\\frac{h_{ss}}{3}${live ? `+${num(i.factors[c].lsh)}\\cdot LS_s\\cdot\\frac{h_{ss}}{2}` : ""}`;
+  if (ct) {
+    m("h_{Ts}\\coloneq h_{ct}+h_s=", "Impact to the base of the stem", "ft");
+    m(i.ctAtEnd ? "CT_s\\coloneq\\frac{F_t}{\\frac{L_t}{2}+h_{Ts}}=" : "CT_s\\coloneq\\frac{F_t}{L_t+2\\cdot h_{Ts}}=", "Collision at the base of the stem", "kip/ft");
+  }
+  const ctS = (c: Combo, moment: boolean) => (ct && i.factors[c].ct ? `+${num(i.factors[c].ct)}\\cdot CT_s${moment ? "\\cdot h_{Ts}" : ""}` : "");
+  const stemV = designGroups.map((c) => `${num(i.factors[c].eh)}\\cdot EH_s${live ? `+${num(i.factors[c].lsh)}\\cdot LS_s` : ""}${ctS(c, false)}`);
+  const stemM = (c: Combo) => `${num(i.factors[c].eh)}\\cdot EH_s\\cdot\\frac{h_{ss}}{3}${live ? `+${num(i.factors[c].lsh)}\\cdot LS_s\\cdot\\frac{h_{ss}}{2}` : ""}${ctS(c, true)}`;
   member("st", "Stem", {
     Mu: `\\max\\left(${designGroups.map(stemM).join(",")}\\right)`,
     Ms: stemM("SerI"),
@@ -255,8 +289,8 @@ export function cipCalcLines(i: CipInputs, title: string, figures?: { section?: 
 
   text("Toe (at the front face of the stem)", "subheading");
   text("Under the largest factored bearing pressure; the toe's weight and fill are conservatively neglected.", "note");
-  m("\\sigma_{max}\\coloneq\\max\\left(\\sigma_{Ib},\\sigma_{IV},\\sigma_{IIb}\\right)=", undefined, "ksf");
-  m("\\sigma_{SI}\\coloneq\\frac{V_{SI}}{B-2\\cdot e_{SI}}=", "Service I", "ksf");
+  m(`\\sigma_{max}\\coloneq\\max\\left(\\sigma_{Ib},\\sigma_{IV}${ct ? ",\\sigma_{IIb}" : ""}\\right)=`, undefined, "ksf");
+  m("\\sigma_{SI}\\coloneq\\frac{V_{SI}}{\\max\\left(B-2\\cdot e_{SI},0.001\\mathrm{ft}\\right)}=", "Service I", "ksf");
   member("to", "Toe", { Mu: "\\frac{\\sigma_{max}\\cdot A^{2}}{2}", Ms: "\\frac{\\sigma_{SI}\\cdot A^{2}}{2}", Vu: "\\sigma_{max}\\cdot A", h: "D", cover: i.coverToe, bars: i.toeBars, exposure: i.exposureFooting, shear: "simplified" });
 
   if (i.shearKey) {

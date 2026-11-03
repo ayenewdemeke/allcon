@@ -1,27 +1,29 @@
-// Cast-in-place cantilever retaining wall, AASHTO LRFD (9th ed.) with the Colorado DOT Bridge
-// Design Manual's practice, per foot of wall: earth pressure (Coulomb), loads and load groups,
-// stability (eccentricity, bearing, sliding, shear key) and the reinforced concrete design of the
-// stem, heel, toe and key. Kip, foot and ksf throughout; bars and covers in inches.
+// Cast-in-place cantilever retaining wall, AASHTO LRFD (9th ed.), per foot of wall: earth
+// pressure (Coulomb), loads and load groups (with a barrier and vehicle collision on top, if
+// any), stability (eccentricity, bearing, sliding, shear key) and the reinforced concrete design
+// of the stem, heel, toe and key. Kip, foot and ksf throughout; bars and covers in inches.
 
 export type Combo = "StrIa" | "StrIb" | "StrIV" | "ExtIIa" | "ExtIIb" | "SerI";
-export type Factors = { dc: number; ev: number; lsv: number; lsh: number; eh: number };
+export type Factors = { dc: number; ev: number; lsv: number; lsh: number; eh: number; ct: number };
 
 export const COMBOS: { id: Combo; name: string; use: string }[] = [
   { id: "StrIa", name: "Strength Ia", use: "Sliding, eccentricity (LS not over the heel)" },
   { id: "StrIb", name: "Strength Ib", use: "Bearing, strength design (LS over the heel)" },
   { id: "StrIV", name: "Strength IV", use: "Bearing" },
-  { id: "ExtIIa", name: "Extreme IIa", use: "Sliding, eccentricity" },
-  { id: "ExtIIb", name: "Extreme IIb", use: "Bearing" },
+  { id: "ExtIIa", name: "Extreme IIa", use: "Vehicle collision: sliding, eccentricity" },
+  { id: "ExtIIb", name: "Extreme IIb", use: "Vehicle collision: bearing, strength design" },
   { id: "SerI", name: "Service I", use: "Crack control" },
 ];
 
+/** AASHTO Table 3.4.1-1 with Table 3.4.1-2's γp (minimum for the vertical loads in the "a" groups,
+ * maximum in the "b" groups); Extreme Event II takes LS at 0.50 and CT at 1.00. */
 export const DEFAULT_FACTORS: Record<Combo, Factors> = {
-  StrIa: { dc: 0.9, ev: 1.0, lsv: 0, lsh: 1.75, eh: 1.5 },
-  StrIb: { dc: 1.25, ev: 1.35, lsv: 1.75, lsh: 1.75, eh: 1.5 },
-  StrIV: { dc: 1.5, ev: 1.35, lsv: 0, lsh: 0, eh: 1.5 },
-  ExtIIa: { dc: 1.0, ev: 1.0, lsv: 0, lsh: 0, eh: 0 },
-  ExtIIb: { dc: 1.0, ev: 1.0, lsv: 0.5, lsh: 0.5, eh: 1.0 },
-  SerI: { dc: 1.0, ev: 1.0, lsv: 1.0, lsh: 1.0, eh: 1.0 },
+  StrIa: { dc: 0.9, ev: 1.0, lsv: 0, lsh: 1.75, eh: 1.5, ct: 0 },
+  StrIb: { dc: 1.25, ev: 1.35, lsv: 1.75, lsh: 1.75, eh: 1.5, ct: 0 },
+  StrIV: { dc: 1.5, ev: 1.35, lsv: 0, lsh: 0, eh: 1.5, ct: 0 },
+  ExtIIa: { dc: 0.9, ev: 1.0, lsv: 0, lsh: 0.5, eh: 1.5, ct: 1.0 },
+  ExtIIb: { dc: 1.25, ev: 1.35, lsv: 0.5, lsh: 0.5, eh: 1.5, ct: 1.0 },
+  SerI: { dc: 1.0, ev: 1.0, lsv: 1.0, lsh: 1.0, eh: 1.0, ct: 0 },
 };
 
 /** A bar and its spacing (in). */
@@ -33,7 +35,7 @@ export type CipInputs = {
   phi: number; // deg
   delta: number | null; // wall–backfill friction, deg (null: 2/3 φ)
   kpOverride: number | null; // passive coefficient from AASHTO Fig. 3.11.5.4-1 (null: Coulomb)
-  efwMin: number; // kcf (36 pcf minimum)
+  efwMin: number; // kcf, a minimum active equivalent fluid weight if the owner sets one (0: none)
   // Subgrade
   qn: number; // nominal bearing resistance, ksf
   phiSub: number; // deg
@@ -56,6 +58,15 @@ export type CipInputs = {
   // Pavement
   pavementThickness: number; // in
   gammaPavement: number; // kcf
+  // Barrier on top of the wall
+  railWeight: number; // klf (0: none)
+  railCg: number; // in, its center of gravity from the stem's front face
+  // Vehicle collision on the barrier (AASHTO 3.6.5, Table A13.2-1), spread at 45° down the wall
+  collision: boolean;
+  ctForce: number; // Ft, kip
+  ctLength: number; // Lt, ft
+  ctHeight: number; // ft, top of the wall to the point of impact
+  ctAtEnd: boolean; // near the wall's end, so spread one way only
   // Geometry
   He: number; // exposed height, ft
   Df: number; // footing cover, ft
@@ -69,6 +80,8 @@ export type CipInputs = {
   shearKey: boolean;
   keyDepth: number; // in
   keyWidth: number; // in
+  keyFromHeel: number | null; // in, heel to the key's centerline (null: B/3)
+  toeFillIgnored: number; // ft of fill over the toe neglected in passive resistance (may be removed)
   // Reinforcement
   stemBars: Bars;
   stemTemp: Bars;
@@ -93,7 +106,7 @@ export const CIP_DEFAULTS: CipInputs = {
   phi: 25,
   delta: null,
   kpOverride: 9,
-  efwMin: 0.036,
+  efwMin: 0,
   qn: 1.5,
   phiSub: 25,
   fc: 4,
@@ -111,6 +124,13 @@ export const CIP_DEFAULTS: CipInputs = {
   trafficDistance: 0,
   pavementThickness: 0,
   gammaPavement: 0.14667,
+  railWeight: 0,
+  railCg: 6,
+  collision: false,
+  ctForce: 54,
+  ctLength: 3.5,
+  ctHeight: 2.67,
+  ctAtEnd: true,
   He: 2.5,
   Df: 1,
   Tt: 8,
@@ -123,6 +143,8 @@ export const CIP_DEFAULTS: CipInputs = {
   shearKey: true,
   keyDepth: 12,
   keyWidth: 12,
+  keyFromHeel: null,
+  toeFillIgnored: 1,
   stemBars: { bar: 4, spacing: 12 },
   stemTemp: { bar: 4, spacing: 12 },
   heelBars: { bar: 4, spacing: 12 },
@@ -263,36 +285,45 @@ export function designCipWall(i: CipInputs) {
   const Tb = Tt + T1 + T2;
   const C = B - A - Tb;
   if (C < 0) throw new DesignError("The toe and the stem are wider than the footing: there's no heel.");
-  const theta = i.backBatter > 0 ? deg(Math.atan(12 / i.backBatter)) : 90;
   const t = i.pavementThickness / 12;
   const h = H - t + (T2 + C) * Math.tan(rad(beta));
   const heq = i.liveLoad ? liveLoadHeq(H, i.trafficDistance) : 0;
 
   // --- loads (per ft, moments about the toe) ---------------------------------------------------
-  const Pa = 0.5 * efwA * h ** 2; // over the full retained height (AASHTO 3.11.5.1)
-  const Fsur = i.gammaS * heq * h * Ka;
-  const tilt = 90 - theta + delta;
+  // Earth pressure on the vertical plane through the heel, over the full retained height
+  // (AASHTO 3.11.5.1), inclined at δ to the normal.
+  const Pa = 0.5 * efwA * h ** 2;
+  const tilt = delta;
+  // Live load surcharge: a horizontal pressure k γs heq (AASHTO 3.11.6.4), and vertically over the
+  // heel beyond the edge of traffic.
+  const Fsur = efwA * heq * h;
+  const lsWidth = Math.max(T2 + C - i.trafficDistance, 0);
+  // Vehicle collision, spread at 45° from the impact down to a section z below it.
+  const ctAt = (z: number) => (i.collision ? i.ctForce / (i.ctAtEnd ? i.ctLength / 2 + z : i.ctLength + 2 * z) : 0);
+  const hCT = i.ctHeight + H;
   const L = (id: string, desc: string, force: number, arm: number): Load => ({ id, desc, force, arm, moment: force * arm });
   const vertical = {
     DC1: L("DC1", "Front batter stem dead load", 0.5 * T1 * hStem * i.gammaC, A + (2 / 3) * T1),
     DC2: L("DC2", "Stem dead load", Tt * hStem * i.gammaC, A + T1 + Tt / 2),
     DC3: L("DC3", "Back batter stem dead load", 0.5 * T2 * hStem * i.gammaC, A + T1 + Tt + T2 / 3),
     DC4: L("DC4", "Footing dead load", B * D * i.gammaC, B / 2),
+    DC5: L("DC5", "Barrier dead load", i.railWeight, A + T1 + i.railCg / 12),
     DC6: L("DC6", "Pavement dead load", t * i.gammaPavement * (T2 + C), B - (T2 + C) / 2),
     EV1: L("EV1", "Fill on the heel", C * (hStem - t) * i.gammaS, B - C / 2),
     EV2: L("EV2", "Fill on the heel (batter)", 0.5 * T2 * (hStem - t) * i.gammaS, A + T1 + Tt + (2 / 3) * T2),
     EV3: L("EV3", "Fill on the toe", A * Math.max(i.Df - D, 0) * i.gammaS, A / 2),
     EV4: L("EV4", "Fill in the backslope", 0.5 * (T2 + C) * ((T2 + C) * Math.tan(rad(beta))) * i.gammaS, A + T1 + Tt + (2 / 3) * (T2 + C)),
     EHV: L("EHV", "Vertical component of earth pressure", Pa * sin(tilt), B),
-    LSV: L("LSV", "Vertical component of live load surcharge", heq * (T2 + C) * i.gammaS, B - (T2 + C) / 2),
+    LSV: L("LSV", "Live load surcharge over the heel", heq * lsWidth * i.gammaS, B - lsWidth / 2),
   };
   const horizontal = {
     EHH: L("EHH", "Horizontal component of earth pressure", Pa * cos(tilt), h / 3),
-    LSH: L("LSH", "Horizontal component of live load surcharge", Fsur * cos(tilt), h / 2),
+    LSH: L("LSH", "Live load surcharge", Fsur, h / 2),
+    CT: L("CT", "Vehicle collision", ctAt(hCT), hCT),
   };
   const v = vertical;
   const sum = (ls: Load[], key: "force" | "moment") => ls.reduce((s, l) => s + l[key], 0);
-  const DCs = [v.DC1, v.DC2, v.DC3, v.DC4, v.DC6];
+  const DCs = [v.DC1, v.DC2, v.DC3, v.DC4, v.DC5, v.DC6];
   const EVs = [v.EV1, v.EV2, v.EV3, v.EV4];
   const groups = Object.fromEntries(
     (Object.keys(i.factors) as Combo[]).map((combo) => {
@@ -303,8 +334,8 @@ export function designCipWall(i: CipInputs) {
           combo,
           V: f.dc * sum(DCs, "force") + f.ev * sum(EVs, "force") + f.lsv * v.LSV.force + f.eh * v.EHV.force,
           MV: f.dc * sum(DCs, "moment") + f.ev * sum(EVs, "moment") + f.lsv * v.LSV.moment + f.eh * v.EHV.moment,
-          H: f.lsh * horizontal.LSH.force + f.eh * horizontal.EHH.force,
-          MH: f.lsh * horizontal.LSH.moment + f.eh * horizontal.EHH.moment,
+          H: f.lsh * horizontal.LSH.force + f.eh * horizontal.EHH.force + f.ct * horizontal.CT.force,
+          MH: f.lsh * horizontal.LSH.moment + f.eh * horizontal.EHH.moment + f.ct * horizontal.CT.moment,
         } satisfies Group,
       ];
     }),
@@ -312,18 +343,21 @@ export function designCipWall(i: CipInputs) {
   const resultant = (g: Group) => {
     const X = (g.MV - g.MH) / g.V;
     const e = Math.abs(B / 2 - X);
-    return { X, e, sigma: g.V / (B - 2 * e) };
+    // A resultant outside the base leaves no bearing width: the pressure has no limit.
+    return { X, e, sigma: g.V / Math.max(B - 2 * e, 1e-3) };
   };
 
   // --- stability ------------------------------------------------------------------------------
+  // Extreme Event II is checked when there's a collision load.
+  const ext = (...combos: Combo[]) => (i.collision ? combos : []);
   const eMax = B / 3;
-  for (const combo of ["StrIa", "StrIb", "ExtIIa"] as Combo[]) {
+  for (const combo of ["StrIa", "StrIb", ...ext("ExtIIa")] as Combo[]) {
     const r = resultant(groups[combo]);
     add({ id: `ecc-${combo}`, name: `Eccentricity, ${COMBOS.find((c) => c.id === combo)!.name}`, demand: r.e, capacity: eMax, unit: "ft", ref: "AASHTO 11.6.3.3" });
   }
   const qR = i.phiB * i.qn;
   const qREE = i.phiEE * i.qn;
-  for (const combo of ["StrIb", "StrIV", "ExtIIb"] as Combo[]) {
+  for (const combo of ["StrIb", "StrIV", ...ext("ExtIIb")] as Combo[]) {
     const r = resultant(groups[combo]);
     add({ id: `brg-${combo}`, name: `Bearing, ${COMBOS.find((c) => c.id === combo)!.name}`, demand: r.sigma, capacity: combo === "ExtIIb" ? qREE : qR, unit: "ksf", ref: "AASHTO 11.6.3.2" });
   }
@@ -336,27 +370,31 @@ export function designCipWall(i: CipInputs) {
   };
   const slideIa = sliding("StrIa");
   const slideEE = sliding("ExtIIa");
-  const keyNeeded = slideIa.RR < slideIa.H || slideEE.RR < slideEE.H;
+  const keyNeeded = slideIa.RR < slideIa.H || (i.collision && slideEE.RR < slideEE.H);
 
-  // Shear key (inert block; top 1 ft of fill at the toe ignored, BDM 11.5.1).
+  // Shear key: passive resistance of the inert block in front of it, with the fill over the toe
+  // that may be removed neglected (AASHTO 11.6.3.5).
   const key = (() => {
     const dKey = i.keyDepth / 12;
     const Dw = i.keyWidth / 12;
-    const K = B / 3;
+    const K = i.keyFromHeel !== null ? i.keyFromHeel / 12 : B / 3;
     const Xkey = B - K - Dw / 2;
-    const cover = Math.max(i.Df - D, 0);
     const c = dKey + Xkey * Math.tan(rad(deltaSub));
-    const y1 = Math.max(cover + D - 1, 0);
+    const y1 = Math.max(i.Df - i.toeFillIgnored, 0);
     const y2 = y1 + c;
     const Rep = efwP * ((y1 + y2) / 2) * c;
     const muSoil = i.phiT * mu;
     const muSoilSoil = i.phiTss * mu;
     const muEE = i.phiEE * mu;
+    // The base pressure, uniform over B − 2e on the resultant's side (as for bearing), in front
+    // of the key (R1) and behind it (R2): together, the vertical load.
     const resist = (combo: Combo) => {
       const g = groups[combo];
       const r = resultant(g);
-      const R1 = r.sigma * Xkey;
-      const R2 = r.sigma * (B - Xkey);
+      const [s0, s1] = r.X <= B / 2 ? [0, 2 * r.X] : [2 * r.X - B, B];
+      const over = (a: number, b: number) => Math.max(0, Math.min(b, s1) - Math.max(a, s0));
+      const R1 = Math.max(r.sigma, 0) * over(0, Xkey);
+      const R2 = Math.max(r.sigma, 0) * over(Xkey, B);
       const ee = combo === "ExtIIa";
       const Rtau = R1 * (ee ? muEE : muSoilSoil) * Math.cos(rad(deltaSub)) + R2 * (ee ? muEE : muSoil);
       return { ...r, R1, R2, Rtau, RR: Rtau + i.phiEp * Rep, H: g.H };
@@ -365,10 +403,10 @@ export function designCipWall(i: CipInputs) {
   })();
   if (i.shearKey) {
     add({ id: "slide-StrIa", name: "Sliding with shear key, Strength Ia", demand: key.StrIa.H, capacity: key.StrIa.RR, unit: "kip/ft", ref: "AASHTO 10.6.3.4" });
-    add({ id: "slide-ExtIIa", name: "Sliding with shear key, Extreme IIa", demand: key.ExtIIa.H, capacity: key.ExtIIa.RR, unit: "kip/ft", ref: "AASHTO 10.6.3.4" });
+    if (i.collision) add({ id: "slide-ExtIIa", name: "Sliding with shear key, Extreme IIa", demand: key.ExtIIa.H, capacity: key.ExtIIa.RR, unit: "kip/ft", ref: "AASHTO 10.6.3.4" });
   } else {
     add({ id: "slide-StrIa", name: "Sliding, Strength Ia", demand: slideIa.H, capacity: slideIa.RR, unit: "kip/ft", ref: "AASHTO 10.6.3.4" });
-    add({ id: "slide-ExtIIa", name: "Sliding, Extreme IIa", demand: slideEE.H, capacity: slideEE.RR, unit: "kip/ft", ref: "AASHTO 10.6.3.4" });
+    if (i.collision) add({ id: "slide-ExtIIa", name: "Sliding, Extreme IIa", demand: slideEE.H, capacity: slideEE.RR, unit: "kip/ft", ref: "AASHTO 10.6.3.4" });
   }
 
   // --- concrete ----------------------------------------------------------------------------------
@@ -376,18 +414,19 @@ export function designCipWall(i: CipInputs) {
   const Ec = 120000 * 1.0 * i.gammaC ** 2 * i.fc ** 0.33; // AASHTO 5.4.2.4
   const n = i.Es / Ec;
   const common = { fc: i.fc, fy: i.fy, Es: i.Es, phiF: i.phiF, n, beta1 };
-  const factored = (combo: Combo, force: { eh?: number; lsh?: number; dc?: number; ev?: number }) => {
+  const factored = (combo: Combo, force: { eh?: number; lsh?: number; dc?: number; ev?: number; ct?: number }) => {
     const f = i.factors[combo];
-    return (f.eh * (force.eh ?? 0) + f.lsh * (force.lsh ?? 0) + f.dc * (force.dc ?? 0) + f.ev * (force.ev ?? 0));
+    return f.eh * (force.eh ?? 0) + f.lsh * (force.lsh ?? 0) + f.dc * (force.dc ?? 0) + f.ev * (force.ev ?? 0) + f.ct * (force.ct ?? 0);
   };
-  const designCombos: Combo[] = ["StrIb", "StrIV", "ExtIIb"];
+  const designCombos: Combo[] = ["StrIb", "StrIV", ...ext("ExtIIb")];
 
   // Stem, at its base.
   const hs = hStem - t;
   const stemEH = { force: cos(delta) * 0.5 * efwA * hs ** 2, arm: hs / 3 };
   const stemLS = { force: efwA * heq * hs, arm: hs / 2 };
-  const stemV = Math.max(...designCombos.map((c) => factored(c, { eh: stemEH.force, lsh: stemLS.force })));
-  const stemMu = Math.max(...designCombos.map((c) => factored(c, { eh: stemEH.force * stemEH.arm, lsh: stemLS.force * stemLS.arm })));
+  const stemCT = { force: ctAt(i.ctHeight + hStem), arm: i.ctHeight + hStem };
+  const stemV = Math.max(...designCombos.map((c) => factored(c, { eh: stemEH.force, lsh: stemLS.force, ct: stemCT.force })));
+  const stemMu = Math.max(...designCombos.map((c) => factored(c, { eh: stemEH.force * stemEH.arm, lsh: stemLS.force * stemLS.arm, ct: stemCT.force * stemCT.arm })));
   const stemMs = factored("SerI", { eh: stemEH.force * stemEH.arm, lsh: stemLS.force * stemLS.arm });
   const stem = flexure({ ...common, Mu: stemMu, Ms: stemMs, h: Tb * 12, cover: i.coverStem, bars: i.stemBars, exposure: i.exposureStem });
   add({ id: "stem-flexure", name: "Stem flexure", demand: stemMu, capacity: stem.MR, unit: "kip·ft/ft", ref: "AASHTO 5.6.3.2" });
@@ -397,7 +436,7 @@ export function designCipWall(i: CipInputs) {
   const stemShear = (() => {
     const dv = Math.max(stem.de - stem.a / 2, 0.9 * stem.de, 0.72 * Tb * 12);
     const Mu = Math.max(stemMu, (stemV * dv) / 12) * 12; // kip·in
-    const Nu = -1.25 * (v.DC1.force + v.DC2.force + v.DC3.force); // compression
+    const Nu = -1.25 * (v.DC1.force + v.DC2.force + v.DC3.force + v.DC5.force); // compression
     const epsS = Math.min(Math.max((Mu / dv + 0.5 * Nu + stemV) / (i.Es * stem.As), 0), 0.006);
     const tempAs = (BARS[i.stemTemp.bar].area * 12) / i.stemTemp.spacing;
     const sx = 2 * tempAs >= 0.003 * stem.de * i.stemTemp.spacing ? Math.min(dv, i.stemTemp.spacing) : dv;
@@ -461,12 +500,12 @@ export function designCipWall(i: CipInputs) {
     ok: checks.every((c) => c.ok),
     checks,
     soil: { beta, delta, Ka, KpCoulomb, Kp, efwA, efwP, deltaSub, mu },
-    geometry: { H, hStem, T1, T2, Tb, C, theta, t, h, heq, D, B, A, Tt },
+    geometry: { H, hStem, T1, T2, Tb, C, t, h, heq, lsWidth, hCT, D, B, A, Tt },
     loads: { Pa, Fsur, vertical, horizontal },
     groups,
     stability: { eMax, qR, qREE, slideIa, slideEE, keyNeeded, key },
     concrete: { beta1, Ec, n },
-    stem: { V: stemV, Mu: stemMu, Ms: stemMs, flex: stem, shear: stemShear, temp: stemTemp, EH: stemEH, LS: stemLS },
+    stem: { V: stemV, Mu: stemMu, Ms: stemMs, flex: stem, shear: stemShear, temp: stemTemp, EH: stemEH, LS: stemLS, CT: stemCT },
     heel: { V: heelV, Mu: heelMu, Ms: heelMs, flex: heel, VR: heelVR, temp: heelTemp },
     toe: { sigmaMax, Vu: toeVu, Mu: toeMu, Ms: toeMs, flex: toe, VR: toeVR, temp: toeTemp },
     keyDesign: keyDesign && { Mu: keyMu, flex: keyDesign },

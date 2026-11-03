@@ -31,6 +31,8 @@ describe("CIP wall calc package", () => {
   for (const [name, inputs] of [
     ["the sheet's wall", CIP_DEFAULTS],
     ["a taller wall with batters, backslope, live load, pavement and toe fill", { ...CIP_DEFAULTS, He: 9, Df: 3, B: 84, A: 24, D: 18, Tt: 12, frontBatter: 0.25, backBatter: 0.5, backslope: 3, liveLoad: true, pavementThickness: 6, kpOverride: null, stemBars: { bar: 6, spacing: 8 } }],
+    ["a wall with a barrier, vehicle collision at its end, a placed key and a minimum fluid weight", { ...CIP_DEFAULTS, He: 13, Df: 3.25, B: 120, A: 33, D: 15, Tt: 18, backBatter: 0.2, gammaS: 0.13, phi: 34, kpOverride: 7.6, efwMin: 0.036, qn: 7.5, phiSub: 20, fc: 4.5, phiT: 1, liveLoad: true, trafficDistance: 2, railWeight: 0.486, railCg: 6.84, collision: true, keyFromHeel: 42, keyDepth: 12, keyWidth: 18, stemBars: { bar: 5, spacing: 6 }, heelBars: { bar: 6, spacing: 6 }, toeBars: { bar: 5, spacing: 6 }, keyBars: { bar: 4, spacing: 6 } }],
+    ["the same wall with collision spread both ways, the resultant behind the middle", { ...CIP_DEFAULTS, He: 13, Df: 3.25, B: 120, A: 70, D: 15, Tt: 18, gammaS: 0.13, phi: 34, qn: 7.5, phiSub: 20, railWeight: 0.486, collision: true, ctAtEnd: false, keyDepth: 12, keyWidth: 18 }],
   ] as [string, CipInputs][]) {
     it(`works out ${name} with no errors, matching the engine`, () => {
       const r = designCipWall(inputs);

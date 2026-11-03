@@ -1,5 +1,5 @@
 import { CBC_DEFAULTS, type CbcInputs } from "./culverts/cbc";
-import { CIP_DEFAULTS, DEFAULT_FACTORS, type CipInputs } from "./walls/cip";
+import { CIP_DEFAULTS, DEFAULT_FACTORS, type CipInputs, type Combo } from "./walls/cip";
 import { MSE_DEFAULTS, MSE_FACTORS, type MseInputs } from "./walls/mse";
 
 // The Design section's categories and design types: highway structures to AASHTO LRFD, grouped
@@ -36,10 +36,12 @@ export const CATEGORIES: { id: string; name: string; kinds: { id: DesignKind; na
 
 export const kindInfo = (kind: string) => CATEGORIES.flatMap((c) => c.kinds).find((k) => k.id === kind);
 
-/** A CIP wall's inputs as saved, filled in from the defaults (for fields added since). */
+/** A CIP wall's inputs as saved, filled in from the defaults (for fields added since, each load
+ * group's factors too). */
 export function cipInputs(saved: unknown): CipInputs {
   const s = (saved && typeof saved === "object" ? saved : {}) as Partial<CipInputs>;
-  return { ...CIP_DEFAULTS, ...s, factors: { ...DEFAULT_FACTORS, ...(s.factors ?? {}) } };
+  const factors = Object.fromEntries((Object.keys(DEFAULT_FACTORS) as Combo[]).map((c) => [c, { ...DEFAULT_FACTORS[c], ...(s.factors?.[c] ?? {}) }])) as CipInputs["factors"];
+  return { ...CIP_DEFAULTS, ...s, factors };
 }
 
 /** An MSE wall's inputs as saved, filled in from the defaults. */

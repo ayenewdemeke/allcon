@@ -86,6 +86,14 @@ describe("CIP cantilever wall: the sheet's example", () => {
     expect(tall.checks.find((c) => c.id === "slide-StrIa")!.ok).toBe(false);
   });
 
+  it("fails bearing when a collision pushes the resultant outside the base", () => {
+    const hit = designCipWall({ ...CIP_DEFAULTS, railWeight: 0.486, collision: true });
+    expect(hit.checks.find((c) => c.id === "ecc-ExtIIa")!.ok).toBe(false);
+    expect(hit.checks.find((c) => c.id === "brg-ExtIIb")!.ok).toBe(false);
+    // Without a collision there's no Extreme Event II to check.
+    expect(r.checks.some((c) => c.id.includes("ExtII"))).toBe(false);
+  });
+
   it("says why it can't design a wall from impossible inputs", () => {
     expect(() => designCipWall({ ...CIP_DEFAULTS, backslope: 2 })).toThrow(DesignError);
     expect(() => designCipWall({ ...CIP_DEFAULTS, B: 10 })).toThrow(/no heel/);
