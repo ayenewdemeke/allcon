@@ -18,7 +18,7 @@ export default async function DesignPage() {
 
   return (
     <PageBody>
-      <PageHeader title="Design" description="Structural designs worked out as you enter them, with every check and its code reference, and a calc package to print." actions={<NewDesignMenu categories={categories} />} />
+      <PageHeader title="Design" description="Highway structures to AASHTO LRFD, worked out as you enter them, with every check and its code reference, and a calc package to print." actions={<NewDesignMenu categories={categories} />} />
       {designs.length === 0 ? (
         <Card>
           <CardContent className="space-y-4 py-5">
