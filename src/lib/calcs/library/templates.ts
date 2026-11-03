@@ -1,5 +1,6 @@
 import { newId } from "../document";
 import type { UnitSystem } from "../evaluate";
+import { textLook } from "../text-format";
 import { contentSize, GRID, type ImageRegion, type Paper, type PlotRegion, type Region, type SolveRegion, type TableRegion, type TextRegion } from "../types";
 import type { Snippet } from "./materials";
 
@@ -32,6 +33,11 @@ function mathHeight(latex: string) {
 
 const textHeight = (text: string, style: TextRegion["style"] = "normal", width = 600) =>
   style === "heading" ? 40 : style === "subheading" ? 36 : 8 + text.split("\n").reduce((n, line) => n + Math.max(1, Math.ceil((line.length * (style === "note" ? 6 : 7)) / width)), 0) * 20;
+/** The same, for text in its own size (scaled from its style's). */
+const sizedTextHeight = (r: { text: string; style: TextRegion["style"]; width?: number; size?: number }) => {
+  const h = textHeight(r.text, r.style, r.width || 600);
+  return r.size ? (h * r.size) / textLook({ style: r.style }).size : h;
+};
 
 /** Roughly how tall a region is on the page (before it's drawn and measured). */
 export function regionHeight(r: Body<Region>): number {
@@ -39,7 +45,7 @@ export function regionHeight(r: Body<Region>): number {
     case "math":
       return mathHeight(r.latex);
     case "text":
-      return textHeight(r.text, r.style, r.width || 600);
+      return sizedTextHeight(r);
     case "section":
       return r.compact ? 64 : 176;
     case "table":

@@ -4,6 +4,7 @@ import { useCallback, useEffect, useImperativeHandle, useRef, useState } from "r
 import { newId, type CalcDocument } from "@/lib/calcs/document";
 import type { Result } from "@/lib/calcs/evaluate";
 import { greekify } from "@/lib/calcs/parse";
+import { stepSize, textLook, textMiddle, type TextFormat, type TextLook } from "@/lib/calcs/text-format";
 import { contentSize, gridStep, PAGES, type Header, type MathRegion, type PlotRegion, type Region, type SectionRegion, type SolveRegion, type TableRegion, type TextRegion } from "@/lib/calcs/types";
 import { cn } from "@/lib/utils";
 import { loadMathLive, type MathfieldElement } from "./mathlive";
@@ -21,8 +22,7 @@ export type Cursor = { x: number; y: number };
 const PAGE_GAP = 24;
 /** How far below a region's top its first line's middle is (padding, then half a line). */
 const MATH_MIDDLE = 16;
-const TEXT_MIDDLE: Record<TextRegion["style"], number> = { normal: 12, heading: 16, subheading: 13, note: 10 };
-const lineMiddle = (r: Region) => (r.kind === "text" ? TEXT_MIDDLE[r.style] : MATH_MIDDLE);
+const lineMiddle = (r: Region) => (r.kind === "text" ? textMiddle(textLook(r).size) : MATH_MIDDLE);
 
 /** Regions made of several pieces (tables, plots, solve blocks, sections): edited until a click
  * elsewhere. */
@@ -40,6 +40,12 @@ export type WorksheetHandle = {
   insertRegions: (regions: Region[]) => void;
   /** Sets the color of the selected text and math (and what's being edited); none is black. */
   setColor: (color: string | undefined) => void;
+  /** Sets the font or size of the selected text (and what's being edited). */
+  setTextFormat: (format: Pick<TextFormat, "font" | "size">) => void;
+  /** Turns bold, italic or underline on for the selected text, or off if it's all on already. */
+  toggleText: (key: "bold" | "italic" | "underline") => void;
+  /** Grows or shrinks the selected text by a size. */
+  stepTextSize: (dir: 1 | -1) => void;
   /** Where this person is, for others: the region they're editing, or their crosshair. */
   presence: () => { region: string | null; cursor: [number, number] | null };
 };
@@ -56,6 +62,7 @@ export function Worksheet({
   setDrafts,
   handle,
   others = [],
+  onTextLook,
 }: {
   doc: CalcDocument;
   version: number;
@@ -65,6 +72,8 @@ export function Worksheet({
   setDrafts: (update: (d: Map<string, string>) => Map<string, string>) => void;
   handle: React.RefObject<WorksheetHandle | null>;
   others?: Other[];
+  /** How the selected (or edited) text looks, for the ribbon; null when no text is selected. */
+  onTextLook?: (look: TextLook | null) => void;
 }) {
   void version;
   const [ml, setMl] = useState<MathLive | null>(null);
@@ -176,13 +185,69 @@ export function Worksheet({
     }
   };
 
-  const commitText = (r: TextRegion, text: string) => {
+  const commitText = (r: TextRegion, text: string, then?: { below: number }) => {
     if (editingNow.current === r.id) setEditing(null);
     const current = doc.regions.get(r.id);
     if (!current || current.kind !== "text") return;
     if (!text.trim()) doc.remove(r.id);
     else if (current.text !== text) doc.put({ ...current, text });
+    if (then) {
+      const h = text.trim() ? then.below : 0;
+      setSelection(new Set());
+      setCursor({ x: r.x, y: below(r.y + h + MATH_MIDDLE + 2) });
+    }
   };
+
+  /** The text regions a format applies to: the selected ones and the one being edited. */
+  const textTargets = () =>
+    [...new Set([...selection, ...(editingNow.current ? [editingNow.current] : [])])].map((id) => doc.regions.get(id)).filter((r): r is TextRegion => r?.kind === "text");
+
+  const formatText = (update: (r: TextRegion) => TextFormat) =>
+    doc.transact(() =>
+      textTargets().forEach((r) => {
+        const next = { ...r, ...update(r) };
+        if (JSON.stringify(next) === JSON.stringify(r)) return;
+        doc.put(next);
+        const h = sizes.get(r.id)?.h;
+        if (h === undefined) return;
+        growing.current.set(r.id, h);
+        setTimeout(() => growing.current.get(r.id) === h && growing.current.delete(r.id), 1000);
+      }),
+    );
+
+  // Text made bigger moves what's below it down, as in Mathcad, so they don't overlap.
+  const growing = useRef(new Map<string, number>());
+  useEffect(() => {
+    for (const [id, before] of growing.current) {
+      const r = doc.regions.get(id);
+      const now = sizes.get(id);
+      if (!r || !now || now.h === before) continue;
+      growing.current.delete(id);
+      if (now.h < before) continue;
+      const oldBottom = r.y + before;
+      const below = [...doc.regions.values()].filter((o) => o.id !== id && o.y >= oldBottom - 2);
+      const beside = below.filter((o) => o.x < r.x + now.w && o.x + (sizes.get(o.id)?.w ?? 0) > r.x);
+      if (!beside.length) continue;
+      const gap = Math.min(...beside.map((o) => o.y)) - oldBottom;
+      const push = Math.ceil((now.h - before - gap + 4) / step) * step;
+      if (push > 0) doc.transact(() => below.forEach((o) => doc.put({ ...o, y: o.y + push })));
+    }
+  }, [sizes, doc, step]);
+
+  const toggleText = (key: "bold" | "italic" | "underline") => {
+    const targets = textTargets();
+    const on = !targets.every((r) => textLook(r)[key]);
+    formatText(() => ({ [key]: on }));
+  };
+
+  // The ribbon shows how the selected text looks.
+  const lookKey = (() => {
+    const first = textTargets()[0];
+    return first ? JSON.stringify(textLook(first)) : "";
+  })();
+  useEffect(() => {
+    onTextLook?.(lookKey ? (JSON.parse(lookKey) as TextLook) : null);
+  }, [lookKey, onTextLook]);
 
   useImperativeHandle(handle, () => ({
     insertMath: (latex: string) => {
@@ -231,6 +296,9 @@ export function Worksheet({
         }),
       );
     },
+    setTextFormat: (format) => formatText(() => format),
+    toggleText,
+    stepTextSize: (dir) => formatText((r) => ({ size: stepSize(textLook(r).size, dir) })),
     presence: () => {
       const c = cursorNow.current;
       return { region: editingNow.current, cursor: c ? [c.x, c.y] : null };
@@ -326,6 +394,11 @@ export function Worksheet({
       if (ctrl && key === "t") {
         e.preventDefault();
         handle.current?.addText("normal");
+        return;
+      }
+      if (ctrl && !e.shiftKey && (key === "b" || key === "i" || key === "u") && [...selection].some((id) => doc.regions.get(id)?.kind === "text")) {
+        e.preventDefault();
+        handle.current?.toggleText(key === "b" ? "bold" : key === "i" ? "italic" : "underline");
         return;
       }
       if (editingComposite) {
@@ -562,7 +635,7 @@ export function Worksheet({
                             }}
                           />
                         ) : r.kind === "text" ? (
-                          <TextRegionView region={r} editing={editing === r.id} selected={selection.has(r.id)} maxWidth={content.width - r.x} onCommit={(text) => commitText(r, text)} />
+                          <TextRegionView region={r} editing={editing === r.id} selected={selection.has(r.id)} maxWidth={content.width - r.x} onCommit={(text, then) => commitText(r, text, then)} onFormat={toggleText} />
                         ) : r.kind === "table" ? (
                           <TableRegionView ml={ml} region={r} result={results.get(r.id)} editing={editing === r.id} selected={selection.has(r.id)} onChange={change<TableRegion>(r.id)} />
                         ) : r.kind === "plot" ? (

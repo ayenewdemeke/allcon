@@ -12,6 +12,7 @@ import type { ImportReport } from "@/lib/calcs/import";
 import { evaluateSheet, putSymbolicAnswers, retrySymbolic, takeSymbolicRequests, type SheetItem, type SymbolicAnswer, type UnitSystem } from "@/lib/calcs/evaluate";
 import { loadShapes } from "@/lib/calcs/library/shapes";
 import { findTemplate, layout } from "@/lib/calcs/library/templates";
+import type { TextLook } from "@/lib/calcs/text-format";
 import { emptyCalc, PAGES, readingOrder, type CalcData } from "@/lib/calcs/types";
 import { People, personColor } from "@/components/drafting/presence";
 import { useRouter } from "next/navigation";
@@ -112,6 +113,7 @@ function Workspace({ doc, calc, projects, backHref }: { doc: CalcDocument; calc:
   const [zoom, setZoom] = useState(1);
   const [save, setSave] = useState<SaveState>("saved");
   const worksheet = useRef<WorksheetHandle | null>(null);
+  const [textLook, setTextLook] = useState<TextLook | null>(null);
   // The steel shapes table, loaded alongside (sections work out once it's here).
   const [shapes, setShapes] = useState(false);
   useEffect(() => {
@@ -366,6 +368,7 @@ function Workspace({ doc, calc, projects, backHref }: { doc: CalcDocument; calc:
       <CalcRibbon
         doc={doc}
         worksheet={worksheet}
+        text={textLook}
         quickAccess={
           <>
             <LinkButton href={backHref} variant="ghost" size="icon-xs" aria-label="Back to worksheets" title="Back to worksheets">
@@ -402,7 +405,7 @@ function Workspace({ doc, calc, projects, backHref }: { doc: CalcDocument; calc:
       />
       {imported && <ImportSummary report={imported} errors={errors} onClose={() => setImported(null)} />}
       <div className="calc-scroll min-h-0 flex-1 overflow-auto bg-neutral-200 dark:bg-neutral-800">
-        <Worksheet doc={doc} version={version} results={results} zoom={zoom} drafts={drafts} setDrafts={setDrafts} handle={worksheet} others={others} />
+        <Worksheet doc={doc} version={version} results={results} zoom={zoom} drafts={drafts} setDrafts={setDrafts} handle={worksheet} others={others} onTextLook={setTextLook} />
       </div>
       <div className="no-print flex h-8 items-center gap-3 border-t bg-muted/40 px-3 text-xs text-muted-foreground">
         <span>{doc.regions.size} regions</span>

@@ -1,20 +1,22 @@
 "use client";
 
 import { useState } from "react";
-import { Calculator, ChartSpline, FileText, FolderKanban, Grid2x2, Grid3x3, Heading1, Heading2, LayoutTemplate, Loader2, Printer, Ruler, Send, Sigma, SquareFunction, StickyNote, Table2, Type } from "lucide-react";
+import { AArrowDown, AArrowUp, Bold, Calculator, ChartSpline, FileText, FolderKanban, Grid2x2, Grid3x3, Heading1, Heading2, Italic, LayoutTemplate, Loader2, Printer, Ruler, Send, Sigma, SquareFunction, StickyNote, Table2, Type, Underline } from "lucide-react";
 import type { CalcDocument } from "@/lib/calcs/document";
 import { CALC_COLORS } from "@/lib/calcs/colors";
 import { materials } from "@/lib/calcs/library/materials";
 import { layout, snippetLines, TEMPLATES } from "@/lib/calcs/library/templates";
-import { PAGES, type Paper } from "@/lib/calcs/types";
+import { ptToPx, pxToPt, TEXT_FONTS, TEXT_SIZES_PT, type TextLook } from "@/lib/calcs/text-format";
+import { PAGES, type Paper, type TextFont } from "@/lib/calcs/types";
 import { cn } from "@/lib/utils";
 import type { WorksheetHandle } from "./worksheet";
 
 // The ribbon, as Mathcad Prime's: Math (regions, operators, calculus, Greek, units), Functions
-// (functions, programming, solving), Matrices/Tables, Plots, Calculation (unit system, result
-// format) and Document (paper, the calc paper's header, print).
+// (functions, programming, solving), Matrices/Tables, Plots, Text Formatting (font, size, bold,
+// italic, underline, color), Calculation (unit system, result format) and Document (paper, the
+// calc paper's header, print).
 
-type Tab = "math" | "functions" | "matrices" | "plots" | "library" | "calculation" | "document";
+type Tab = "math" | "functions" | "matrices" | "plots" | "text" | "library" | "calculation" | "document";
 
 function Panel({ title, children }: { title: string; children: React.ReactNode }) {
   return (
@@ -166,18 +168,50 @@ const unitLatex = (u: string) => {
 /** The worksheet's project (it can be filed under one), and publishing it to that project's Sheets. */
 export type ProjectLink = { projects: { id: string; name: string }[]; projectId: string | null; onProject: (id: string | null) => void; onPublish: () => void; publishing: boolean };
 
+/** The color swatches: for the selected text and math. */
+function Colors({ worksheet }: { worksheet: React.RefObject<WorksheetHandle | null> }) {
+  return (
+    <div className="grid grid-cols-4 gap-1 pt-1">
+      {CALC_COLORS.map((c) => (
+        <button
+          key={c.name}
+          type="button"
+          title={`${c.name}: the selected text and math`}
+          aria-label={`Color ${c.name}`}
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={() => worksheet.current?.setColor(c.value)}
+          className="size-5 rounded-full border border-black/10 hover:ring-2 hover:ring-primary/40"
+          style={{ background: c.value ?? "#171717" }}
+        />
+      ))}
+    </div>
+  );
+}
+
+/** A format that's on or off (bold, italic, underline), shown pressed when it's on. */
+function Toggle({ icon: Icon, label, on, disabled, onClick }: { icon: React.ComponentType<{ className?: string }>; label: string; on: boolean; disabled: boolean; onClick: () => void }) {
+  return (
+    <button type="button" title={label} aria-label={label} aria-pressed={on} disabled={disabled} onMouseDown={(e) => e.preventDefault()} onClick={onClick} className={cn("flex size-7 items-center justify-center rounded border border-transparent hover:bg-accent disabled:opacity-40", on && "border-border bg-accent")}>
+      <Icon className="size-4" />
+    </button>
+  );
+}
+
 export function CalcRibbon({
   doc,
   worksheet,
   quickAccess,
   status,
   project,
+  text,
 }: {
   doc: CalcDocument;
   worksheet: React.RefObject<WorksheetHandle | null>;
   quickAccess: React.ReactNode;
   status: React.ReactNode;
   project: ProjectLink;
+  /** How the selected text looks; null when no text is selected. */
+  text: TextLook | null;
 }) {
   const [tab, setTab] = useState<Tab>("math");
   const insert = (latex: string) => worksheet.current?.insertMath(latex);
@@ -199,6 +233,7 @@ export function CalcRibbon({
             ["functions", "Functions"],
             ["matrices", "Matrices/Tables"],
             ["plots", "Plots"],
+            ["text", "Text Formatting"],
             ["library", "Library"],
             ["calculation", "Calculation"],
             ["document", "Document"],
@@ -224,20 +259,7 @@ export function CalcRibbon({
               <Big icon={SquareFunction} label="Solve block" title="A solve block: guess values, constraints and a solver (find)" onClick={() => worksheet.current?.addSolve()} />
             </Panel>
             <Panel title="Color">
-              <div className="grid grid-cols-4 gap-1 pt-1">
-                {CALC_COLORS.map((c) => (
-                  <button
-                    key={c.name}
-                    type="button"
-                    title={`${c.name}: the selected text and math`}
-                    aria-label={`Color ${c.name}`}
-                    onMouseDown={(e) => e.preventDefault()}
-                    onClick={() => worksheet.current?.setColor(c.value)}
-                    className="size-5 rounded-full border border-black/10 hover:ring-2 hover:ring-primary/40"
-                    style={{ background: c.value ?? "#171717" }}
-                  />
-                ))}
-              </div>
+              <Colors worksheet={worksheet} />
             </Panel>
             <Panel title="Operators">
               <div className="grid grid-cols-6 gap-0.5 pt-0.5">
@@ -274,6 +296,67 @@ export function CalcRibbon({
                   </select>
                 ))}
               </div>
+            </Panel>
+          </>
+        )}
+        {tab === "text" && (
+          <>
+            <Panel title="Insert">
+              <Big icon={Type} label="Text" title='A text region (" or Ctrl+T)' onClick={() => worksheet.current?.addText("normal")} />
+              <div className="flex flex-col gap-0.5 pt-0.5">
+                <SmallButton icon={Heading1} label="Heading" onClick={() => worksheet.current?.addText("heading")} />
+                <SmallButton icon={Heading2} label="Subheading" onClick={() => worksheet.current?.addText("subheading")} />
+                <SmallButton icon={StickyNote} label="Note" onClick={() => worksheet.current?.addText("note")} />
+              </div>
+            </Panel>
+            <Panel title="Font">
+              <div className="flex flex-col gap-1 pt-0.5" title={text ? undefined : "Select or edit text to format it"}>
+                <select
+                  aria-label="Font"
+                  value={text?.font ?? "sans"}
+                  disabled={!text}
+                  onChange={(e) => worksheet.current?.setTextFormat({ font: e.target.value as TextFont })}
+                  className="h-6 w-32 rounded border bg-background px-1 text-[11px] disabled:opacity-40"
+                >
+                  {TEXT_FONTS.map((f) => (
+                    <option key={f.id} value={f.id}>
+                      {f.label}
+                    </option>
+                  ))}
+                </select>
+                <div className="flex items-center gap-1">
+                  <select
+                    aria-label="Font size"
+                    value={text ? String(pxToPt(text.size)) : ""}
+                    disabled={!text}
+                    onChange={(e) => worksheet.current?.setTextFormat({ size: ptToPx(Number(e.target.value)) })}
+                    className="h-6 w-16 rounded border bg-background px-1 text-[11px] disabled:opacity-40"
+                  >
+                    {text && !TEXT_SIZES_PT.includes(pxToPt(text.size)) && <option value={String(pxToPt(text.size))}>{pxToPt(text.size)}</option>}
+                    {!text && <option value="">Size</option>}
+                    {TEXT_SIZES_PT.map((pt) => (
+                      <option key={pt} value={String(pt)}>
+                        {pt}
+                      </option>
+                    ))}
+                  </select>
+                  <Toggle icon={AArrowUp} label="Grow font" on={false} disabled={!text} onClick={() => worksheet.current?.stepTextSize(1)} />
+                  <Toggle icon={AArrowDown} label="Shrink font" on={false} disabled={!text} onClick={() => worksheet.current?.stepTextSize(-1)} />
+                </div>
+              </div>
+            </Panel>
+            <Panel title="Style">
+              <div className="flex items-start gap-0.5 pt-0.5">
+                <Toggle icon={Bold} label="Bold (Ctrl+B)" on={!!text?.bold} disabled={!text} onClick={() => worksheet.current?.toggleText("bold")} />
+                <Toggle icon={Italic} label="Italic (Ctrl+I)" on={!!text?.italic} disabled={!text} onClick={() => worksheet.current?.toggleText("italic")} />
+                <Toggle icon={Underline} label="Underline (Ctrl+U)" on={!!text?.underline} disabled={!text} onClick={() => worksheet.current?.toggleText("underline")} />
+              </div>
+            </Panel>
+            <Panel title="Color">
+              <Colors worksheet={worksheet} />
+            </Panel>
+            <Panel title="Keys">
+              <div className="w-44 pt-0.5 text-[11px] leading-snug text-muted-foreground">Enter ends the text and moves below it. Shift+Enter starts a new line.</div>
             </Panel>
           </>
         )}

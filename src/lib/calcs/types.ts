@@ -7,7 +7,24 @@ import { DEFAULT_SETTINGS, type Settings } from "./evaluate";
 /** Text and math can have a color (hex); none is black. */
 export type MathRegion = { id: string; kind: "math"; x: number; y: number; latex: string; displayUnit?: string; color?: string };
 export type TextStyle = "normal" | "heading" | "subheading" | "note";
-export type TextRegion = { id: string; kind: "text"; x: number; y: number; text: string; style: TextStyle; width: number; color?: string };
+export type TextFont = "sans" | "serif" | "mono";
+/** Text in a style (heading, note...), with its own font, size (CSS px), bold, italic and
+ * underline on top where they're set (see text-format.ts). */
+export type TextRegion = {
+  id: string;
+  kind: "text";
+  x: number;
+  y: number;
+  text: string;
+  style: TextStyle;
+  width: number;
+  color?: string;
+  font?: TextFont;
+  size?: number;
+  bold?: boolean;
+  italic?: boolean;
+  underline?: boolean;
+};
 /** A table (Mathcad's): each column a vector, named by its header, in its unit. */
 export type TableRegion = { id: string; kind: "table"; x: number; y: number; columns: { name: string; unit: string }[]; rows: string[][] };
 /** An X-Y plot: traces of y against x (expressions, usually in a range variable or vectors). */

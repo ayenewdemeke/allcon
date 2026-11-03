@@ -11,7 +11,8 @@ import { verdictColor } from "./colors";
 import { uprightUnits, type Result } from "./evaluate";
 import { SHAPES_SOURCE } from "./library/shapes";
 import { regionHeight } from "./library/templates";
-import { contentSize, DEFAULT_GRID, gridStep, PAGES, type CalcData, type Region, type TextRegion } from "./types";
+import { textLook } from "./text-format";
+import { contentSize, DEFAULT_GRID, gridStep, PAGES, type CalcData, type Region, type TextFont } from "./types";
 
 // A worksheet as a PDF, laid out as it prints from the editor: the calc paper's header on each
 // page and the regions where they're placed. Math is set by MathJax and drawn as vector outlines,
@@ -58,7 +59,16 @@ function setMath(latex: string, size: number, color = "#171717"): Math | null {
 
 // --- drawing ---------------------------------------------------------------------------------------
 
-type Fonts = { regular: PDFFont; bold: PDFFont; italic: PDFFont };
+/** Helvetica for the sheet; `text` holds each font face text regions use ("serif bold italic"). */
+type Fonts = { regular: PDFFont; bold: PDFFont; italic: PDFFont; text: Map<string, PDFFont> };
+
+// The PDF's standard fonts for each text font: regular, bold, italic, bold italic.
+const FACES: Record<TextFont, [StandardFonts, StandardFonts, StandardFonts, StandardFonts]> = {
+  sans: [StandardFonts.Helvetica, StandardFonts.HelveticaBold, StandardFonts.HelveticaOblique, StandardFonts.HelveticaBoldOblique],
+  serif: [StandardFonts.TimesRoman, StandardFonts.TimesRomanBold, StandardFonts.TimesRomanItalic, StandardFonts.TimesRomanBoldItalic],
+  mono: [StandardFonts.Courier, StandardFonts.CourierBold, StandardFonts.CourierOblique, StandardFonts.CourierBoldOblique],
+};
+const face = (font: TextFont, bold: boolean, italic: boolean) => FACES[font][(bold ? 1 : 0) + (italic ? 2 : 0)];
 const color = (hex: string) => rgb(parseInt(hex.slice(1, 3), 16) / 255, parseInt(hex.slice(3, 5), 16) / 255, parseInt(hex.slice(5, 7), 16) / 255);
 const GREEK: Record<string, string> = { α: "alpha", β: "beta", γ: "gamma", δ: "delta", ε: "epsilon", θ: "theta", λ: "lambda", μ: "mu", π: "pi", ρ: "rho", σ: "sigma", τ: "tau", φ: "phi", ψ: "psi", ω: "omega", Δ: "Delta", Σ: "Sigma", Ω: "Omega" };
 
@@ -157,13 +167,6 @@ function drawHeader(s: Sheet, data: CalcData, page: number, pages: number) {
   cell("Date", h.date, xs[3], xs[4], top + rowH);
 }
 
-const TEXT_STYLE: Record<TextRegion["style"], { size: number; font: keyof Fonts; color: string }> = {
-  normal: { size: 14, font: "regular", color: "#171717" },
-  heading: { size: 20, font: "bold", color: "#171717" },
-  subheading: { size: 16, font: "bold", color: "#171717" },
-  note: { size: 12, font: "italic", color: "#525252" },
-};
-
 /** A picture's SVG as the PDF draws it: hatching (patterns) as a light fill (lighter for a fill
  * pattern than for soil), polylines as paths, no markers, and text in Helvetica (the PDF's
  * font). Dashed lines print solid. */
@@ -180,10 +183,14 @@ function drawRegion(s: Sheet, r: Region, result: Result | undefined, x: number, 
   const err = (message: string, at: number) => s.text(message, x + 4, at, 10, { color: "#dc2626" });
   switch (r.kind) {
     case "text": {
-      const st = TEXT_STYLE[r.style];
-      const font = s.fonts[st.font];
-      const lines = s.wrap(r.text, st.size, Math.min(r.width || 320, maxWidth) - 8, font);
-      lines.forEach((line, i) => s.text(line, x + 4, y + 2 + i * st.size * 1.375, st.size, { font, color: r.color ?? st.color }));
+      const look = textLook(r);
+      const font = s.fonts.text.get(face(look.font, look.bold, look.italic)) ?? s.fonts.regular;
+      const lines = s.wrap(r.text, look.size, Math.min(r.width || 320, maxWidth) - 8, font);
+      lines.forEach((line, i) => {
+        const top = y + 2 + i * look.size * 1.375;
+        s.text(line, x + 4, top, look.size, { font, color: look.color });
+        if (look.underline && line.trim()) s.line(x + 4, top + look.size * 0.95, x + 4 + s.width(line, look.size, font), top + look.size * 0.95, look.color, Math.max(0.75, look.size / 16));
+      });
       return;
     }
     case "math": {
@@ -326,7 +333,13 @@ export async function calcPdf(data: CalcData, results: Map<string, Result>, opti
   pdf.setTitle(options.title);
   pdf.setCreator("conkit calcs");
   pdf.setProducer("conkit");
-  const fonts: Fonts = { regular: await pdf.embedFont(StandardFonts.Helvetica), bold: await pdf.embedFont(StandardFonts.HelveticaBold), italic: await pdf.embedFont(StandardFonts.HelveticaOblique) };
+  const fonts: Fonts = { regular: await pdf.embedFont(StandardFonts.Helvetica), bold: await pdf.embedFont(StandardFonts.HelveticaBold), italic: await pdf.embedFont(StandardFonts.HelveticaOblique), text: new Map() };
+  for (const r of data.regions) {
+    if (r.kind !== "text") continue;
+    const look = textLook(r);
+    const name = face(look.font, look.bold, look.italic);
+    if (!fonts.text.has(name)) fonts.text.set(name, await pdf.embedFont(name));
+  }
   const p = PAGES[data.paper];
   const content = contentSize(data.paper);
   const bottom = Math.max(0, ...data.regions.map((r) => r.y + regionHeight(r) - 8));

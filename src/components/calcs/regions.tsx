@@ -3,6 +3,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { uprightUnits, type Result } from "@/lib/calcs/evaluate";
 import { verdictColor } from "@/lib/calcs/colors";
+import { TEXT_FONTS, textLook } from "@/lib/calcs/text-format";
 import type { ImageRegion, MathRegion, TextRegion } from "@/lib/calcs/types";
 import { cn } from "@/lib/utils";
 import { loadMathLive, makeField, type MathfieldElement } from "./mathlive";
@@ -229,73 +230,93 @@ function UnitBox({ value, onCommit, visible }: { value: string; onCommit: (unit:
   );
 }
 
-const TEXT_STYLES: Record<TextRegion["style"], string> = {
-  normal: "text-[14px]",
-  heading: "text-[20px] font-bold",
-  subheading: "text-[16px] font-semibold",
-  note: "text-[12px] italic text-neutral-600",
-};
-
 let measurer: CanvasRenderingContext2D | null = null;
 
+/** A text region's look as CSS. */
+function textCss(region: TextRegion): React.CSSProperties {
+  const look = textLook(region);
+  return {
+    fontFamily: TEXT_FONTS.find((f) => f.id === look.font)?.css,
+    fontSize: look.size,
+    fontWeight: look.bold ? 700 : 400,
+    fontStyle: look.italic ? "italic" : "normal",
+    textDecoration: look.underline ? "underline" : "none",
+    color: look.color,
+  };
+}
+
+/** Text. While it's edited, Enter ends it (the crosshair goes below, as after math) and
+ * Shift+Enter starts a new line; Ctrl+B, I and U format it. */
 export function TextRegionView({
   region,
   editing,
   selected,
   maxWidth,
   onCommit,
+  onFormat,
 }: {
   region: TextRegion;
   editing: boolean;
   selected: boolean;
   maxWidth: number;
-  onCommit: (text: string) => void;
+  /** With "below", the crosshair goes below the text (its height as edited, in px). */
+  onCommit: (text: string, then?: { below: number }) => void;
+  onFormat: (key: "bold" | "italic" | "underline") => void;
 }) {
   const ref = useRef<HTMLTextAreaElement>(null);
   const [text, setText] = useState(region.text);
+  const ended = useRef(false);
   useEffect(() => {
     if (!editing || !ref.current) return;
+    ended.current = false;
     const el = ref.current;
     el.focus();
     el.setSelectionRange(el.value.length, el.value.length);
   }, [editing]);
+  const css = textCss(region);
   useLayoutEffect(() => {
-    // Grow with the text, as Mathcad's text regions do: as wide as its longest line (so a click
-    // beside it is on the page, not in it), wrapping at the page's margin; then as tall as it needs.
     const el = ref.current;
     if (!el) return;
-    const css = getComputedStyle(el);
+    const style = getComputedStyle(el);
     measurer ??= document.createElement("canvas").getContext("2d");
     let longest = 0;
     if (measurer) {
-      measurer.font = `${css.fontStyle} ${css.fontWeight} ${css.fontSize} ${css.fontFamily}`;
+      measurer.font = `${style.fontStyle} ${style.fontWeight} ${style.fontSize} ${style.fontFamily}`;
       for (const line of text.split("\n")) longest = Math.max(longest, measurer.measureText(line).width);
     }
     el.style.width = `${Math.min(maxWidth, Math.max(24, Math.ceil(longest) + 14))}px`;
     el.style.height = "0px";
     el.style.height = `${el.scrollHeight}px`;
-  }, [text, editing, maxWidth]);
-  const style = TEXT_STYLES[region.style];
+  }, [text, editing, maxWidth, css.fontFamily, css.fontSize, css.fontWeight, css.fontStyle]);
   if (editing)
     return (
       <textarea
         ref={ref}
         value={text}
         onChange={(e) => setText(e.target.value)}
-        onBlur={() => onCommit(text)}
+        onBlur={() => !ended.current && onCommit(text)}
         onKeyDown={(e) => {
+          const ctrl = e.ctrlKey || e.metaKey;
+          const key = e.key.toLowerCase();
           if (e.key === "Escape") {
             e.preventDefault();
             (e.target as HTMLTextAreaElement).blur();
+          } else if (e.key === "Enter" && !e.shiftKey && !ctrl && !e.altKey) {
+            e.preventDefault();
+            ended.current = true;
+            onCommit(text, { below: (e.target as HTMLTextAreaElement).offsetHeight });
+          } else if (ctrl && !e.shiftKey && !e.altKey && (key === "b" || key === "i" || key === "u")) {
+            e.preventDefault();
+            onFormat(key === "b" ? "bold" : key === "i" ? "italic" : "underline");
           }
         }}
         rows={1}
-        style={{ color: region.color }}
-        className={cn("block resize-none overflow-hidden rounded-sm bg-white px-1 py-0.5 leading-snug outline-none ring-1 ring-primary", style)}
+        style={css}
+        className="block resize-none overflow-hidden rounded-sm bg-white px-1 py-0.5 leading-snug outline-none ring-1 ring-primary"
       />
     );
   return (
-    <div style={{ maxWidth, color: region.text ? region.color : undefined }} className={cn("rounded-sm px-1 py-0.5 leading-snug whitespace-pre-wrap", style, selected && "ring-1 ring-primary", !region.text && "text-neutral-400")}>
+    <div style={{ ...css, maxWidth, color: region.text ? css.color : undefined }} className={cn("rounded-sm px-1 py-0.5 leading-snug whitespace-pre-wrap", selected && "ring-1 ring-primary", !region.text && "text-neutral-400")}>
       {region.text || "Text"}
     </div>
   );
