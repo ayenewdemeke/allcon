@@ -1,5 +1,6 @@
 import { Fragment, isValidElement, type ReactElement, type ReactNode } from "react";
 import { BearingSketch } from "@/components/design/bearing-sketch";
+import { CollisionSketch } from "@/components/design/collision-sketch";
 import { DeckSketch } from "@/components/design/deck-sketch";
 import { CbcSketch, CipSketch, MseSketch } from "@/components/design/wall-sketch";
 import { WingwallSketch } from "@/components/design/wingwall-sketch";
@@ -8,6 +9,7 @@ import type { ImageRegion } from "@/lib/calcs/types";
 import { designBearing, type BearingInputs } from "./bearings/elastomeric";
 import { designCbc, type CbcInputs } from "./culverts/cbc";
 import { designDeck, type DeckInputs } from "./decks/deck";
+import { designCollision, type CollisionInputs } from "./piers/collision";
 import { designCipWall, type CipInputs } from "./walls/cip";
 import { designMseWall, type MseInputs } from "./walls/mse";
 import { designWingwall, type WingwallInputs } from "./walls/wingwall";
@@ -75,3 +77,5 @@ export const bearingFigures = (i: BearingInputs) => ({ section: figure(<BearingS
 export const wingwallFigures = (i: WingwallInputs) => ({ section: figure(<WingwallSketch inputs={i} result={designWingwall(i)} />) });
 
 export const deckFigures = (i: DeckInputs) => ({ section: figure(<DeckSketch inputs={i} result={designDeck(i)} />) });
+
+export const collisionFigures = (i: CollisionInputs) => ({ section: figure(<CollisionSketch inputs={i} result={designCollision(i)} />) });

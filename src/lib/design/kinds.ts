@@ -1,6 +1,7 @@
 import { BEARING_DEFAULTS, type BearingInputs } from "./bearings/elastomeric";
 import { CBC_DEFAULTS, type CbcInputs } from "./culverts/cbc";
 import { DECK_DEFAULTS, type DeckInputs } from "./decks/deck";
+import { COLLISION_DEFAULTS, type CollisionInputs } from "./piers/collision";
 import { ZONE1_DEFAULTS, type Zone1Inputs } from "./seismic/zone1";
 import { CIP_DEFAULTS, DEFAULT_FACTORS, type CipInputs, type Combo } from "./walls/cip";
 import { MSE_DEFAULTS, MSE_FACTORS, type MseInputs } from "./walls/mse";
@@ -9,7 +10,7 @@ import { WINGWALL_DEFAULTS, type WingwallInputs } from "./walls/wingwall";
 // The Design section's categories and design types: highway structures to AASHTO LRFD, grouped
 // by element. What can be designed, and what's coming next.
 
-export type DesignKind = "cip-cantilever-wall" | "mse-wall" | "cantilever-wingwall" | "box-culvert" | "deck-slab" | "seismic-zone1" | "elastomeric-bearing" | "ptfe-bearing" | "strip-seal-joint";
+export type DesignKind = "cip-cantilever-wall" | "mse-wall" | "cantilever-wingwall" | "box-culvert" | "deck-slab" | "seismic-zone1" | "pier-collision" | "elastomeric-bearing" | "ptfe-bearing" | "strip-seal-joint";
 
 export const CATEGORIES: { id: string; name: string; kinds: { id: DesignKind; name: string; short: string; description: string; available: boolean }[] }[] = [
   {
@@ -33,6 +34,7 @@ export const CATEGORIES: { id: string; name: string; kinds: { id: DesignKind; na
     name: "Bridge Components",
     kinds: [
       { id: "deck-slab", name: "Deck Slab", short: "Equivalent strips: bars and overhang", description: "Cast-in-place deck on parallel girders by the equivalent strip method: the strip analyzed as a continuous beam under dead loads and the design truck's axles, the top, bottom and longitudinal bars, and the overhang for vehicle collision. AASHTO LRFD 4.6.2.1, 9.7.3 and A13.4.", available: true },
+      { id: "pier-collision", name: "Pier Column Collision", short: "600 kip vehicle collision on a round column", description: "A round pier column for vehicle collision in Extreme Event II: the equivalent static force, the column's shear and moments, shear by the simplified procedure and axial load with bending by strain compatibility. AASHTO LRFD 3.6.5.1, 5.7.3.3 and 5.6.4.", available: true },
       { id: "elastomeric-bearing", name: "Elastomeric Bearing", short: "Plain or steel-reinforced pads", description: "Elastomeric bearing pads, plain or steel-reinforced, by Method A or B: compression, shear strains, deflection, stability, shims and anchorage. AASHTO LRFD 14.7.5 and 14.7.6.", available: true },
       { id: "ptfe-bearing", name: "PTFE Sliding Bearing", short: "Sliding surface on an elastomeric pad", description: "PTFE sliding bearing: contact pressure, friction and the mating surface. AASHTO LRFD 14.7.2.", available: false },
       { id: "strip-seal-joint", name: "Strip Seal Expansion Joint", short: "Movement and seal size", description: "Strip seal deck joint: thermal movement and the seal's opening range. AASHTO LRFD 3.12.2 and 14.5.", available: false },
@@ -71,6 +73,12 @@ export function cbcInputs(saved: unknown): CbcInputs {
   return { ...CBC_DEFAULTS, ...old, ...s, steel: { ...CBC_DEFAULTS.steel, ...(s.steel ?? {}) }, bars: { ...CBC_DEFAULTS.bars, ...(s.bars ?? {}) } };
 }
 
+/** A pier collision design's inputs as saved, filled in from the defaults. */
+export function collisionInputs(saved: unknown): CollisionInputs {
+  const s = (saved && typeof saved === "object" ? saved : {}) as Partial<CollisionInputs>;
+  return { ...COLLISION_DEFAULTS, ...s };
+}
+
 /** Seismic Zone 1 inputs as saved, filled in from the defaults. */
 export function zone1Inputs(saved: unknown): Zone1Inputs {
   const s = (saved && typeof saved === "object" ? saved : {}) as Partial<Zone1Inputs>;
@@ -97,5 +105,5 @@ export function bearingInputs(saved: unknown): BearingInputs {
 
 /** A design's inputs as saved, filled in from its kind's defaults. */
 export function designInputs(kind: string, saved: unknown) {
-  return kind === "mse-wall" ? mseInputs(saved) : kind === "box-culvert" ? cbcInputs(saved) : kind === "elastomeric-bearing" ? bearingInputs(saved) : kind === "cantilever-wingwall" ? wingwallInputs(saved) : kind === "deck-slab" ? deckInputs(saved) : kind === "seismic-zone1" ? zone1Inputs(saved) : cipInputs(saved);
+  return kind === "mse-wall" ? mseInputs(saved) : kind === "box-culvert" ? cbcInputs(saved) : kind === "elastomeric-bearing" ? bearingInputs(saved) : kind === "cantilever-wingwall" ? wingwallInputs(saved) : kind === "deck-slab" ? deckInputs(saved) : kind === "seismic-zone1" ? zone1Inputs(saved) : kind === "pier-collision" ? collisionInputs(saved) : cipInputs(saved);
 }

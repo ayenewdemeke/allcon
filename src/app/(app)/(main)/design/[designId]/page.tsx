@@ -3,13 +3,14 @@ import { notFound } from "next/navigation";
 import { BearingEditor } from "@/components/design/bearing-editor";
 import { CbcEditor } from "@/components/design/cbc-editor";
 import { CipEditor } from "@/components/design/cip-editor";
+import { CollisionEditor } from "@/components/design/collision-editor";
 import { DeckEditor } from "@/components/design/deck-editor";
 import { MseEditor } from "@/components/design/mse-editor";
 import { WingwallEditor } from "@/components/design/wingwall-editor";
 import { Zone1Editor } from "@/components/design/zone1-editor";
 import { PageBody } from "@/components/shell/page-header";
 import { isUuid, requireUser } from "@/lib/auth/session";
-import { bearingInputs, cbcInputs, cipInputs, deckInputs, mseInputs, wingwallInputs, zone1Inputs } from "@/lib/design/kinds";
+import { bearingInputs, cbcInputs, cipInputs, collisionInputs, deckInputs, mseInputs, wingwallInputs, zone1Inputs } from "@/lib/design/kinds";
 import { db } from "@/lib/db";
 
 export async function generateMetadata({ params }: PageProps<"/design/[designId]">): Promise<Metadata> {
@@ -43,6 +44,12 @@ export default async function DesignEditorPage({ params }: PageProps<"/design/[d
     return (
       <PageBody>
         <CbcEditor design={{ ...base, inputs: cbcInputs(design.inputs) }} projects={projects} />
+      </PageBody>
+    );
+  if (design.kind === "pier-collision")
+    return (
+      <PageBody>
+        <CollisionEditor design={{ ...base, inputs: collisionInputs(design.inputs) }} projects={projects} />
       </PageBody>
     );
   if (design.kind === "seismic-zone1")

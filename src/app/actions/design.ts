@@ -11,10 +11,11 @@ import { CALC_FILE, newCalcKey } from "@/lib/calcs/server";
 import { emptyCalc } from "@/lib/calcs/types";
 import { bearingCalcLines } from "@/lib/design/bearings/elastomeric-calc";
 import { deckCalcLines } from "@/lib/design/decks/deck-calc";
-import { bearingInputs, cbcInputs, cipInputs, deckInputs, designInputs, kindInfo, mseInputs, wingwallInputs, zone1Inputs } from "@/lib/design/kinds";
+import { bearingInputs, cbcInputs, cipInputs, collisionInputs, deckInputs, designInputs, kindInfo, mseInputs, wingwallInputs, zone1Inputs } from "@/lib/design/kinds";
+import { collisionCalcLines } from "@/lib/design/piers/collision-calc";
 import { zone1CalcLines } from "@/lib/design/seismic/zone1-calc";
 import { cbcCalcLines } from "@/lib/design/culverts/cbc-calc";
-import { bearingFigures, cbcFigures, cipFigures, deckFigures, mseFigures, wingwallFigures } from "@/lib/design/figures";
+import { bearingFigures, cbcFigures, cipFigures, collisionFigures, deckFigures, mseFigures, wingwallFigures } from "@/lib/design/figures";
 import { cipCalcLines } from "@/lib/design/walls/cip-calc";
 import { mseCalcLines } from "@/lib/design/walls/mse-calc";
 import { wingwallCalcLines } from "@/lib/design/walls/wingwall-calc";
@@ -108,7 +109,9 @@ export async function createCalcFromDesign(designId: string): Promise<{ calcId: 
                 ? deckCalcLines(deckInputs(design.inputs), design.name, figures(() => deckFigures(deckInputs(design.inputs))))
                 : design.kind === "seismic-zone1"
                   ? zone1CalcLines(zone1Inputs(design.inputs), design.name)
-                  : null;
+                  : design.kind === "pier-collision"
+                    ? collisionCalcLines(collisionInputs(design.inputs), design.name, figures(() => collisionFigures(collisionInputs(design.inputs))))
+                    : null;
   if (!lines) throw new Error("Calc packages for this design type are coming");
   const data = emptyCalc("USCS");
   data.header = { ...data.header, title: design.name, by: user.name ?? "" };
