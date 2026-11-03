@@ -127,8 +127,8 @@ export const CIP_DEFAULTS: CipInputs = {
   railWeight: 0,
   railCg: 6,
   collision: false,
-  ctForce: 54,
-  ctLength: 3.5,
+  ctForce: 80, // TL-4 (MASH), Table A13.2-1
+  ctLength: 5,
   ctHeight: 2.67,
   ctAtEnd: true,
   He: 2.5,

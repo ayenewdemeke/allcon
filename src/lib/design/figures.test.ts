@@ -3,7 +3,8 @@ import { cbcCalcLines } from "./culverts/cbc-calc";
 import { CBC_DEFAULTS } from "./culverts/cbc";
 import { bearingCalcLines } from "./bearings/elastomeric-calc";
 import { BEARING_DEFAULTS } from "./bearings/elastomeric";
-import { bearingFigures, cbcFigures, cipFigures, mseFigures, wingwallFigures } from "./figures";
+import { DECK_DEFAULTS } from "./decks/deck";
+import { bearingFigures, cbcFigures, cipFigures, deckFigures, mseFigures, wingwallFigures } from "./figures";
 import { WINGWALL_DEFAULTS } from "./walls/wingwall";
 import { cipCalcLines } from "./walls/cip-calc";
 import { CIP_DEFAULTS } from "./walls/cip";
@@ -45,6 +46,14 @@ describe("design figures", () => {
     expect(section.width).toBe(520);
     expect(section.svg).toContain("#fde68a");
     expect(section.svg).toContain("P = 41.5 kip (service)");
+    expect(section.svg).not.toMatch(/className|class=|strokeWidth/);
+  });
+
+  it("draws a deck's cross-section with its girders and design sections", () => {
+    const { section } = deckFigures(DECK_DEFAULTS);
+    expect(section.height).toBe(300);
+    expect(section.svg.match(/width="6"/g)).toHaveLength(DECK_DEFAULTS.nGirders); // the girder webs
+    expect(section.svg).toContain("−M");
     expect(section.svg).not.toMatch(/className|class=|strokeWidth/);
   });
 

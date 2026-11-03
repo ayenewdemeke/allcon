@@ -215,7 +215,7 @@ export function ChecksTable({ checks, groupOf }: { checks: DesignCheck[]; groupO
             <tr className="border-b text-left text-muted-foreground">
               <th className="py-1.5 font-normal">Check</th>
               <th className="text-right font-normal">Demand</th>
-              <th className="text-right font-normal">Capacity</th>
+              <th className="pl-4 text-right font-normal">Capacity</th>
               <th className="pl-3 text-left font-normal">Ratio</th>
               <th className="font-normal" />
               <th className="pl-3 text-left font-normal">Reference</th>
@@ -235,8 +235,8 @@ export function ChecksTable({ checks, groupOf }: { checks: DesignCheck[]; groupO
                 ),
                 <tr key={c.id} className="border-b border-border/50" title={c.note}>
                   <td className="py-1 pr-2">{c.name}</td>
-                  <td className="text-right tabular-nums">{fmt(c.demand)}</td>
-                  <td className="text-right whitespace-nowrap tabular-nums">
+                  <td className="pl-2 text-right tabular-nums">{fmt(c.demand)}</td>
+                  <td className="pl-4 text-right whitespace-nowrap tabular-nums">
                     {fmt(c.capacity)} <span className="text-muted-foreground">{c.unit}</span>
                   </td>
                   <td className="pl-3">

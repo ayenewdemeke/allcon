@@ -10,9 +10,10 @@ import { layout } from "@/lib/calcs/library/templates";
 import { CALC_FILE, newCalcKey } from "@/lib/calcs/server";
 import { emptyCalc } from "@/lib/calcs/types";
 import { bearingCalcLines } from "@/lib/design/bearings/elastomeric-calc";
-import { bearingInputs, cbcInputs, cipInputs, designInputs, kindInfo, mseInputs, wingwallInputs } from "@/lib/design/kinds";
+import { deckCalcLines } from "@/lib/design/decks/deck-calc";
+import { bearingInputs, cbcInputs, cipInputs, deckInputs, designInputs, kindInfo, mseInputs, wingwallInputs } from "@/lib/design/kinds";
 import { cbcCalcLines } from "@/lib/design/culverts/cbc-calc";
-import { bearingFigures, cbcFigures, cipFigures, mseFigures, wingwallFigures } from "@/lib/design/figures";
+import { bearingFigures, cbcFigures, cipFigures, deckFigures, mseFigures, wingwallFigures } from "@/lib/design/figures";
 import { cipCalcLines } from "@/lib/design/walls/cip-calc";
 import { mseCalcLines } from "@/lib/design/walls/mse-calc";
 import { wingwallCalcLines } from "@/lib/design/walls/wingwall-calc";
@@ -102,7 +103,9 @@ export async function createCalcFromDesign(designId: string): Promise<{ calcId: 
             ? bearingCalcLines(bearingInputs(design.inputs), design.name, figures(() => bearingFigures(bearingInputs(design.inputs))))
             : design.kind === "cantilever-wingwall"
               ? wingwallCalcLines(wingwallInputs(design.inputs), design.name, figures(() => wingwallFigures(wingwallInputs(design.inputs))))
-              : null;
+              : design.kind === "deck-slab"
+                ? deckCalcLines(deckInputs(design.inputs), design.name, figures(() => deckFigures(deckInputs(design.inputs))))
+                : null;
   if (!lines) throw new Error("Calc packages for this design type are coming");
   const data = emptyCalc("USCS");
   data.header = { ...data.header, title: design.name, by: user.name ?? "" };
