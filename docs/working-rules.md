@@ -38,6 +38,9 @@ one session works on this repo (one locally, one online), and all of them push t
   uses the cheapest model unless the owner says otherwise.
 - Drafting aims at the modern AutoCAD 2D experience on the web (light theme by default, no 3D).
 - Calcs follows Mathcad (Prime).
+- **Match the reference app's actual behavior.** Before building or changing a Calcs or Drafting
+  feature, look up how Mathcad Prime or AutoCAD does it (their help pages) and do the same,
+  rather than only what the request literally describes; say where the two differ.
 - **Design: AASHTO LRFD only.** Cite AASHTO articles; don't cite state DOT manuals or adopt
   DOT-only rules unless the owner asks (a DOT example may still be a validation test).
   Reinforcement is rebars by bar size and spacing; call them rebars or bars.
