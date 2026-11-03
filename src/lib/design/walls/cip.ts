@@ -224,7 +224,7 @@ export function liveLoadHeq(H: number, trafficDistance: number) {
 }
 
 /** Flexure of a 12 in strip with one layer of bars: resistance, minimum steel and crack control. */
-function flexure(opts: { Mu: number; Ms: number; h: number; cover: number; bars: Bars; fc: number; fy: number; Es: number; phiF: number; exposure: 1 | 2; n: number; beta1: number }) {
+export function flexure(opts: { Mu: number; Ms: number; h: number; cover: number; bars: Bars; fc: number; fy: number; Es: number; phiF: number; exposure: 1 | 2; n: number; beta1: number }) {
   const b = 12;
   const { area, dia } = BARS[opts.bars.bar];
   const de = opts.h - opts.cover - dia / 2;

@@ -1,12 +1,14 @@
 import { Fragment, isValidElement, type ReactElement, type ReactNode } from "react";
 import { BearingSketch } from "@/components/design/bearing-sketch";
 import { CbcSketch, CipSketch, MseSketch } from "@/components/design/wall-sketch";
+import { WingwallSketch } from "@/components/design/wingwall-sketch";
 import type { Body } from "@/lib/calcs/library/templates";
 import type { ImageRegion } from "@/lib/calcs/types";
 import { designBearing, type BearingInputs } from "./bearings/elastomeric";
 import { designCbc, type CbcInputs } from "./culverts/cbc";
 import { designCipWall, type CipInputs } from "./walls/cip";
 import { designMseWall, type MseInputs } from "./walls/mse";
+import { designWingwall, type WingwallInputs } from "./walls/wingwall";
 
 // The editors' sketches as pictures for a calc package: each drawn as standalone SVG markup, its
 // attributes in their SVG spelling and the app's theme colors made explicit (a calc sheet is
@@ -67,3 +69,5 @@ export function cbcFigures(i: CbcInputs) {
 }
 
 export const bearingFigures = (i: BearingInputs) => ({ section: figure(<BearingSketch inputs={i} result={designBearing(i)} />) });
+
+export const wingwallFigures = (i: WingwallInputs) => ({ section: figure(<WingwallSketch inputs={i} result={designWingwall(i)} />) });

@@ -4,9 +4,10 @@ import { BearingEditor } from "@/components/design/bearing-editor";
 import { CbcEditor } from "@/components/design/cbc-editor";
 import { CipEditor } from "@/components/design/cip-editor";
 import { MseEditor } from "@/components/design/mse-editor";
+import { WingwallEditor } from "@/components/design/wingwall-editor";
 import { PageBody } from "@/components/shell/page-header";
 import { isUuid, requireUser } from "@/lib/auth/session";
-import { bearingInputs, cbcInputs, cipInputs, mseInputs } from "@/lib/design/kinds";
+import { bearingInputs, cbcInputs, cipInputs, mseInputs, wingwallInputs } from "@/lib/design/kinds";
 import { db } from "@/lib/db";
 
 export async function generateMetadata({ params }: PageProps<"/design/[designId]">): Promise<Metadata> {
@@ -40,6 +41,12 @@ export default async function DesignEditorPage({ params }: PageProps<"/design/[d
     return (
       <PageBody>
         <CbcEditor design={{ ...base, inputs: cbcInputs(design.inputs) }} projects={projects} />
+      </PageBody>
+    );
+  if (design.kind === "cantilever-wingwall")
+    return (
+      <PageBody>
+        <WingwallEditor design={{ ...base, inputs: wingwallInputs(design.inputs) }} projects={projects} />
       </PageBody>
     );
   if (design.kind === "elastomeric-bearing")
