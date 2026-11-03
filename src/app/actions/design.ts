@@ -11,7 +11,8 @@ import { CALC_FILE, newCalcKey } from "@/lib/calcs/server";
 import { emptyCalc } from "@/lib/calcs/types";
 import { bearingCalcLines } from "@/lib/design/bearings/elastomeric-calc";
 import { deckCalcLines } from "@/lib/design/decks/deck-calc";
-import { bearingInputs, cbcInputs, cipInputs, deckInputs, designInputs, kindInfo, mseInputs, wingwallInputs } from "@/lib/design/kinds";
+import { bearingInputs, cbcInputs, cipInputs, deckInputs, designInputs, kindInfo, mseInputs, wingwallInputs, zone1Inputs } from "@/lib/design/kinds";
+import { zone1CalcLines } from "@/lib/design/seismic/zone1-calc";
 import { cbcCalcLines } from "@/lib/design/culverts/cbc-calc";
 import { bearingFigures, cbcFigures, cipFigures, deckFigures, mseFigures, wingwallFigures } from "@/lib/design/figures";
 import { cipCalcLines } from "@/lib/design/walls/cip-calc";
@@ -105,7 +106,9 @@ export async function createCalcFromDesign(designId: string): Promise<{ calcId: 
               ? wingwallCalcLines(wingwallInputs(design.inputs), design.name, figures(() => wingwallFigures(wingwallInputs(design.inputs))))
               : design.kind === "deck-slab"
                 ? deckCalcLines(deckInputs(design.inputs), design.name, figures(() => deckFigures(deckInputs(design.inputs))))
-                : null;
+                : design.kind === "seismic-zone1"
+                  ? zone1CalcLines(zone1Inputs(design.inputs), design.name)
+                  : null;
   if (!lines) throw new Error("Calc packages for this design type are coming");
   const data = emptyCalc("USCS");
   data.header = { ...data.header, title: design.name, by: user.name ?? "" };

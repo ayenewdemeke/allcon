@@ -1,6 +1,7 @@
 import { BEARING_DEFAULTS, type BearingInputs } from "./bearings/elastomeric";
 import { CBC_DEFAULTS, type CbcInputs } from "./culverts/cbc";
 import { DECK_DEFAULTS, type DeckInputs } from "./decks/deck";
+import { ZONE1_DEFAULTS, type Zone1Inputs } from "./seismic/zone1";
 import { CIP_DEFAULTS, DEFAULT_FACTORS, type CipInputs, type Combo } from "./walls/cip";
 import { MSE_DEFAULTS, MSE_FACTORS, type MseInputs } from "./walls/mse";
 import { WINGWALL_DEFAULTS, type WingwallInputs } from "./walls/wingwall";
@@ -8,7 +9,7 @@ import { WINGWALL_DEFAULTS, type WingwallInputs } from "./walls/wingwall";
 // The Design section's categories and design types: highway structures to AASHTO LRFD, grouped
 // by element. What can be designed, and what's coming next.
 
-export type DesignKind = "cip-cantilever-wall" | "mse-wall" | "cantilever-wingwall" | "box-culvert" | "deck-slab" | "elastomeric-bearing" | "ptfe-bearing" | "strip-seal-joint";
+export type DesignKind = "cip-cantilever-wall" | "mse-wall" | "cantilever-wingwall" | "box-culvert" | "deck-slab" | "seismic-zone1" | "elastomeric-bearing" | "ptfe-bearing" | "strip-seal-joint";
 
 export const CATEGORIES: { id: string; name: string; kinds: { id: DesignKind; name: string; short: string; description: string; available: boolean }[] }[] = [
   {
@@ -37,6 +38,13 @@ export const CATEGORIES: { id: string; name: string; kinds: { id: DesignKind; na
       { id: "strip-seal-joint", name: "Strip Seal Expansion Joint", short: "Movement and seal size", description: "Strip seal deck joint: thermal movement and the seal's opening range. AASHTO LRFD 3.12.2 and 14.5.", available: false },
     ],
   },
+  {
+    id: "seismic",
+    name: "Seismic",
+    kinds: [
+      { id: "seismic-zone1", name: "Seismic Zone 1 Check", short: "Connection forces, support lengths, confinement", description: "A bridge in Seismic Zone 1, where no seismic analysis is required: the zone, horizontal connection forces at each support, minimum support lengths, and confinement spirals in the columns' plastic hinge regions. AASHTO LRFD 3.10.6, 3.10.9.2, 4.7.4.4 and 5.11.", available: true },
+    ],
+  },
 ];
 
 export const kindInfo = (kind: string) => CATEGORIES.flatMap((c) => c.kinds).find((k) => k.id === kind);
@@ -63,6 +71,12 @@ export function cbcInputs(saved: unknown): CbcInputs {
   return { ...CBC_DEFAULTS, ...old, ...s, steel: { ...CBC_DEFAULTS.steel, ...(s.steel ?? {}) }, bars: { ...CBC_DEFAULTS.bars, ...(s.bars ?? {}) } };
 }
 
+/** Seismic Zone 1 inputs as saved, filled in from the defaults. */
+export function zone1Inputs(saved: unknown): Zone1Inputs {
+  const s = (saved && typeof saved === "object" ? saved : {}) as Partial<Zone1Inputs>;
+  return { ...ZONE1_DEFAULTS, ...s };
+}
+
 /** A deck's inputs as saved, filled in from the defaults. */
 export function deckInputs(saved: unknown): DeckInputs {
   const s = (saved && typeof saved === "object" ? saved : {}) as Partial<DeckInputs>;
@@ -83,5 +97,5 @@ export function bearingInputs(saved: unknown): BearingInputs {
 
 /** A design's inputs as saved, filled in from its kind's defaults. */
 export function designInputs(kind: string, saved: unknown) {
-  return kind === "mse-wall" ? mseInputs(saved) : kind === "box-culvert" ? cbcInputs(saved) : kind === "elastomeric-bearing" ? bearingInputs(saved) : kind === "cantilever-wingwall" ? wingwallInputs(saved) : kind === "deck-slab" ? deckInputs(saved) : cipInputs(saved);
+  return kind === "mse-wall" ? mseInputs(saved) : kind === "box-culvert" ? cbcInputs(saved) : kind === "elastomeric-bearing" ? bearingInputs(saved) : kind === "cantilever-wingwall" ? wingwallInputs(saved) : kind === "deck-slab" ? deckInputs(saved) : kind === "seismic-zone1" ? zone1Inputs(saved) : cipInputs(saved);
 }
