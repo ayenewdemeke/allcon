@@ -263,9 +263,9 @@ export function AppSidebar({
           <SidebarMenu>
             <SidebarMenuItem>
               <SidebarMenuButton size="lg" tooltip="Projects" render={<Link href="/projects" />}>
-                {/* The mark and the name; collapsed to icons, the mark alone. */}
-                <LogoMark className="size-8!" />
-                <Wordmark className="text-[1.35rem] group-data-[collapsible=icon]:hidden" />
+                {/* The name is the logo; collapsed to icons, the "a" tile takes its place. */}
+                <LogoMark className="hidden size-8! group-data-[collapsible=icon]:block" />
+                <Wordmark className="px-1 text-[1.6rem] group-data-[collapsible=icon]:hidden" />
               </SidebarMenuButton>
             </SidebarMenuItem>
           </SidebarMenu>

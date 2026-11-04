@@ -29,7 +29,7 @@ export default async function ConsentPage({ searchParams }: PageProps<"/oauth/co
     <div className="flex min-h-svh flex-col bg-background">
       <header className="border-b bg-card">
         <div className="mx-auto flex h-16 max-w-6xl items-center px-6">
-          <Wordmark mark className="text-2xl" />
+          <Wordmark className="text-[1.75rem]" />
         </div>
       </header>
       <main className="flex flex-1 items-center justify-center p-6">

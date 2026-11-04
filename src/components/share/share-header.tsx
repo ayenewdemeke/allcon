@@ -3,7 +3,7 @@ import { Wordmark } from "@/components/brand/logo";
 export function ShareHeader({ children }: { children?: React.ReactNode }) {
   return (
     <header className="flex h-14 shrink-0 items-center gap-3 border-b bg-card px-4">
-      <Wordmark mark className="text-lg" />
+      <Wordmark className="text-lg" />
       {children}
     </header>
   );

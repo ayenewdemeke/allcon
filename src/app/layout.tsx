@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono, Unbounded } from "next/font/google";
+import { Geist, Geist_Mono, Nunito } from "next/font/google";
 import { Toaster } from "@/components/ui/sonner";
 import { APP_DESCRIPTION, APP_NAME } from "@/lib/app-config";
 import "./globals.css";
@@ -10,10 +10,10 @@ const geistSans = Geist({
 });
 
 // The wordmark's typeface (see components/brand/logo).
-const brand = Unbounded({
+const brand = Nunito({
   variable: "--font-brand",
   subsets: ["latin"],
-  weight: ["700"],
+  weight: ["800"],
 });
 
 const geistMono = Geist_Mono({

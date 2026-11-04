@@ -36,7 +36,7 @@ export default async function SignInPage({ searchParams }: PageProps<"/">) {
     <div className="flex min-h-svh flex-col bg-background">
       <header className="border-b bg-card">
         <div className="mx-auto flex h-16 max-w-6xl items-center gap-2 px-6">
-          <Wordmark mark className="text-2xl" />
+          <Wordmark className="text-[1.75rem]" />
         </div>
       </header>
 
