@@ -1,8 +1,8 @@
 """
-IfcOpenShell worker for conkit's 3D models.
+IfcOpenShell worker for allcon's 3D models.
 
-conkit's Next.js server calls this function (never browsers or AI apps directly). An AI app
-edits a model through conkit's connector as lists of ifcopenshell.api calls from a whitelist;
+allcon's Next.js server calls this function (never browsers or AI apps directly). An AI app
+edits a model through allcon's connector as lists of ifcopenshell.api calls from a whitelist;
 no code sent to this worker is ever executed. Each request carries signed links: one to read
 the model from file storage and, for changes, one to write the result, so models of any size
 pass straight between storage and the worker, which keeps no state.
@@ -77,7 +77,7 @@ def expected_token():
 
 
 def load(payload):
-    """The model to work on, read from file storage through the signed link conkit sends."""
+    """The model to work on, read from file storage through the signed link allcon sends."""
     with urllib.request.urlopen(payload["ifc_url"], timeout=60, context=SSL_CONTEXT) as res:
         data = res.read()
     if data[:2] == b"\x1f\x8b":  # stored gzipped
@@ -86,7 +86,7 @@ def load(payload):
 
 
 def dump(model, payload):
-    """Writes the changed model to file storage (gzipped) through the signed link conkit sends."""
+    """Writes the changed model to file storage (gzipped) through the signed link allcon sends."""
     data = gzip.compress(model.to_string().encode("utf-8"))
     target = payload.get("put") or {}
     request = urllib.request.Request(target["url"], data=data, method="PUT", headers=target.get("headers") or {})
@@ -104,7 +104,7 @@ def fetch(url):
 
 
 def store(payload, data):
-    """Writes bytes to file storage through the signed link conkit sends."""
+    """Writes bytes to file storage through the signed link allcon sends."""
     target = payload.get("put") or {}
     request = urllib.request.Request(target["url"], data=data, method="PUT", headers=target.get("headers") or {})
     with urllib.request.urlopen(request, timeout=60, context=SSL_CONTEXT) as res:
@@ -507,7 +507,7 @@ def set_location(model, site, lat, lon, heading=0.0):
 
 # --- elements for mapping to the SOV / BoQ ---------------------------------------------
 
-# Categories named as in Revit, so conkit's mapping suggestions apply to these elements too.
+# Categories named as in Revit, so allcon's mapping suggestions apply to these elements too.
 REVIT_CATEGORY = {
     "IfcWall": "Walls", "IfcWallStandardCase": "Walls", "IfcCurtainWall": "Curtain Walls",
     "IfcSlab": "Floors", "IfcRoof": "Roofs", "IfcBeam": "Structural Framing",
@@ -812,5 +812,5 @@ class handler(BaseHTTPRequestHandler):
 
 if __name__ == "__main__":
     port = int(os.environ.get("IFC_WORKER_PORT", "5328"))
-    print(f"conkit IFC worker on http://127.0.0.1:{port}/api/ifc (ifcopenshell {ifcopenshell.version})")
+    print(f"allcon IFC worker on http://127.0.0.1:{port}/api/ifc (ifcopenshell {ifcopenshell.version})")
     HTTPServer(("127.0.0.1", port), handler).serve_forever()

@@ -533,7 +533,7 @@ model ReviewIssue {
 }
 
 // --- connectors (MCP): OAuth provider tables, following Better Auth's oauth-provider schema ---
-// Claude, ChatGPT and other MCP clients sign in to conkit through these. Field names must
+// Claude, ChatGPT and other MCP clients sign in to allcon through these. Field names must
 // stay as Better Auth expects; columns are snake_case like the rest of the schema.
 
 model Jwks {
@@ -719,7 +719,7 @@ model OauthClientAssertion {
   @@map("oauth_client_assertion")
 }
 
-// What connected AI apps (Claude, ChatGPT...) did in conkit: one row per tool call, shown on
+// What connected AI apps (Claude, ChatGPT...) did in allcon: one row per tool call, shown on
 // the Connections page so people can see, and undo, what was changed on their behalf.
 model McpActivity {
   id        String   @id @default(uuid()) @db.Uuid

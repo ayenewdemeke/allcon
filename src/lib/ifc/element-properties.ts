@@ -1,6 +1,6 @@
 // What a model element is, read for a person rather than as the IFC file stores it: what it
 // is and where, what it is made of, its quantities with units, and its property sets under
-// readable names. conkit's own set (mark, source sheet, assumptions) comes first. Adapted
+// readable names. allcon's own set (mark, source sheet, assumptions) comes first. Adapted
 // from Live Jobsite's viewer.
 //
 // Works on the item data the fragments viewer returns: attributes as { value, type } pairs
@@ -22,7 +22,7 @@ export type Row = { label: string; value: string; mono?: boolean };
 export type Group = { name: string; rows: Row[]; open: boolean };
 
 export type ElementDetails = {
-  /** Its IFC GlobalId, for linking it to what conkit knows about it. */
+  /** Its IFC GlobalId, for linking it to what allcon knows about it. */
   guid: string | null;
   /** The element's name, or its type when it has none. */
   title: string;
@@ -137,7 +137,7 @@ export function humanize(name: string): string {
   return words.charAt(0) + words.slice(1).toLowerCase();
 }
 
-/** conkit's own property set, written by the model compiler. */
+/** allcon's own property set, written by the model compiler. */
 const CONKIT_SET = "Pset_Conkit";
 const CONKIT_LABELS: Record<string, string> = {
   Mark: "Mark",
@@ -337,7 +337,7 @@ export function readElement(element: Item, units: ModelUnits): ElementDetails {
     if (category(set) === "IFCELEMENTQUANTITY") quantities.push(...rows);
     else groups.push({ name: setName(setLabel), rows, open: conkit || /Common$/.test(setLabel) });
   }
-  // conkit's set, then the standard "…Common" set: they carry what most people look for.
+  // allcon's set, then the standard "…Common" set: they carry what most people look for.
   const rank = (g: Group) => (g.name === setName(CONKIT_SET) ? 2 : g.open ? 1 : 0);
   groups.sort((a, b) => rank(b) - rank(a));
 

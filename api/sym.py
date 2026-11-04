@@ -1,8 +1,8 @@
 """
-SymPy worker for conkit's Calcs: symbolic evaluation (Mathcad's →).
+SymPy worker for allcon's Calcs: symbolic evaluation (Mathcad's →).
 
-conkit's Next.js server calls this function (never browsers directly). A request carries
-expressions as trees of whitelisted operations, built by conkit from the worksheet's math; they
+allcon's Next.js server calls this function (never browsers directly). A request carries
+expressions as trees of whitelisted operations, built by allcon from the worksheet's math; they
 are put together with SymPy's constructors and never evaluated as code. Names arrive as opaque
 ids with the LaTeX to show them by. Each answer is LaTeX, or an error to show.
 
@@ -256,5 +256,5 @@ class handler(BaseHTTPRequestHandler):
 
 if __name__ == "__main__":
     port = int(os.environ.get("SYM_WORKER_PORT", "5329"))
-    print(f"conkit SymPy worker on http://127.0.0.1:{port}/api/sym (sympy {sp.__version__})")
+    print(f"allcon SymPy worker on http://127.0.0.1:{port}/api/sym (sympy {sp.__version__})")
     HTTPServer(("127.0.0.1", port), handler).serve_forever()

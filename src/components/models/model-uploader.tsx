@@ -26,7 +26,7 @@ function putWithProgress(file: File, url: string, headers: Record<string, string
 
 /**
  * Uploads a model straight from the browser. IFC files go to file storage and open at once in
- * conkit's IFC viewer; Revit files go to Autodesk, which translates them for its viewer.
+ * allcon's IFC viewer; Revit files go to Autodesk, which translates them for its viewer.
  */
 export function ModelUploader({ projectId }: { projectId: string }) {
   const router = useRouter();

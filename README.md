@@ -1,7 +1,7 @@
-# conkit
+# allcon
 
 A lightweight everyday toolkit for construction projects, for engineers and architects
-rather than whole companies. Live at https://conkit.app.
+rather than whole companies. Live at https://allcon.app.
 
 - **Drawings:** PDF sets on the APS Viewer; measure, mark up, export marked-up PDFs and
   share read-only links.
@@ -20,7 +20,7 @@ Model Derivative, Viewer).
 AI apps connected through MCP build 3D models as real IFC, created and edited with
 IfcOpenShell through whitelisted `ifcopenshell.api` operations. The engine is a Python
 function, `api/ifc.py`, deployed by Vercel alongside the app (dependencies in
-`requirements.txt`); only conkit's server can call it. Model files live in Cloudflare R2
+`requirements.txt`); only allcon's server can call it. Model files live in Cloudflare R2
 (`src/lib/storage.ts`), and the engine reads and writes them through signed links, so there's
 no size limit. Each model keeps one backup, for undo. Without R2 keys, development stores files
 in `.local-storage/`.

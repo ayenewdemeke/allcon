@@ -6,7 +6,7 @@ import { suggest, type QuantityKey } from "@/lib/mapping/suggest";
 import { formatMeasure } from "@/lib/takeoff";
 import { requireProject, ToolError, type ToolContext } from "./context";
 
-// Mapping for AI apps: the element groups of the models that count (with conkit's own
+// Mapping for AI apps: the element groups of the models that count (with allcon's own
 // suggestions), the SOV / BoQ items, and turning a group into a rule that prices an item.
 
 const MAX_GROUPS = 300;

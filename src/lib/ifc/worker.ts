@@ -6,7 +6,7 @@ import { newFileKey, signedReadUrl, signedWriteUrl, type StoredFile } from "@/li
 
 // Calls the IfcOpenShell worker (api/ifc.py), a Python function in the same deployment, which
 // also converts drafting drawings to and from DXF. Only
-// conkit's server may call it: requests carry a key derived from the auth secret, which the
+// allcon's server may call it: requests carry a key derived from the auth secret, which the
 // worker derives the same way. Models never pass through the request: the worker reads and
 // writes them in file storage through signed links, so there's no size limit and no state.
 

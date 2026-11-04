@@ -80,10 +80,10 @@ export default async function ConnectionsPage() {
               <p className="text-muted-foreground">
                 In the Gemini app: Settings → Connected apps → Add a custom app, paste the address and sign in. In Gemini CLI,
                 add it to <code className="text-xs">~/.gemini/settings.json</code>, then run{" "}
-                <code className="text-xs">/mcp auth conkit</code>:
+                <code className="text-xs">/mcp auth allcon</code>:
               </p>
               <pre className="overflow-x-auto rounded-md bg-muted/60 px-2 py-1.5 text-xs">{`"mcpServers": {
-  "conkit": { "httpUrl": "${url}" }
+  "allcon": { "httpUrl": "${url}" }
 }`}</pre>
             </div>
           </div>

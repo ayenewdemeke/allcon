@@ -331,8 +331,8 @@ function drawRegion(s: Sheet, r: Region, result: Result | undefined, x: number, 
 export async function calcPdf(data: CalcData, results: Map<string, Result>, options: { title: string }) {
   const pdf = await PDFDocument.create();
   pdf.setTitle(options.title);
-  pdf.setCreator("conkit calcs");
-  pdf.setProducer("conkit");
+  pdf.setCreator("allcon calcs");
+  pdf.setProducer("allcon");
   const fonts: Fonts = { regular: await pdf.embedFont(StandardFonts.Helvetica), bold: await pdf.embedFont(StandardFonts.HelveticaBold), italic: await pdf.embedFont(StandardFonts.HelveticaOblique), text: new Map() };
   for (const r of data.regions) {
     if (r.kind !== "text") continue;

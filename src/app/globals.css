@@ -41,6 +41,7 @@
   --color-secondary-foreground: var(--secondary-foreground);
   --color-secondary: var(--secondary);
   --color-primary-foreground: var(--primary-foreground);
+  --color-brand: var(--brand);
   --color-primary: var(--primary);
   --color-popover-foreground: var(--popover-foreground);
   --color-popover: var(--popover);
@@ -63,14 +64,16 @@
   --card-foreground: hsl(222 47% 11%);
   --popover: hsl(0 0% 100%);
   --popover-foreground: hsl(222 47% 11%);
-  --primary: hsl(217 91% 45%);
+  /* allcon's sky blue (the logo, highlights), and a deeper shade of it where white text sits on it */
+  --brand: hsl(206 75% 60%);
+  --primary: hsl(206 75% 42%);
   --primary-foreground: hsl(0 0% 100%);
   --secondary: hsl(214 32% 91%);
   --secondary-foreground: hsl(222 47% 11%);
   --muted: hsl(210 40% 96%);
   --muted-foreground: hsl(215 20% 45%);
-  --accent: hsl(214 95% 93%);
-  --accent-foreground: hsl(217 91% 35%);
+  --accent: hsl(206 85% 93%);
+  --accent-foreground: hsl(206 80% 30%);
   --destructive: hsl(0 84% 60%);
   --success: hsl(142 76% 36%);
   --success-foreground: hsl(0 0% 100%);
@@ -80,32 +83,32 @@
   --info-foreground: hsl(0 0% 100%);
   --border: hsl(214 32% 91%);
   --input: hsl(214 32% 88%);
-  --ring: hsl(217 91% 45%);
-  --chart-1: hsl(217 91% 50%);
+  --ring: hsl(206 75% 50%);
+  --chart-1: hsl(206 75% 45%);
   --chart-2: hsl(199 89% 48%);
   --chart-3: hsl(142 76% 36%);
   --chart-4: hsl(38 92% 50%);
   --chart-5: hsl(280 65% 60%);
   --radius: 0.5rem;
-  /* Portfolio-level navigation: deep navy with blue highlights */
-  --sidebar: hsl(222 47% 11%);
-  --sidebar-foreground: hsl(210 40% 98%);
-  --sidebar-primary: hsl(217 91% 55%);
-  --sidebar-primary-foreground: hsl(0 0% 100%);
-  --sidebar-accent: hsl(217 33% 20%);
-  --sidebar-accent-foreground: hsl(210 40% 98%);
-  --sidebar-border: hsl(217 33% 20%);
-  --sidebar-ring: hsl(217 91% 55%);
+  /* Navigation: light, the current page in a sky-blue tint */
+  --sidebar: hsl(210 33% 98%);
+  --sidebar-foreground: hsl(215 25% 27%);
+  --sidebar-primary: hsl(206 85% 91%);
+  --sidebar-primary-foreground: hsl(206 80% 28%);
+  --sidebar-accent: hsl(210 30% 93%);
+  --sidebar-accent-foreground: hsl(215 25% 20%);
+  --sidebar-border: hsl(214 32% 91%);
+  --sidebar-ring: hsl(206 75% 50%);
 }
 
-/* Inside a project the navigation switches to charcoal with a cyan highlight,
-   so it is always clear which level you are working at. */
+/* Inside a project the navigation takes a sky tint and a solid highlight, so it is always clear
+   which level you are working at. */
 .sidebar-project {
-  --sidebar: hsl(220 13% 18%);
-  --sidebar-primary: hsl(199 89% 48%);
-  --sidebar-accent: hsl(220 10% 26%);
-  --sidebar-border: hsl(220 10% 26%);
-  --sidebar-ring: hsl(199 89% 48%);
+  --sidebar: hsl(206 60% 96%);
+  --sidebar-primary: hsl(206 75% 42%);
+  --sidebar-primary-foreground: hsl(0 0% 100%);
+  --sidebar-accent: hsl(206 50% 90%);
+  --sidebar-border: hsl(206 40% 88%);
 }
 
 .dark {
@@ -115,7 +118,8 @@
   --card-foreground: hsl(210 40% 98%);
   --popover: hsl(222 47% 9%);
   --popover-foreground: hsl(210 40% 98%);
-  --primary: hsl(217 91% 60%);
+  --brand: hsl(206 75% 60%);
+  --primary: hsl(206 75% 60%);
   --primary-foreground: hsl(222 47% 11%);
   --secondary: hsl(217 33% 17%);
   --secondary-foreground: hsl(210 40% 98%);
@@ -129,7 +133,7 @@
   --info: hsl(199 89% 48%);
   --border: hsl(217 33% 20%);
   --input: hsl(217 33% 22%);
-  --ring: hsl(217 91% 60%);
+  --ring: hsl(206 75% 60%);
 }
 
 @layer base {

@@ -64,8 +64,8 @@ function rgbOf(css: string): [number, number, number] {
 export async function plotPdf(doc: DraftDocument, sheets: PlotSheet[], options: { title: string; loadPicture?: (key: string) => Promise<Uint8Array | null> }) {
   const pdf = await PDFDocument.create();
   pdf.setTitle(options.title);
-  pdf.setCreator("conkit drafting");
-  pdf.setProducer("conkit");
+  pdf.setCreator("allcon drafting");
+  pdf.setProducer("allcon");
   const k = pointsPerUnit(doc.units);
   // Fonts and pictures are embedded first; then every sheet is drawn in one go, with nothing
   // awaited, so the drawing's styles and blocks stay the ones in use (a server plots many).

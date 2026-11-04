@@ -1,6 +1,6 @@
 import { APP_NAME } from "@/lib/app-config";
 
-// The draft_drawing skill: how an AI app drafts in conkit's 2D editor, which works like AutoCAD.
+// The draft_drawing skill: how an AI app drafts in allcon's 2D editor, which works like AutoCAD.
 // Also the reference run_commands points to, so it stays in one place.
 
 export const SCRIPT_GUIDE = `Scripts work like AutoCAD .scr files: each line is exactly what you'd type at the command line (a command or alias, an option keyword, a point, a number), and an EMPTY line is Enter. Lines starting with ; are comments.

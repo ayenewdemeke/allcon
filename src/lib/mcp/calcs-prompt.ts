@@ -1,7 +1,7 @@
 import { APP_NAME } from "@/lib/app-config";
 import { TEMPLATES } from "@/lib/calcs/library/templates";
 
-// The write_calc skill: how an AI app writes engineering calculations in conkit's Calcs, which
+// The write_calc skill: how an AI app writes engineering calculations in allcon's Calcs, which
 // works like Mathcad. Also the reference edit_calc points to, so it stays in one place.
 
 export const CALC_GUIDE = `Math is LaTeX, as a math editor writes it, worked out with units in reading order (top to bottom, then left to right): define a name before using it.

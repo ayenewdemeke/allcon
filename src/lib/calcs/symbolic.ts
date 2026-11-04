@@ -4,7 +4,7 @@ import { env } from "@/lib/env";
 import type { SymbolicAnswer, SymbolicRequest } from "./evaluate";
 
 // Calls the SymPy worker (api/sym.py), a Python function in the same deployment, the way the IFC
-// worker is called: only conkit's server may, with a key derived from the auth secret.
+// worker is called: only allcon's server may, with a key derived from the auth secret.
 
 const workerUrl = () => process.env.SYM_WORKER_URL || (process.env.NODE_ENV === "production" ? `${env().APP_URL}/api/sym` : "http://127.0.0.1:5329/api/sym");
 const workerKey = () => createHmac("sha256", env().BETTER_AUTH_SECRET).update("conkit-sym-worker").digest("hex");

@@ -72,7 +72,7 @@ function createAuth() {
         expiresIn: 15 * 60,
         sendMagicLink: async ({ email, url }) => sendSignInLink(email, url),
       }),
-      // Connectors: conkit is the OAuth provider that Claude, ChatGPT and other MCP clients
+      // Connectors: allcon is the OAuth provider that Claude, ChatGPT and other MCP clients
       // sign in through (see app/api/mcp). Tokens are JWTs signed with the JWT plugin's keys.
       jwt(),
       mcp({

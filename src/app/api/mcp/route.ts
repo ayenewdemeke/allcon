@@ -7,7 +7,7 @@ import { db } from "@/lib/db";
 import { env } from "@/lib/env";
 import { buildMcpServer } from "@/lib/mcp/server";
 
-// The connector endpoint (Model Context Protocol). AI apps sign in through conkit's OAuth
+// The connector endpoint (Model Context Protocol). AI apps sign in through allcon's OAuth
 // provider (see lib/auth/server) and send the access token with every request; the token
 // says which user is calling, and the tools act for that user only.
 
@@ -26,12 +26,12 @@ async function handle(request: Request) {
     async (req, claims) => {
       const userId = typeof claims.sub === "string" && isUuid(claims.sub) ? claims.sub : null;
       const user = userId ? await db.user.findUnique({ where: { id: userId }, select: { id: true, orgId: true } }) : null;
-      if (!user) return unauthorized("This conkit account no longer exists.");
+      if (!user) return unauthorized("This allcon account no longer exists.");
       const clientId = typeof claims.azp === "string" ? claims.azp : typeof claims.client_id === "string" ? claims.client_id : null;
       // Access tokens are self-contained, so check the app is still connected: disconnecting
       // it (Connections page) then takes effect immediately rather than when the token expires.
       if (clientId && !(await db.oauthConsent.findFirst({ where: { userId: user.id, clientId }, select: { id: true } }))) {
-        return unauthorized("This app has been disconnected from conkit. Connect it again to continue.");
+        return unauthorized("This app has been disconnected from allcon. Connect it again to continue.");
       }
       // A fresh server per request: requests are stateless, and each carries its own user.
       const mcp = createMcpHandler(() => buildMcpServer({ userId: user.id, orgId: user.orgId, clientId }), {

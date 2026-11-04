@@ -1,23 +1,26 @@
-import { APP_NAME } from "@/lib/app-config";
 import { cn } from "@/lib/utils";
 
-// The name is the logo: "conkit" set in Unbounded. Where there's only room for a square
-// (collapsed sidebar, favicon), its "c" stands in on a blue tile.
-
-export function Wordmark({ className }: { className?: string }) {
-  return <span className={cn("font-brand leading-none font-bold tracking-tight lowercase", className)}>{APP_NAME}</span>;
-}
+// The logo: a sky-blue tile with a white arch (a bridge, a vault: what gets built), and the name,
+// "allcon", set lowercase in Unbounded with "all" in the brand blue. Collapsed to a square
+// (sidebar icons, favicon), the tile stands alone; src/app/icon.svg is the same drawing.
 
 export function LogoMark({ className }: { className?: string }) {
   return (
-    <span
-      aria-hidden
-      className={cn(
-        "flex size-8 shrink-0 items-center justify-center rounded-md bg-primary pb-[0.08em] font-brand text-lg leading-none font-bold text-primary-foreground",
-        className,
-      )}
-    >
-      c
+    <svg viewBox="0 0 32 32" aria-hidden className={cn("size-8 shrink-0", className)}>
+      <rect width="32" height="32" rx="8" className="fill-brand" />
+      <path d="M6 24 A10 10 0 0 1 26 24 L21 24 A5 5 0 0 0 11 24 Z" fill="#ffffff" />
+    </svg>
+  );
+}
+
+export function Wordmark({ className, mark = false }: { className?: string; mark?: boolean }) {
+  return (
+    <span className={cn("inline-flex items-center gap-2", className)}>
+      {mark && <LogoMark className="size-[1.35em]" />}
+      <span className="font-brand leading-none font-bold tracking-tight lowercase">
+        <span className="text-primary">all</span>
+        <span>con</span>
+      </span>
     </span>
   );
 }

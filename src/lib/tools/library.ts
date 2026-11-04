@@ -11,7 +11,7 @@ export async function searchManuals(ctx: ToolContext, query: string, referenceId
     where: { orgId: ctx.orgId, status: "ready", ...(referenceId ? { id: referenceId } : {}) },
     select: { id: true, title: true },
   });
-  if (!references.length) return { results: [], note: "The library has no manuals yet. Add one on the Library page in conkit." };
+  if (!references.length) return { results: [], note: "The library has no manuals yet. Add one on the Library page in allcon." };
   const titles = new Map(references.map((r) => [r.id, r.title]));
   const sections = await db.referenceSection.findMany({
     where: { referenceId: { in: references.map((r) => r.id) } },

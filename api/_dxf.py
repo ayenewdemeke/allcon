@@ -1,7 +1,7 @@
 """
-DXF in and out for conkit's drafting editor, with ezdxf.
+DXF in and out for allcon's drafting editor, with ezdxf.
 
-A conkit drawing (see src/lib/drafting/types.ts) is kept to DXF's meaning, so most objects map
+A allcon drawing (see src/lib/drafting/types.ts) is kept to DXF's meaning, so most objects map
 one to one: layers, text and dimension styles, blocks with attributes, lines, polylines with
 arc segments, circles, arcs, ellipses, splines, text, multiline text, dimensions, leaders and
 hatches, and layouts with their paper size and viewports. Dimensions are written with their

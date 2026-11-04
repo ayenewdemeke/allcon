@@ -3,7 +3,7 @@ import { verifyOAuthQueryParams } from "@better-auth/oauth-provider";
 import { db } from "@/lib/db";
 import { env } from "@/lib/env";
 
-// When an AI app (Claude, ChatGPT...) connects, conkit's OAuth provider sends the user to the
+// When an AI app (Claude, ChatGPT...) connects, allcon's OAuth provider sends the user to the
 // sign-in or consent page with the original request in a signed query string.
 
 type SearchParams = Record<string, string | string[] | undefined>;

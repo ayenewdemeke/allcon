@@ -81,7 +81,7 @@ export default async function FeedbackPage() {
   ]);
   return (
     <PageBody>
-      <PageHeader title="Feedback" description="Ideas, problems and questions about conkit, and what's become of them." actions={<SendFeedbackButton />} />
+      <PageHeader title="Feedback" description="Ideas, problems and questions about allcon, and what's become of them." actions={<SendFeedbackButton />} />
       {all && (
         <section className="space-y-2">
           <h2 className="text-sm font-semibold">Everyone&apos;s feedback ({all.filter((f) => f.status === "new").length} new)</h2>

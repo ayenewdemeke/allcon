@@ -19,8 +19,8 @@ import { createModel, editModel, getModel, ifcHelp, ifcQuery, listModels } from 
 import { listElementGroups, mapGroups } from "@/lib/tools/mapping";
 import { getProject, listProjects, takeoffSummary } from "@/lib/tools/projects";
 
-// conkit as an MCP server: the user's own AI app (Claude, ChatGPT, Gemini...) does the thinking and
-// calls these tools; conkit does exact work on the project and keeps the results. Each call
+// allcon as an MCP server: the user's own AI app (Claude, ChatGPT, Gemini...) does the thinking and
+// calls these tools; allcon does exact work on the project and keeps the results. Each call
 // is recorded in the activity log, so people can see what was done on their behalf.
 
 const INSTRUCTIONS = `${APP_NAME} is the user's construction project workspace: PDF drawing sets (sheets), building models, a bill of quantities or schedule of values (its priced lines, also called line items), and a library of design manuals.
@@ -69,7 +69,7 @@ export function buildMcpServer(ctx: ToolContext) {
       await log(tool, extra.summary ?? summary, true, extra.projectId ?? null, extra.markupIds ?? [], extra.undo);
       return result;
     } catch (err) {
-      const message = err instanceof ToolError ? err.message : err instanceof z.ZodError ? "Invalid input." : "Something went wrong in conkit.";
+      const message = err instanceof ToolError ? err.message : err instanceof z.ZodError ? "Invalid input." : "Something went wrong in allcon.";
       if (!(err instanceof ToolError)) console.error(`MCP tool ${tool} failed`, err);
       await log(tool, `${summary} — failed: ${message}`, false, null, []);
       return { isError: true, content: [{ type: "text", text: message }] };
@@ -177,7 +177,7 @@ export function buildMcpServer(ctx: ToolContext) {
     {
       title: "List element groups",
       description:
-        "The element groups (category + type) of the project's counted models, with their quantities, what each is mapped to, and conkit's suggested SOV / BoQ item; plus the SOV / BoQ items with their ids. Use it before map_groups.",
+        "The element groups (category + type) of the project's counted models, with their quantities, what each is mapped to, and allcon's suggested SOV / BoQ item; plus the SOV / BoQ items with their ids. Use it before map_groups.",
       inputSchema: z.object({ project_id: uuid, only_unmapped: z.boolean().default(false) }),
       annotations: readOnly,
     },
@@ -286,7 +286,7 @@ export function buildMcpServer(ctx: ToolContext) {
     {
       title: "Rename a sheet",
       description:
-        "Sets a sheet's number and/or title in conkit, e.g. when the detected number doesn't match the title block. Pass only what changes; an empty string clears it.",
+        "Sets a sheet's number and/or title in allcon, e.g. when the detected number doesn't match the title block. Pass only what changes; an empty string clears it.",
       inputSchema: z.object({ sheet_id: uuid, number: z.string().max(40).optional(), title: z.string().max(200).optional() }),
       annotations: { ...additive, idempotentHint: true },
     },
@@ -422,7 +422,7 @@ Edits in one request build one revision of the model; the user can undo the whol
 
   server.registerTool(
     "list_drawings",
-    { title: "List drawings", description: "The user's 2D drafting drawings (CAD drawings made in conkit's AutoCAD-like editor), with their units and size.", annotations: readOnly },
+    { title: "List drawings", description: "The user's 2D drafting drawings (CAD drawings made in allcon's AutoCAD-like editor), with their units and size.", annotations: readOnly },
     async () => out(await run("list_drawings", "Listed drawings", () => listDrawings(ctx))),
   );
 
@@ -656,7 +656,7 @@ Edits in one request build one revision of the model; the user can undo the whol
     ({ project }) =>
       user(`Map the models in ${APP_NAME} project ${project} to its SOV / BoQ.
 
-1. Find the project (list_projects), then call list_element_groups. It gives the element groups of the models that count, conkit's suggestion for each, and the SOV / BoQ items with their ids.
+1. Find the project (list_projects), then call list_element_groups. It gives the element groups of the models that count, allcon's suggestion for each, and the SOV / BoQ items with their ids.
 2. For each group, decide which item it belongs to and by which quantity: volume for concrete (m³, CY), area for walls, slabs, finishes and roofing (m², SF), length for beams, railings and skirting (m, LF; perimeter for rooms), count for doors, windows, fixtures and furniture (EA, nr). Use the suggestion when it fits; read the item descriptions and codes, not just the names. A group can price more than one item (e.g. a concrete wall: its volume for concrete, its area for formwork).
 3. Leave groups unmapped when nothing in the SOV / BoQ fits, and don't force a match. If you're unsure about a mapping that matters (a large quantity or value), ask me first.
 4. Map with map_groups, in batches. Check what each item now measures against its contract quantity, and look into large differences: a wrong group, a missing one, or the same thing in two models (switch a duplicate model off on the Models page).
@@ -667,7 +667,7 @@ Edits in one request build one revision of the model; the user can undo the whol
     "build_3d_model",
     {
       title: "Build a 3D model from drawings",
-      description: "Reads a drawing set and builds a 3D IFC model of it in conkit (structural, architectural or both) to the level of development (LOD) you choose, checking first that the drawings support it.",
+      description: "Reads a drawing set and builds a 3D IFC model of it in allcon (structural, architectural or both) to the level of development (LOD) you choose, checking first that the drawings support it.",
       argsSchema: z.object({
         drawings: z.string().describe("Which drawings, e.g. 'the Jewell bridge set' or 'sheets A101-A105 in Riverside'"),
         discipline: z.string().optional().describe("structural, architectural, or both (default: what the drawings show)"),
@@ -696,7 +696,7 @@ Edits in one request build one revision of the model; the user can undo the whol
     "draft_drawing",
     {
       title: "Draft a 2D drawing",
-      description: "Drafts plans, details or sheets in conkit's AutoCAD-like editor: layers, geometry, text, dimensions, hatches, blocks and layouts, checked against a picture as it goes.",
+      description: "Drafts plans, details or sheets in allcon's AutoCAD-like editor: layers, geometry, text, dimensions, hatches, blocks and layouts, checked against a picture as it goes.",
       argsSchema: z.object({
         task: z.string().describe("What to draw, e.g. 'a 30 x 40 ft single-storey house plan with dimensions' or 'trace sheet A101 in Riverside'"),
         drawing: z.string().optional().describe("An existing drawing's name or id (default: a new one)"),
@@ -709,7 +709,7 @@ Edits in one request build one revision of the model; the user can undo the whol
     "write_calc",
     {
       title: "Write an engineering calc",
-      description: "Writes a calculation in conkit's Calcs, like Mathcad: inputs, steel sections, code checks with references, worked out live with units, ready for a checker.",
+      description: "Writes a calculation in allcon's Calcs, like Mathcad: inputs, steel sections, code checks with references, worked out live with units, ready for a checker.",
       argsSchema: z.object({
         task: z.string().describe("What to calculate, e.g. 'check a W16x31 beam spanning 24 ft with 1.2 klf dead and 0.8 klf live load' or 'size a spread footing for 150 kip'"),
         calc: z.string().optional().describe("An existing worksheet's name or id (default: a new one)"),

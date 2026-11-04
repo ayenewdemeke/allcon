@@ -24,7 +24,7 @@ const FEATURES = [
 
 export default async function SignInPage({ searchParams }: PageProps<"/">) {
   const params = await searchParams;
-  // An AI app connecting to conkit sends people here to sign in first.
+  // An AI app connecting to allcon sends people here to sign in first.
   const connector = await verifiedConnectorQuery(params);
   if (await getCurrentUser()) redirect(connector ? authorizeUrl(connector) : "/projects");
   const connecting = connector ? await connectorName(connector.get("client_id")!) : null;
@@ -36,7 +36,7 @@ export default async function SignInPage({ searchParams }: PageProps<"/">) {
     <div className="flex min-h-svh flex-col bg-background">
       <header className="border-b bg-card">
         <div className="mx-auto flex h-16 max-w-6xl items-center gap-2 px-6">
-          <Wordmark className="text-2xl" />
+          <Wordmark mark className="text-2xl" />
         </div>
       </header>
 
