@@ -9,7 +9,7 @@ one session works on this repo (one locally, one online), and all of them push t
 - **Discuss before building.** When the owner shares a plan or an idea, or asks "is it possible…",
   reply with a view, concerns and a proposed next step. Build only once they say so.
 - **A push to `main` deploys to production** (https://allcon.app, Vercel). After pushing, wait for
-  Vercel's status on the commit (`gh api repos/ayenewdemeke/estimator/commits/<sha>/status`), then
+  Vercel's status on the commit (`gh api repos/ayenewdemeke/allcon/commits/<sha>/status`), then
   check that allcon.app answers 200, and tell the owner it's live (or report the failure).
 - Before pushing: `npx tsc --noEmit`, `npx eslint src`, `npm test`, and for larger changes
   `npx next build`.
