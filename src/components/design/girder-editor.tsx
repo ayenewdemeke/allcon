@@ -1,5 +1,6 @@
 "use client";
 
+import { useCdot } from "./agency-context";
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowUpRight, Loader2, Plus, Trash2 } from "lucide-react";
@@ -117,6 +118,8 @@ const shapeOptions = [...GIRDER_SHAPES.map((s) => ({ value: s.id, label: s.name 
 
 export function GirderEditor({ design, projects }: { design: { id: string; name: string; projectId: string | null; inputs: GirderInputs }; projects: { id: string; name: string }[] }) {
   const [inputs, setRawInputs] = useState(design.inputs);
+  // CDOT's criteria, rails and end detail are offered with its rules on (or where the design already uses them).
+  const cdot = useCdot();
   // Every edit also marks the values from the plans it changes as edited (confirmed by the engineer).
   // A standard rail keeps the barrier's width, weight and height in step with it.
   const setInputs = (next: GirderInputs | ((s: GirderInputs) => GirderInputs)) => setRawInputs((s) => applyRail(trackEdits(typeof next === "function" ? next(s) : next)));
@@ -213,7 +216,7 @@ export function GirderEditor({ design, projects }: { design: { id: string; name:
               <Field label="Skew" unit="°" value={inputs.skew} onChange={set("skew")} />
             </Section>
             <Section title="Bridge rail and roadway" open>
-              <Choice label="Rail" value={railChoice.type} options={[...RAILS.map((x) => ({ value: x.key as RailKey, label: `${x.name} (${x.sheet})` })), { value: "custom" as RailKey, label: "Other barrier (entered)" }]} onChange={(v) => setInputs((s) => ({ ...s, rail: { ...railChoice, type: v } }))} />
+              <Choice label="Rail" value={railChoice.type} options={[...(cdot || railChoice.type !== "custom" ? RAILS.map((x) => ({ value: x.key as RailKey, label: `CDOT ${x.name} (${x.sheet})` })) : []), { value: "custom" as RailKey, label: "Barrier (entered)" }]} onChange={(v) => setInputs((s) => ({ ...s, rail: { ...railChoice, type: v } }))} />
               {stdRail ? (
                 <>
                   <Choice label="Test level" value={railChoice.testLevel} options={[{ value: "TL-5" as TestLevel, label: "TL-5 (42 in)" }, { value: "TL-4" as TestLevel, label: "TL-4" }]} onChange={(v) => setInputs((s) => ({ ...s, rail: { ...railChoice, testLevel: v } }))} />
@@ -338,7 +341,7 @@ export function GirderEditor({ design, projects }: { design: { id: string; name:
                   { key: "spacing", label: "s", unit: "in", step: 1 },
                 ]}
               />
-              <Toggle
+              {(cdot || !!inputs.stirrups[0]?.bundle) && <Toggle
                 label={`First zone: CDOT's end detail, ${zoneCallout({ bar: 4, spacing: 3, bundle: CDOT_END_BUNDLE })} for 6 spaces (B-618-CBT1)`}
                 value={!!inputs.stirrups[0]?.bundle}
                 onChange={(on) =>
@@ -348,7 +351,7 @@ export function GirderEditor({ design, projects }: { design: { id: string; name:
                     stirrups: s.stirrups.map((z, k) => (k !== 0 ? z : on ? { length: +Math.max(0.25, 1.5 - s.endDist).toFixed(4), bar: 4, legs: 2, spacing: 3, bundle: { ...CDOT_END_BUNDLE } } : { length: z.length, bar: z.bar, legs: z.legs, spacing: z.spacing })),
                   }))
                 }
-              />
+              />}
               {inputs.stirrups[0]?.bundle && <p className="pb-1 text-[11px] text-muted-foreground">Zone 1: each set is {inputs.stirrups[0].bundle.bars} #{inputs.stirrups[0].bar} bars and a D{Math.round(inputs.stirrups[0].bundle.wire * 100)} wire bundled, {fmt(zoneAv(inputs.stirrups[0]), 2)} in² a set: counted in the splitting resistance (5.9.4.4.1) and the shear.</p>}
               <Toggle label="Stirrups extend into the deck" value={inputs.stirrupsIntoDeck} onChange={set("stirrupsIntoDeck")} />
               <Field label="Bars fy" unit="ksi" value={inputs.fy} onChange={set("fy")} />
@@ -410,15 +413,17 @@ export function GirderEditor({ design, projects }: { design: { id: string; name:
               <SubstructureLoads inputs={inputs} onChange={(site) => setInputs((s) => ({ ...s, site }))} />
             </Section>
             <Section title="Factors and options">
-              <Choice
-                label="Design criteria"
-                value={inputs.criteria ?? "aashto"}
-                options={[
-                  { value: "aashto", label: "AASHTO LRFD" },
-                  { value: "cdot", label: "AASHTO LRFD with the CDOT Bridge Design Manual" },
-                ]}
-                onChange={set("criteria")}
-              />
+              {(cdot || inputs.criteria === "cdot") && (
+                <Choice
+                  label="Design criteria"
+                  value={inputs.criteria ?? "aashto"}
+                  options={[
+                    { value: "aashto", label: "AASHTO LRFD" },
+                    { value: "cdot", label: "AASHTO LRFD with the CDOT Bridge Design Manual" },
+                  ]}
+                  onChange={set("criteria")}
+                />
+              )}
               {inputs.criteria === "cdot" && (
                 <p className="pb-1 text-xs text-muted-foreground">
                   CDOT BDM: Colorado Permit Vehicle and EV3 at Strength II (3.6); f′ci ≤ 6.5, f′c ≤ 8.5 ksi (5.3.1.2); no tension under dead load (5.5.1.3); live load elastic gain with γLL = 1.0 (5.5.1.1); hold-down ≤ 4 kip per strand (5.5.2.2); continuity rules (5.7); stirrups ≤ 18 in (5.5.1.6); harp height, harped strands only over 100 ft, harp points 0.35–0.45 L and 2,800 kip on the bed (5.5.1.5, B-618-CBT2); shipping 154 ft, 240 kip (5.5.1.9); camber at 60 days ±30%, no sag, minimum haunches (5.5.2.1). Lifting and hauling are the fabricator&apos;s (5.5.1.8): shown for information. Use 55% humidity (5.3.3).

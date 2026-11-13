@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { trainAt, CDOT_VEHICLES } from "./vehicles";
+import { trainAt, CDOT_VEHICLES } from "../rating/vehicles";
 import type { Check } from "../walls/cip";
 import { CDOT, designGirder, GIRDER_DEFAULTS, governingRatio, STRENGTH_II_VEHICLES, type GirderInputs, type StrandRow } from "./prestressed";
 import { girderCalcLines } from "./prestressed-calc";

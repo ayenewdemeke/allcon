@@ -29,6 +29,8 @@ import { SITE_WIND_DEFAULTS } from "./girders/substructure-loads";
 import { applyRail, CROWN_DEFAULT, GIRDER_RAIL_DEFAULT } from "./girders/bridge-deck";
 import { columnInputs } from "./piers/column";
 import { COLLISION_DEFAULTS, type CollisionInputs } from "./piers/collision";
+import { DT_DEFAULTS, type DtInputs } from "./rating/double-tee";
+import { legacySources } from "./rating/sources";
 import { ZONE1_DEFAULTS, type Zone1Inputs } from "./seismic/zone1";
 import { SIGN_DEFAULTS, type SignInputs } from "./signs/cantilever";
 import { stmInputs } from "./stm/strut-tie";
@@ -40,14 +42,15 @@ import { WINGWALL_DEFAULTS, type WingwallInputs } from "./walls/wingwall";
 // The Design section's categories and design types: highway structures to AASHTO LRFD, grouped
 // by element. What can be designed, and what's coming next.
 
-export type DesignKind = "lrfd-girder-check" | "stm-d-region" | "cip-cantilever-wall" | "mse-wall" | "cantilever-wingwall" | "box-culvert" | "deck-slab" | "seismic-zone1" | "pier-column" | "pier-collision" | "camber-haunch" | "sign-cantilever" | "elastomeric-bearing" | "ptfe-bearing" | "strip-seal-joint";
+export type DesignKind = "lrfd-girder-check" | "dt-load-rating" | "stm-d-region" | "cip-cantilever-wall" | "mse-wall" | "cantilever-wingwall" | "box-culvert" | "deck-slab" | "seismic-zone1" | "pier-column" | "pier-collision" | "camber-haunch" | "sign-cantilever" | "elastomeric-bearing" | "ptfe-bearing" | "strip-seal-joint";
 
-export const CATEGORIES: { id: string; name: string; kinds: { id: DesignKind; name: string; short: string; description: string; available: boolean }[] }[] = [
+export const CATEGORIES: { id: string; name: string; kinds: { id: DesignKind; name: string; short: string; description: string; available: boolean; /** Shown only with this agency's rules on (Design → Agency rules). */ agency?: "cdot" }[] }[] = [
   {
     id: "superstructures",
     name: "Superstructures",
     kinds: [
       { id: "lrfd-girder-check", name: "LRFD Bridge Design Check", short: "Precast prestressed girders: DFs, stresses, flexure, shear, camber", description: "A simple-span precast, pretensioned girder bridge with a composite deck (AASHTO I-beams, AASHTO-PCI bulb-tees, CDOT Colorado Bulb Tees or a custom section): live load distribution factors, HL-93 envelopes, prestress losses, stresses at release and service, flexure and shear at Strength I, interface shear, and camber, for the interior and exterior girders. AASHTO LRFD 4.6.2.2, 5.6, 5.7 and 5.9.", available: true },
+      { id: "dt-load-rating", name: "Double-Tee Load Rating (LFR)", short: "Existing double-tee bridges, with or without plans: CDOT vehicles, posting", description: "Load Factor Rating of a simple-span bridge of adjacent precast, prestressed double tees, as AASHTOWare BrR rates one: CDOT's 13 vehicles moved along the span, every girder rated at the points of interest for flexure, service stresses and (optionally) shear, inventory and operating, and the posting check. Without plans the prestress is back-calculated so HS-20 rates 1.0 at inventory (CDOT BRM 1.7.2(A)). With the BrR input sheet and a comparison of BrR's results. AASHTO Standard Specifications (17th ed.), MBE 6B and the CDOT Bridge Rating Manual.", available: true, agency: "cdot" },
     ],
   },
   {
@@ -215,6 +218,77 @@ export function collisionInputs(saved: unknown): CollisionInputs {
   return { ...COLLISION_DEFAULTS, ...s };
 }
 
+/** A double-tee rating's inputs as saved, filled in from the defaults. */
+export function dtRatingInputs(saved: unknown): DtInputs {
+  const s = (saved && typeof saved === "object" ? saved : {}) as Partial<DtInputs>;
+  const d = DT_DEFAULTS;
+  const o = s.options ?? ({} as Partial<DtInputs["options"]>);
+  const out: DtInputs = {
+    ...d,
+    ...s,
+    bridge: { ...d.bridge, ...(s.bridge ?? {}) },
+    units: { ...d.units, ...(s.units ?? {}), layout: Array.isArray(s.units?.layout) && s.units.layout.length ? s.units.layout : null },
+    deck: { ...d.deck, ...(s.deck ?? {}) },
+    roadway: { ...d.roadway, ...(s.roadway ?? {}) },
+    loads: {
+      ...d.loads,
+      ...(s.loads ?? {}),
+      sidewalks: Array.isArray(s.loads?.sidewalks)
+        ? s.loads.sidewalks.map((x: { width: number; thk: number; curb?: boolean }) => ({ width: Number(x.width) || 0, thk: Number(x.thk) || 0, ...(x.curb === true ? { curb: true } : {}) }))
+        : [],
+      railComponents: Array.isArray(s.loads?.railComponents) ? s.loads.railComponents : [],
+      utilities: Array.isArray(s.loads?.utilities) ? s.loads.utilities : [],
+    },
+    materials: { ...d.materials, ...(s.materials ?? {}) },
+    prestress: (() => {
+      const p = { ...d.prestress, ...(s.prestress ?? {}) };
+      const h = p.harp;
+      const ok = h && typeof h === "object" && [h.end, h.mid, h.at].every((v) => typeof v === "number" && Number.isFinite(v)) && h.at > 0 && h.at <= 0.5;
+      return { mode: p.mode === "known" ? "known" : "back-calculate", strands: Number(p.strands) || 0, harp: ok ? { end: h.end, mid: h.mid, at: h.at } : null } as DtInputs["prestress"];
+    })(),
+    options: {
+      ...d.options,
+      ...o,
+      stirrups: { ...d.options.stirrups, ...(o.stirrups ?? {}) },
+      dfOverride: o.dfOverride ? { ...o.dfOverride } : null,
+      tensionLimit: typeof o.tensionLimit === "number" ? o.tensionLimit : o.tensionLimit === null ? null : d.options.tensionLimit,
+      ignoreTension: o.ignoreTension === true,
+    },
+    brrDf: Object.fromEntries((["intSingle", "intMulti", "extSingle", "extMulti"] as const).map((k) => [k, typeof s.brrDf?.[k] === "number" && s.brrDf[k]! > 0 ? s.brrDf[k] : null])) as DtInputs["brrDf"],
+    review: { ...d.review, ...(s.review ?? {}), items: Array.isArray(s.review?.items) ? s.review.items : [] },
+    notes: s.notes && typeof s.notes === "object" ? s.notes : {},
+    brrResults: typeof s.brrResults === "string" ? s.brrResults : "",
+    sketch:
+      s.sketch && typeof s.sketch === "object" && Array.isArray(s.sketch.pages)
+        ? {
+            name: String(s.sketch.name ?? "Sketch"),
+            pages: s.sketch.pages
+              .filter((p) => p && typeof p.key === "string" && /^designs\/[\w-]+\/attachments\/[\w-]+\.(png|jpg|webp)$/.test(p.key))
+              .slice(0, 6)
+              .map((p) => ({ key: p.key, width: Number(p.width) || 0, height: Number(p.height) || 0 })),
+            ...(Array.isArray(s.sketch.text) ? { text: s.sketch.text.filter((l): l is string => typeof l === "string").slice(0, 600).map((l) => l.slice(0, 400)) } : {}),
+          }
+        : null,
+    dimsChecked: s.dimsChecked === true,
+    sources: {},
+    blankStart: true,
+  };
+  // Sources: kept as saved; a new design starts blank; one saved before sources were kept gets them worked out.
+  const KINDS = new Set(["sia", "sketch", "brm", "file", "standard", "entered", "assumed", "confirmed"]);
+  if (s.sources && typeof s.sources === "object") {
+    out.sources = Object.fromEntries(
+      Object.entries(s.sources)
+        .filter(([, v]) => v && typeof v === "object" && KINDS.has((v as { kind: string }).kind))
+        .map(([k, v]) => [k, { kind: (v as DtInputs["sources"][string]).kind, ...(typeof v.note === "string" ? { note: v.note.slice(0, 500) } : {}) }]),
+    );
+    out.blankStart = s.blankStart !== false;
+  } else if (Object.keys(s).length > 0) {
+    out.sources = legacySources(out);
+    out.blankStart = false;
+  }
+  return out;
+}
+
 /** A design's inputs as saved, filled in from its kind's defaults, with its take-off settings kept. */
 export function designInputs(kind: string, saved: unknown) {
   const parsed = parseInputs(kind, saved);
@@ -224,6 +298,7 @@ export function designInputs(kind: string, saved: unknown) {
 
 function parseInputs(kind: string, saved: unknown) {
   if (kind === "lrfd-girder-check") return girderInputs(saved);
+  if (kind === "dt-load-rating") return dtRatingInputs(saved);
   if (kind === "pier-collision") return collisionInputs(saved);
   if (kind === "stm-d-region") return stmInputs(saved);
   if (kind === "pier-column") return columnInputs(saved);

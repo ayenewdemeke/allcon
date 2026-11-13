@@ -1,5 +1,6 @@
 "use client";
 
+import { useCdot } from "./agency-context";
 import { useState } from "react";
 import { FileSpreadsheet, ListPlus, Loader2 } from "lucide-react";
 import { useRouter } from "next/navigation";
@@ -57,6 +58,7 @@ function PushToLineItems({ design, inputs, kind, lines, value, onChange }: { des
     }
   };
   const agency = agencyOf(value.agency);
+  const cdot = useCdot(); // CDOT's pay items, with its rules on (or where the design already uses them)
   // A new agency starts from its own defaults: the old choices are another agency's items.
   const roles = Object.keys(toolPayItems(kind, agency)) as QuantityRole[];
   const setAgency = (a: Agency) => onChange({ ...Object.fromEntries(Object.entries(value).filter(([k]) => !roles.includes(k as QuantityRole))), agency: a, headingId: value.headingId });
@@ -79,7 +81,7 @@ function PushToLineItems({ design, inputs, kind, lines, value, onChange }: { des
           </Button>
         </div>
         <div className="grid gap-2 sm:grid-cols-2">
-          <label className="space-y-1">
+          {(cdot || agency === "cdot") && <label className="space-y-1">
             <span className="text-muted-foreground">Pay items</span>
             <select value={agency} onChange={(e) => setAgency(agencyOf(e.target.value))} className="h-7 w-full rounded-md border border-input bg-transparent px-1 text-xs" aria-label="Pay items">
               {AGENCIES.map((a) => (
@@ -88,7 +90,7 @@ function PushToLineItems({ design, inputs, kind, lines, value, onChange }: { des
                 </option>
               ))}
             </select>
-          </label>
+          </label>}
           {lines
             .filter((l) => payItemsFor(kind, l.role, agency).length > 1)
             .map((l) => (

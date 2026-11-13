@@ -2,6 +2,8 @@ import { Fragment, isValidElement, type ReactElement, type ReactNode } from "rea
 import { BearingSketch } from "@/components/design/bearing-sketch";
 import { DeckSketch } from "@/components/design/deck-sketch";
 import { CollisionSketch } from "@/components/design/collision-sketch";
+import { DtSectionSketch } from "@/components/design/dt-section-sketch";
+import { BrrComparisonTable, RatingSummaryTable } from "@/components/design/dt-summary-sketch";
 import { GirderElevation, GirderSketch, HandlingSketch } from "@/components/design/girder-sketch";
 import { HaunchSketch } from "@/components/design/haunch-sketch";
 import { BridgeSectionSketch } from "@/components/design/bridge-section-sketch";
@@ -26,6 +28,8 @@ import { designGirder, spanInputs, type GirderInputs } from "./girders/prestress
 import { designColumn, type ColumnInputs } from "./piers/column";
 import { ColumnSketch } from "@/components/design/column-sketch";
 import { designCollision, type CollisionInputs } from "./piers/collision";
+import { compareBrr, compareBrrDf } from "./rating/brr";
+import { rateDoubleTee, type DtInputs } from "./rating/double-tee";
 import { designSign, type SignInputs } from "./signs/cantilever";
 import type { StmResult } from "./stm/strut-tie";
 import type { CapDetail } from "./stm/detail";
@@ -114,6 +118,23 @@ export function girderFigures(i: GirderInputs) {
 }
 
 export const signFigures = (i: SignInputs) => ({ section: figure(<SignSketch inputs={i} result={designSign(i)} />) });
+
+export function dtFigures(i: DtInputs) {
+  const r = rateDoubleTee(i);
+  const title = `Rating summary (LFR): ${i.bridge.id || "the bridge"}${i.bridge.facility ? `, ${i.bridge.facility}` : ""}`;
+  let comparison: Figure | undefined;
+  if (i.brrResults.trim()) {
+    try {
+      const cmp = compareBrr(r, i.brrResults);
+      const df = compareBrrDf(i, r);
+      const source = i.brrResults.split(/\r?\n/).find((l) => l.startsWith("# From BrR:"))?.replace(/^#\s*/, "") ?? "Pasted from BrR";
+      if (cmp.done.length || df.length) comparison = figure(<BrrComparisonTable cmp={cmp} df={df} source={source} />);
+    } catch {
+      // BrR's table can't be read: the calc goes without the comparison.
+    }
+  }
+  return { section: figure(<DtSectionSketch inputs={i} layout={r.geo} cg={r.solve.cg} />), summary: figure(<RatingSummaryTable r={r} title={title} />), ...(comparison ? { comparison } : {}) };
+}
 
 export const stripSealFigures = (i: StripSealInputs) => ({ section: figure(<StripSealSketch inputs={i} result={designStripSeal(i)} />) });
 

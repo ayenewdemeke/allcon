@@ -32,6 +32,7 @@ model User {
   name            String?
   image           String?
   role            UserRole            @default(owner)
+  agency          String? // agency rules in Design: null (AASHTO only) or "cdot"
   createdAt       DateTime            @default(now()) @map("created_at")
   updatedAt       DateTime            @default(now()) @updatedAt @map("updated_at")
   org             Organization        @relation(fields: [orgId], references: [id], onDelete: Cascade)

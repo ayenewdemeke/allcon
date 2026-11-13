@@ -16,14 +16,16 @@ import { toConfirm } from "@/lib/design/girders/from-plans";
 import { girderCalcLines } from "@/lib/design/girders/prestressed-calc";
 import { stripSealCalcLines } from "@/lib/design/joints/strip-seal-calc";
 import { collisionCalcLines } from "@/lib/design/piers/collision-calc";
-import { bearingInputs, cbcInputs, cipInputs, collisionInputs, deckInputs, designInputs, girderInputs, haunchInputs, kindInfo, mseInputs, ptfeInputs, signInputs, stripSealInputs, wingwallInputs, zone1Inputs } from "@/lib/design/kinds";
+import { dtRatingCalcLines } from "@/lib/design/rating/double-tee-calc";
+import { missingInputs } from "@/lib/design/rating/sources";
+import { bearingInputs, cbcInputs, cipInputs, collisionInputs, deckInputs, designInputs, dtRatingInputs, girderInputs, haunchInputs, kindInfo, mseInputs, ptfeInputs, signInputs, stripSealInputs, wingwallInputs, zone1Inputs } from "@/lib/design/kinds";
 import { signCalcLines } from "@/lib/design/signs/cantilever-calc";
 import { columnInputs, type ColumnLink } from "@/lib/design/piers/column";
 import { columnCalcLines } from "@/lib/design/piers/column-calc";
 import { columnLinkFrom } from "@/lib/design/piers/column-link";
 import { zone1CalcLines } from "@/lib/design/seismic/zone1-calc";
 import { cbcCalcLines } from "@/lib/design/culverts/cbc-calc";
-import { bearingFigures, capDetailFigures, takeoffFigures, cbcFigures, cipFigures, collisionFigures, columnFigures, deckFigures, girderFigures, haunchFigures, mseFigures, signFigures, stmFigures, stripSealFigures, wingwallFigures } from "@/lib/design/figures";
+import { bearingFigures, capDetailFigures, takeoffFigures, cbcFigures, cipFigures, collisionFigures, columnFigures, deckFigures, dtFigures, girderFigures, haunchFigures, mseFigures, signFigures, stmFigures, stripSealFigures, wingwallFigures } from "@/lib/design/figures";
 import { girderSide, type GirderSide } from "@/lib/design/stm/cap-loads";
 import { nodeLpSolver } from "@/lib/design/stm/lp-node";
 import { designStm, stmInputs, type StmInputs } from "@/lib/design/stm/strut-tie";
@@ -33,6 +35,7 @@ import { takeoffQuantityLines } from "@/lib/design/takeoff/calc";
 import { cipCalcLines } from "@/lib/design/walls/cip-calc";
 import { mseCalcLines } from "@/lib/design/walls/mse-calc";
 import { wingwallCalcLines } from "@/lib/design/walls/wingwall-calc";
+import { agencyRulesOf } from "@/lib/design/agency";
 import { db } from "@/lib/db";
 import { deleteFiles, putFile } from "@/lib/storage";
 
@@ -56,6 +59,7 @@ export async function createDesign(kind: string, projectId: string | null) {
   const user = await requireUser();
   const info = kindInfo(kind);
   if (!info?.available) throw new Error("That design type isn't available yet");
+  if (info.agency && agencyRulesOf(user.agency) !== info.agency) throw new Error("Turn on CDOT's rules (Design → Agency rules) to start this design");
   const project = await orgProject(user.orgId, projectId);
   const count = await db.design.count({ where: { orgId: user.orgId, kind } });
   const design = await db.design.create({
@@ -63,6 +67,14 @@ export async function createDesign(kind: string, projectId: string | null) {
   });
   revalidatePath("/design");
   redirect(`/design/${design.id}`);
+}
+
+/** The person's agency rules in Design: AASHTO only, or an agency's criteria, standards, pay items and tools too. */
+export async function setAgencyRules(rules: string) {
+  const user = await requireUser();
+  const value = agencyRulesOf(rules);
+  await db.user.update({ where: { id: user.id }, data: { agency: value === "none" ? null : value } });
+  revalidatePath("/design", "layout");
 }
 
 /**
@@ -231,6 +243,8 @@ export async function createCalcFromDesign(designId: string, variant?: "quantiti
   const { user, design } = await ownDesign(designId);
   // A design started from plans makes a calc package only once every value is confirmed.
   if (design.kind === "lrfd-girder-check" && toConfirm(girderInputs(design.inputs).fromPlans).length > 0) throw new Error("Confirm the values from the plans first");
+  // A rating makes a calc package only once every input it needs has a source.
+  if (design.kind === "dt-load-rating" && missingInputs(dtRatingInputs(design.inputs)).length > 0) throw new Error("Enter the bridge's remaining inputs first");
   // The editor's sketches go in as pictures (or the calc goes without them if one can't be drawn).
   const figures = <T>(draw: () => T) => {
     try {
@@ -268,7 +282,9 @@ export async function createCalcFromDesign(designId: string, variant?: "quantiti
         })()
       : null;
   const lines = takeoffLines ?? stmLines ??
-    (design.kind === "lrfd-girder-check"
+    (design.kind === "dt-load-rating"
+      ? dtRatingCalcLines(dtRatingInputs(design.inputs), design.name, figures(() => dtFigures(dtRatingInputs(design.inputs))))
+      : design.kind === "lrfd-girder-check"
       ? girderCalcLines(girderInputs(design.inputs), design.name, figures(() => girderFigures(girderInputs(design.inputs))))
       : design.kind === "cip-cantilever-wall"
       ? cipCalcLines(cipInputs(design.inputs), design.name, figures(() => cipFigures(cipInputs(design.inputs))))
@@ -299,9 +315,10 @@ export async function createCalcFromDesign(designId: string, variant?: "quantiti
                             : null);
   if (!lines) throw new Error("Calc packages for this design type are coming");
   const data = emptyCalc("USCS");
-  // The header filled in as far as the design knows it: its project.
+  // The header filled in as far as the design knows it: its project, and for a rating, the rater and checker.
   const project = design.projectId ? await db.project.findUnique({ where: { id: design.projectId }, select: { name: true } }) : null;
-  data.header = { ...data.header, title: design.name, project: project?.name ?? "", by: user.name ?? "" };
+  const rating = design.kind === "dt-load-rating" ? dtRatingInputs(design.inputs).bridge : null;
+  data.header = { ...data.header, title: design.name, project: project?.name ?? "", by: rating?.rater.trim() || user.name || "", checked: rating?.checker.trim() ?? "" };
   data.regions = layout(lines, { x: 0, y: 0 }, data.paper);
   const calc = await db.calc.create({ data: { orgId: user.orgId, projectId: design.projectId, designId: design.id, name: `${design.name} ${quantities ? "quantities" : "calc"}`, createdById: user.id } });
   const key = newCalcKey(calc.id);

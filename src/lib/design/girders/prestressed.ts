@@ -1,5 +1,5 @@
 import { BARS, DesignError, type Check } from "../walls/cip";
-import { CDOT_VEHICLES } from "./vehicles";
+import { CDOT_VEHICLES } from "../rating/vehicles";
 import { axlesOf, continuousBeam, rotationsFromCurvature, type ContinuousBeam, type EndRotations, type LiveEnvelope } from "./continuous";
 import { GIRDER_SHAPES, profileProps, shapeById, widthAt, type GirderShape, type Profile, type SectionProps } from "./sections";
 import { analyzeHauling, analyzeLifting, type StabilitySection } from "./stability";

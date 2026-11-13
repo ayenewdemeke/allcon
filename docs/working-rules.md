@@ -41,8 +41,10 @@ one session works on this repo (one locally, one online), and all of them push t
 - **Match the reference app's actual behavior.** Before building or changing a Calcs or Drafting
   feature, look up how Mathcad Prime or AutoCAD does it (their help pages) and do the same,
   rather than only what the request literally describes; say where the two differ.
-- **Design: AASHTO LRFD only.** Cite AASHTO articles; don't cite state DOT manuals or adopt
-  DOT-only rules unless the owner asks (a DOT example may still be a validation test).
+- **Design: AASHTO LRFD by default.** Cite AASHTO articles. A state DOT's own rules, standards,
+  pay items and tools go in only behind **agency rules** (Design → Agency rules, `user.agency`;
+  CDOT so far), off by default, and only when the owner asks (a DOT example may still be a
+  validation test).
   Reinforcement is rebars by bar size and spacing; call them rebars or bars.
 - UI: shadcn on Base UI, the sidebar shell, light theme; write "allcon" in lowercase.
 

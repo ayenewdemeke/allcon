@@ -1,5 +1,6 @@
 "use client";
 
+import { useCdot } from "./agency-context";
 import { useMemo, useState } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { designDeck, RAIL_DEFAULT, type DeckInputs } from "@/lib/design/decks/deck";
@@ -16,6 +17,7 @@ const groupOf = (id: string) => (id.startsWith("pos") ? "Bottom transverse bars"
 
 export function DeckEditor({ design, projects }: { design: { id: string; name: string; projectId: string | null; inputs: DeckInputs }; projects: { id: string; name: string }[] }) {
   const [inputs, setInputs] = useState(design.inputs);
+  const cdot = useCdot(); // CDOT's standard rails, with its rules on
   const set = <K extends keyof DeckInputs>(key: K) => (v: DeckInputs[K]) => setInputs((s) => ({ ...s, [key]: v }));
 
   const outcome = useMemo(() => {
@@ -47,7 +49,7 @@ export function DeckEditor({ design, projects }: { design: { id: string; name: s
               <Field label="Girder centerline to −M design section (4.6.2.1.6)" unit="in" value={inputs.dSection} onChange={set("dSection")} />
             </Section>
             <Section title="Bridge rail" open>
-              <Choice label="Rail" value={railChoice.type} options={[...RAILS.map((x) => ({ value: x.key as RailKey, label: `${x.name} (${x.sheet})` })), { value: "custom" as RailKey, label: "Other barrier (entered)" }]} onChange={(v) => setRail({ type: v })} />
+              <Choice label="Rail" value={railChoice.type} options={[...(cdot || railChoice.type !== "custom" ? RAILS.map((x) => ({ value: x.key as RailKey, label: `CDOT ${x.name} (${x.sheet})` })) : []), { value: "custom" as RailKey, label: "Barrier (entered)" }]} onChange={(v) => setRail({ type: v })} />
               {railChoice.type !== "custom" && (
                 <>
                   <Choice label="Test level" value={railChoice.testLevel} options={[{ value: "TL-5" as TestLevel, label: "TL-5 (42 in, as the worksheet designs it)" }, { value: "TL-4" as TestLevel, label: "TL-4" }]} onChange={(v) => setRail({ testLevel: v })} />

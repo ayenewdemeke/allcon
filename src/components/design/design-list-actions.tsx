@@ -4,7 +4,8 @@ import { useTransition } from "react";
 import { unstable_rethrow, useRouter } from "next/navigation";
 import { ChevronDown, Loader2, Pencil, Plus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
-import { createDesign, deleteDesign, renameDesign } from "@/app/actions/design";
+import { createDesign, deleteDesign, renameDesign, setAgencyRules } from "@/app/actions/design";
+import { AGENCY_RULES, type AgencyRules } from "@/lib/design/agency";
 import { Button } from "@/components/ui/button";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuGroup, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 
@@ -23,6 +24,38 @@ function useCreate() {
       }
     });
   return { pending, create };
+}
+
+/** Agency rules: AASHTO only, or an agency's criteria, standards, pay items and tools as well. */
+export function AgencyRulesSelect({ value }: { value: AgencyRules }) {
+  const [pending, start] = useTransition();
+  const router = useRouter();
+  return (
+    <label className="flex items-center gap-1.5 text-xs text-muted-foreground" title="CDOT shows CDOT's criteria (Bridge Design Manual), standard rails, pay items and its own tools in the designs">
+      Agency rules
+      <select
+        value={value}
+        disabled={pending}
+        onChange={(e) =>
+          start(async () => {
+            try {
+              await setAgencyRules(e.target.value);
+              router.refresh();
+            } catch {
+              toast.error("Could not save the agency rules");
+            }
+          })
+        }
+        className="h-8 rounded-md border border-input bg-transparent px-1.5 text-xs text-foreground"
+      >
+        {AGENCY_RULES.map((a) => (
+          <option key={a.value} value={a.value}>
+            {a.label}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
 }
 
 /** "New design": the design types by category, in a menu. */

@@ -18,7 +18,8 @@ import { Zone1Editor } from "@/components/design/zone1-editor";
 import { PageBody } from "@/components/shell/page-header";
 import { isUuid, requireUser } from "@/lib/auth/session";
 import { CollisionEditor } from "@/components/design/collision-editor";
-import { bearingInputs, cbcInputs, cipInputs, collisionInputs, deckInputs, girderInputs, haunchInputs, mseInputs, ptfeInputs, signInputs, stripSealInputs, wingwallInputs, zone1Inputs } from "@/lib/design/kinds";
+import { DtRatingEditor } from "@/components/design/dt-rating-editor";
+import { bearingInputs, cbcInputs, cipInputs, collisionInputs, deckInputs, dtRatingInputs, girderInputs, haunchInputs, mseInputs, ptfeInputs, signInputs, stripSealInputs, wingwallInputs, zone1Inputs } from "@/lib/design/kinds";
 import { db } from "@/lib/db";
 
 export async function generateMetadata({ params }: PageProps<"/design/[designId]">): Promise<Metadata> {
@@ -46,6 +47,12 @@ export default async function DesignEditorPage({ params }: PageProps<"/design/[d
     return (
       <PageBody>
         <StmEditor design={{ ...base, inputs: stmInputs(design.inputs) }} projects={projects} />
+      </PageBody>
+    );
+  if (design.kind === "dt-load-rating")
+    return (
+      <PageBody>
+        <DtRatingEditor design={{ ...base, inputs: dtRatingInputs(design.inputs) }} projects={projects} />
       </PageBody>
     );
   if (design.kind === "pier-collision")
