@@ -20,6 +20,7 @@ model Organization {
   drawings   Drawing[]
   calcs      Calc[]
   designs    Design[]
+  bridges    Bridge[]
 
   @@map("organization")
 }
@@ -142,6 +143,7 @@ model Project {
   drawings            Drawing[] // drawings filed under the project (optional)
   calcs               Calc[] // calculation worksheets filed under the project (optional)
   designs             Design[] // designs (walls...) filed under the project (optional)
+  bridges             Bridge[] // bridge models filed under the project (optional)
 
   @@index([orgId])
   @@map("project")
@@ -908,6 +910,26 @@ model Design {
   @@index([orgId])
   @@index([projectId])
   @@map("design")
+}
+
+// A bridge modeled once, analyzed and designed (the Bridge section). `definition` is what the
+// engineer enters (spans, girders, deck, piers, loads: a few kilobytes); the analysis model and its
+// results are worked out from it in the browser and not stored.
+model Bridge {
+  id          String       @id @default(uuid()) @db.Uuid
+  orgId       String       @map("org_id") @db.Uuid
+  projectId   String?      @map("project_id") @db.Uuid
+  name        String
+  definition  Json
+  createdById String?      @map("created_by") @db.Uuid
+  createdAt   DateTime     @default(now()) @map("created_at")
+  updatedAt   DateTime     @default(now()) @updatedAt @map("updated_at")
+  org         Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  project     Project?     @relation(fields: [projectId], references: [id], onDelete: SetNull)
+
+  @@index([orgId])
+  @@index([projectId])
+  @@map("bridge")
 }
 
 // Feedback people send from the app: an idea, a bug or a question, with the page they were on

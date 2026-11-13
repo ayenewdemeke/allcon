@@ -3,30 +3,7 @@
 import { Suspense, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import {
-  ArrowLeft,
-  BookOpen,
-  ClipboardCheck,
-  Box,
-  DraftingCompass,
-  PencilRuler,
-  Sigma,
-  Check,
-  ChevronsUpDown,
-  FileSearch,
-  FolderKanban,
-  GitMerge,
-  Layers,
-  LayoutDashboard,
-  ListChecks,
-  LogOut,
-  MessageSquare,
-  MessageSquarePlus,
-  Map as MapIcon,
-  Plug,
-  Settings,
-  type LucideIcon,
-} from "lucide-react";
+import { ArrowLeft, BookOpen, Box, Check, ChevronsUpDown, ClipboardCheck, DraftingCompass, FileSearch, FolderKanban, GitMerge, Layers, LayoutDashboard, ListChecks, LogOut, Map as MapIcon, MessageSquare, MessageSquarePlus, PencilRuler, Plug, Settings, Sigma, type LucideIcon, Waypoints } from "lucide-react";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import {
   DropdownMenu,
@@ -72,6 +49,8 @@ const mainNav: NavItem[] = [
   { name: "Calcs", href: "/calcs", icon: Sigma },
   // Structural designs (walls...) worked out as they're entered, with a calc package.
   { name: "Design", href: "/design", icon: PencilRuler },
+  // Bridges modeled once: the analysis model, its results, and the designs they feed.
+  { name: "Bridge", href: "/bridges", icon: Waypoints },
   // Shared by all projects: manuals and standards that plan reviews check against.
   { name: "Library", href: "/library", icon: BookOpen },
   // AI apps (Claude, ChatGPT...) connected through MCP.

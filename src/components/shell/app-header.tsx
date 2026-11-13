@@ -42,6 +42,7 @@ function useCrumbs(projectName?: string) {
   if (segments[0] === "drafting") return { crumbs: [{ label: "Drafting", href: "/drafting" }], pathname };
   if (segments[0] === "calcs") return { crumbs: [{ label: "Calcs", href: "/calcs" }], pathname };
   if (segments[0] === "design") return { crumbs: [{ label: "Design", href: "/design" }], pathname };
+  if (segments[0] === "bridges") return { crumbs: [{ label: "Bridge", href: "/bridges" }], pathname };
   const crumbs: Crumb[] = [{ label: "Projects", href: "/projects" }];
   if (segments[0] === "projects" && segments[1] && projectName) {
     const projectHref = `/projects/${segments[1]}`;
