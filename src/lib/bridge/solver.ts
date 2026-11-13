@@ -371,6 +371,8 @@ export type Analysis = {
   forcesAt: (caseIndex: number, elementIndex: number, t: number) => SectionForces;
   /** An element's length. */
   lengthOf: (elementIndex: number) => number;
+  /** A set of loads solved for a few results (influence values): per element (by index) its internal forces at both ends, per link its three forces, per node (by index) its vertical displacement. */
+  respond: (loads: Load[], want: { elements: number[]; links: number[]; nodes?: number[] }) => Float32Array;
 };
 
 export type SectionForces = { N: number; Vy: number; Vz: number; T: number; My: number; Mz: number };
@@ -477,14 +479,13 @@ export function analyze(model: Model): Analysis {
     throw new ModelError(`The model is unstable: nothing restrains node ${node} in ${dof} (a missing support, or members released so they can move freely).`);
   }
 
-  // Loads by case.
+  // A set of loads solved: the displacements, and each loaded element's fixed-end forces.
   const elIndex = new Map(elements.map((e, i) => [e.id, i]));
-  const cases = model.loadCases.map((lc) => {
-    const own = model.loads.filter((l) => l.case === lc.name);
+  const solveLoads = (own: Load[]) => {
     const nodal = new Float64Array(nodes.length * 6); // applied at the nodes
     const onElement: (ElementLoad | undefined)[] = new Array(el.length);
     const applied: Vec3 = [0, 0, 0];
-    for (const l of own as Load[]) {
+    for (const l of own) {
       if (l.kind === "nodal") {
         const i = at(l.node, "A load");
         l.F.forEach((f, d) => (nodal[6 * i + d] += f));
@@ -508,7 +509,7 @@ export function analyze(model: Model): Analysis {
       }
     }
     // Fixed-end forces (local, releases condensed), and the load vector.
-    const fe = el.map((e, k) => (onElement[k] ? e.fe(fixedEnd(e.p, e.L, onElement[k]!, e.truss)) : null));
+    const fe: (number[] | null)[] = el.map((e, k) => (onElement[k] ? e.fe(fixedEnd(e.p, e.L, onElement[k]!, e.truss)) : null));
     const F = new Float64Array(n);
     for (let g = 0; g < nodal.length; g++) if (eq[g] >= 0) F[eq[g]] += nodal[g];
     el.forEach((e, k) => {
@@ -520,42 +521,51 @@ export function analyze(model: Model): Analysis {
     K.solve(F);
     const u = new Float64Array(nodes.length * 6);
     for (let g = 0; g < u.length; g++) if (eq[g] >= 0) u[g] = F[eq[g]];
+    return { u, fe, nodal, onElement, applied };
+  };
+  /** An element's twelve end forces (local, on the element) for a solution. */
+  const endForceOf = (k: number, u: Float64Array, fe: (number[] | null)[]) => {
+    const e = el[k];
+    const list = dofs(e.a, e.b);
+    const ul = rotate(e.R, list.map((g) => u[g]), false);
+    const f = new Array<number>(12).fill(0);
+    for (let i = 0; i < 12; i++) {
+      let s = fe[k]?.[i] ?? 0;
+      for (let j = 0; j < 12; j++) s += e.k[i][j] * ul[j];
+      f[i] = s;
+    }
+    return f;
+  };
+  /** A link's six spring forces (local) for a solution. */
+  const linkForceOf = (i: number, u: Float64Array) => {
+    const l = links[i];
+    const ul = rotate(l.R, dofs(l.a, l.b).map((g) => u[g]), false);
+    const r = l.L / 2;
+    // Δ = (u2 + θ2 × r2) − (u1 + θ1 × r1), in local axes.
+    const delta = [ul[6] - ul[0], ul[7] - r * ul[11] - (ul[1] + r * ul[5]), ul[8] + r * ul[10] - (ul[2] - r * ul[4]), ul[9] - ul[3], ul[10] - ul[4], ul[11] - ul[5]];
+    return delta.map((v, s) => v * l.k[s]);
+  };
 
+  const cases = model.loadCases.map((lc) => {
+    const { u, fe, nodal, onElement, applied } = solveLoads(model.loads.filter((l) => l.case === lc.name));
     // Element end forces, and what the members put on each node.
     const internal = new Float64Array(nodes.length * 6);
     const endForces = el.map((e, k) => {
-      const list = dofs(e.a, e.b);
-      const ul = rotate(e.R, list.map((g) => u[g]), false);
-      const f = new Array<number>(12).fill(0);
-      for (let i = 0; i < 12; i++) {
-        let s = fe[k]?.[i] ?? 0;
-        for (let j = 0; j < 12; j++) s += e.k[i][j] * ul[j];
-        f[i] = s;
-      }
+      const f = endForceOf(k, u, fe);
       const g = rotate(e.R, f, true);
+      const list = dofs(e.a, e.b);
       for (let i = 0; i < 12; i++) internal[list[i]] += g[i];
       return f;
     });
-    const linkForces = links.map((l) => {
+    const linkForces = links.map((l, i) => {
       const list = dofs(l.a, l.b);
       const ug = list.map((g) => u[g]);
-      for (let i = 0; i < 12; i++) {
+      for (let a = 0; a < 12; a++) {
         let s = 0;
-        for (let j = 0; j < 12; j++) s += l.kg[i][j] * ug[j];
-        internal[list[i]] += s;
+        for (let j = 0; j < 12; j++) s += l.kg[a][j] * ug[j];
+        internal[list[a]] += s;
       }
-      const ul = rotate(l.R, ug, false);
-      const r = l.L / 2;
-      // Δ = (u2 + θ2 × r2) − (u1 + θ1 × r1), in local axes.
-      const delta = [
-        ul[6] - ul[0],
-        ul[7] - r * ul[11] - (ul[1] + r * ul[5]),
-        ul[8] + r * ul[10] - (ul[2] - r * ul[4]),
-        ul[9] - ul[3],
-        ul[10] - ul[4],
-        ul[11] - ul[5],
-      ];
-      return delta.map((v, s) => v * l.k[s]);
+      return linkForceOf(i, u);
     });
     const springForces = springs.map((s) => {
       const R = s.k.map((k, d) => -k * u[6 * s.i + d]) as Dof6<number>;
@@ -575,6 +585,39 @@ export function analyze(model: Model): Analysis {
     const displacements = nodes.map((_, i) => [0, 1, 2, 3, 4, 5].map((d) => u[6 * i + d]) as Dof6<number>);
     return { result: { name: lc.name, displacements, reactions, springForces, endForces, linkForces, equilibrium: { applied, reactions: sum, residual } } as CaseResult, onElement };
   });
+
+  // Influence values: a set of loads solved for a few results only (no load case kept). For each
+  // element asked for, its internal forces at both ends (N, Vy, Vz, T, My, Mz at the first node,
+  // then at the second, in forcesAt's signs); then each link's three forces (local x, y, z); then
+  // each node's vertical displacement.
+  const respond = (own: Load[], want: { elements: number[]; links: number[]; nodes?: number[] }): Float32Array => {
+    const { u, fe } = solveLoads(own);
+    const out = new Float32Array(12 * want.elements.length + 3 * want.links.length + (want.nodes?.length ?? 0));
+    let o = 0;
+    for (const k of want.elements) {
+      const f = endForceOf(k, u, fe);
+      out[o++] = -f[0];
+      out[o++] = f[1];
+      out[o++] = f[2];
+      out[o++] = -f[3];
+      out[o++] = f[4];
+      out[o++] = -f[5];
+      out[o++] = f[6];
+      out[o++] = -f[7];
+      out[o++] = -f[8];
+      out[o++] = f[9];
+      out[o++] = -f[10];
+      out[o++] = f[11];
+    }
+    for (const i of want.links) {
+      const f = linkForceOf(i, u);
+      out[o++] = f[0];
+      out[o++] = f[1];
+      out[o++] = f[2];
+    }
+    for (const i of want.nodes ?? []) out[o++] = u[6 * i + 2];
+    return out;
+  };
 
   const forcesAt = (c: number, k: number, t: number): SectionForces => {
     const e = el[k];
@@ -607,7 +650,7 @@ export function analyze(model: Model): Analysis {
       Mz: -f[5] + x * f[1] + mz,
     };
   };
-  return { model, cases: cases.map((c) => c.result), held, forcesAt, lengthOf: (k) => el[k].L };
+  return { model, cases: cases.map((c) => c.result), held, forcesAt, lengthOf: (k) => el[k].L, respond };
 }
 
 /** The element as a unit for tests and tools: its index in the model by id. */

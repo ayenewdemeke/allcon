@@ -1,28 +1,40 @@
 import type { BridgeDefinition } from "./definition";
 import { generate, type Generated, type Member } from "./generate";
 import type { Dof6, LoadType } from "./model";
+import { COMPONENTS, type LiveLoad } from "./moving";
 import { analyze, type Analysis, type SectionForces } from "./solver";
 
 // A bridge analyzed: its two stages solved, their load cases side by side, the AASHTO LRFD load
 // combinations of them (Table 3.4.1-1), and each member's forces and deflections along its length.
-// Live load comes with the moving load analysis; until then the combinations carry the permanent
-// loads only, and say so.
+// The moving load analysis (moving.ts) runs after and is passed in where results are asked for:
+// with it, a combination's results are an envelope (the permanent loads, plus the live load's
+// largest and smallest effect).
 
 export type CaseRef = { name: string; type: LoadType; stage: 1 | 2; description?: string; index: number };
 export type Combination = { name: string; description: string; factors: Record<LoadType, number> };
 
-/** Permanent loads at their maximum factors (Table 3.4.1-2). */
+/** Table 3.4.1-1, the permanent loads at their maximum factors (Table 3.4.1-2). */
 export const COMBINATIONS: Combination[] = [
-  { name: "Service I", description: "1.0 DC + 1.0 DW", factors: { DC: 1, DW: 1, LL: 1, TU: 1, WS: 1, USER: 1 } },
-  { name: "Strength I", description: "1.25 DC + 1.5 DW", factors: { DC: 1.25, DW: 1.5, LL: 1.75, TU: 0.5, WS: 0, USER: 1 } },
+  { name: "Service I", description: "1.0 DC + 1.0 DW + 1.0 (LL+IM)", factors: { DC: 1, DW: 1, LL: 1, TU: 1, WS: 1, USER: 1 } },
+  { name: "Service III", description: "1.0 DC + 1.0 DW + 0.8 (LL+IM)", factors: { DC: 1, DW: 1, LL: 0.8, TU: 1, WS: 0, USER: 1 } },
+  { name: "Strength I", description: "1.25 DC + 1.5 DW + 1.75 (LL+IM)", factors: { DC: 1.25, DW: 1.5, LL: 1.75, TU: 0.5, WS: 0, USER: 1 } },
   { name: "Strength IV", description: "1.5 DC + 1.5 DW", factors: { DC: 1.5, DW: 1.5, LL: 0, TU: 0.5, WS: 0, USER: 1 } },
 ];
 
-/** What to show results for: one load case, or a combination. */
-export type Selection = { kind: "case"; name: string } | { kind: "combination"; name: string };
+/** What to show results for: one load case, the live load alone, or a combination. */
+export type Selection = { kind: "case"; name: string } | { kind: "live" } | { kind: "combination"; name: string };
 
-export type MemberStation = { x: number; forces: SectionForces; dz: number }; // x along the member, ft; dz the deflection (down −), ft
+export type MemberStation = {
+  x: number; // along the member, ft
+  p: [number, number, number]; // where that is in the model
+  forces: SectionForces; // the permanent loads (and for a case, the case)
+  dz: number; // deflection (down −), ft, without live load
+  /** With live load: each force's largest and smallest value (an envelope, not one loading). */
+  max?: SectionForces;
+  min?: SectionForces;
+};
 export type Check = { name: string; applied: number; reactions: number; ok: boolean }; // vertical equilibrium, kip
+export type BearingResult = { support: number; girder: number; link: number; vertical: number; transverse: number; longitudinal: number; max?: number; min?: number };
 
 export type BridgeAnalysis = {
   generated: Generated;
@@ -30,16 +42,22 @@ export type BridgeAnalysis = {
   combinations: Combination[];
   checks: Check[];
   ok: boolean;
+  /** The factor on live load in a selection (0: none). */
+  liveFactor: (selection: Selection) => number;
   /** A member's stations (each element's ends, and points between for the diagram's curve). */
-  member: (member: Member, selection: Selection, perElement?: number) => MemberStation[];
-  /** Reactions at the supports, by support line: vertical force and the moments, global. */
+  member: (member: Member, selection: Selection, perElement?: number, live?: LiveLoad | null) => MemberStation[];
+  /** Reactions at the supports: forces and moments, global (permanent loads; live load is on the members and bearings). */
   reactions: (selection: Selection) => { node: number; R: Dof6<number> }[];
   /** Each bearing's forces: vertical (compression +), across and along the bridge. */
-  bearings: (selection: Selection) => { support: number; girder: number; vertical: number; transverse: number; longitudinal: number }[];
+  bearings: (selection: Selection, live?: LiveLoad | null) => BearingResult[];
   /** Node displacements (global), for the deflected shape. */
   displacements: (selection: Selection) => Map<number, Dof6<number>>;
+  /** The member an element belongs to. */
+  memberOf: (elementId: number) => Member | undefined;
   stage: (stage: 1 | 2) => Analysis;
 };
+
+const ZERO = (): SectionForces => ({ N: 0, Vy: 0, Vz: 0, T: 0, My: 0, Mz: 0 });
 
 export function analyzeBridge(definition: BridgeDefinition): BridgeAnalysis {
   const generated = generate(definition);
@@ -52,36 +70,57 @@ export function analyzeBridge(definition: BridgeDefinition): BridgeAnalysis {
   ];
   /** A selection as load cases with their factors. */
   const terms = (sel: Selection): { ref: CaseRef; factor: number }[] => {
+    if (sel.kind === "live") return [];
     if (sel.kind === "case") return cases.filter((c) => c.name === sel.name).map((ref) => ({ ref, factor: 1 }));
     const combo = COMBINATIONS.find((c) => c.name === sel.name);
     return combo ? cases.map((ref) => ({ ref, factor: combo.factors[ref.type] })).filter((t) => t.factor !== 0) : [];
   };
+  const liveFactor = (sel: Selection) => (sel.kind === "live" ? 1 : sel.kind === "combination" ? (COMBINATIONS.find((c) => c.name === sel.name)?.factors.LL ?? 0) : 0);
   const index = { 1: new Map(generated.stage1.elements.map((e, i) => [e.id, i])), 2: new Map(generated.stage2.elements.map((e, i) => [e.id, i])) };
   const nodeIndex = new Map(generated.stage1.nodes.map((n, i) => [n.id, i])); // the same nodes in both stages
+  const nodes = generated.stage1.nodes;
   const elementNodes = new Map(generated.stage2.elements.map((e) => [e.id, [e.n1, e.n2] as const]));
+  const owner = new Map<number, Member>();
+  for (const m of generated.members) for (const id of m.elements) owner.set(id, m);
 
-  const member = (m: Member, sel: Selection, perElement = 4): MemberStation[] => {
+  const member = (m: Member, sel: Selection, perElement = 4, live?: LiveLoad | null): MemberStation[] => {
     const ts = terms(sel);
+    const gamma = live ? liveFactor(sel) : 0;
     const out: MemberStation[] = [];
     let x0 = 0;
     for (const id of m.elements) {
       const k2 = index[2].get(id)!;
       const L = a2.lengthOf(k2);
       const [n1, n2] = elementNodes.get(id)!;
+      const A = nodes[nodeIndex.get(n1)!];
+      const B = nodes[nodeIndex.get(n2)!];
+      // Live load at the element's two ends, per force (null where it isn't followed).
+      const ends = gamma ? COMPONENTS.map((c) => [live!.at(id, 0, c), live!.at(id, 1, c)] as const) : null;
       for (let p = 0; p <= perElement; p++) {
         const t = p / perElement;
-        const forces: SectionForces = { N: 0, Vy: 0, Vz: 0, T: 0, My: 0, Mz: 0 };
+        const forces = ZERO();
         let dz = 0;
         for (const { ref, factor } of ts) {
           const a = stageOf(ref.stage);
           const k = index[ref.stage].get(id);
           if (k === undefined) continue;
           const f = a.forcesAt(ref.index, k, t);
-          (Object.keys(forces) as (keyof SectionForces)[]).forEach((key) => (forces[key] += factor * f[key]));
+          for (const c of COMPONENTS) forces[c] += factor * f[c];
           const u = a.cases[ref.index].displacements;
           dz += factor * ((1 - t) * u[nodeIndex.get(n1)!][2] + t * u[nodeIndex.get(n2)!][2]);
         }
-        out.push({ x: x0 + t * L, forces, dz });
+        const station: MemberStation = { x: x0 + t * L, p: [A.x + t * (B.x - A.x), A.y + t * (B.y - A.y), A.z + t * (B.z - A.z)], forces, dz };
+        if (ends) {
+          station.max = { ...forces };
+          station.min = { ...forces };
+          COMPONENTS.forEach((c, ci) => {
+            const [e0, e1] = ends[ci];
+            if (!e0 || !e1) return;
+            station.max![c] += gamma * ((1 - t) * e0.max.value + t * e1.max.value);
+            station.min![c] += gamma * ((1 - t) * e0.min.value + t * e1.min.value);
+          });
+        }
+        out.push(station);
       }
       x0 += L;
     }
@@ -101,20 +140,23 @@ export function analyzeBridge(definition: BridgeDefinition): BridgeAnalysis {
   const reactions = (sel: Selection) => [...sumDof(sel, (a, c) => a.cases[c].reactions)].map(([node, R]) => ({ node, R }));
   const displacements = (sel: Selection) => sumDof(sel, (a, c) => a.cases[c].displacements.map((R, i) => ({ node: a.model.nodes[i].id, R })));
   const linkIndex = new Map(generated.stage1.links.map((l, i) => [l.id, i]));
-  const bearings = (sel: Selection) =>
-    generated.bearings.map((b) => {
+  const bearings = (sel: Selection, live?: LiveLoad | null): BearingResult[] => {
+    const gamma = live ? liveFactor(sel) : 0;
+    return generated.bearings.map((b) => {
       const f = [0, 0, 0];
       for (const { ref, factor } of terms(sel)) {
         const lf = stageOf(ref.stage).cases[ref.index].linkForces[linkIndex.get(b.link)!];
         for (let d = 0; d < 3; d++) f[d] += factor * lf[d];
       }
-      return { support: b.support, girder: b.girder, vertical: -f[0], transverse: f[1], longitudinal: f[2] };
+      const ll = gamma ? live!.bearing(b.link) : null;
+      return { support: b.support, girder: b.girder, link: b.link, vertical: -f[0], transverse: f[1], longitudinal: f[2], ...(ll ? { max: -f[0] + gamma * ll.max, min: -f[0] + gamma * ll.min } : {}) };
     });
+  };
 
   const checks: Check[] = cases.map((c) => {
     const e = stageOf(c.stage).cases[c.index].equilibrium;
     const scale = Math.max(1, Math.abs(e.applied[2]));
     return { name: c.name, applied: -e.applied[2], reactions: e.reactions[2], ok: Math.abs(e.applied[2] + e.reactions[2]) < 1e-6 * scale && e.residual < 1e-5 * scale };
   });
-  return { generated, cases, combinations: COMBINATIONS, checks, ok: checks.every((c) => c.ok), member, reactions, bearings, displacements, stage: stageOf };
+  return { generated, cases, combinations: COMBINATIONS, checks, ok: checks.every((c) => c.ok), liveFactor, member, reactions, bearings, displacements, memberOf: (id) => owner.get(id), stage: stageOf };
 }

@@ -23,7 +23,27 @@ to what midas doesn't have. Standard bridges only (see Scope).
     are a hinge in the girder beside the pier;
   - combinations carry permanent loads only until step 2; temperature and wind cases, the calc
     package and steel girders are not in yet.
-- Next: step 2, moving load.
+- Next: step 3, design from the results.
+
+## Status (2026-11-13): the workspace and step 2 (moving load) built
+
+- **Workspace.** A bridge opens full screen (`/bridges/[id]`, `bridge-workspace.tsx`), laid out as
+  midas Civil is: a ribbon (Structure, Boundary, Load, Analysis, Results, View), the model's tree,
+  the 3D model as the canvas with moment, shear and axial diagrams or the deformed shape drawn on
+  it (a click picks a member), the selected item's properties, the tables below (a member's
+  diagrams and forces, reactions, checks), and a status bar that carries the "Not verified" note.
+- **Moving load** (`moving.ts`): design lanes between the barriers (against either barrier and
+  centered), a unit axle moved along each for the influence lines of every girder element, pier
+  member and bearing; HL-93 truck or tandem with IM plus the lane load, 90% of two trucks for
+  negative moment and pier reactions, multiple presence; envelopes with concurrent forces. Runs in
+  slices after the static analysis (about a third of a second a span).
+- Combinations now carry live load: Service I, Service III (0.8 LL), Strength I, Strength IV.
+- Benchmarks (`moving.test.ts`): the vehicle engine on a beam's influence lines against the girder
+  check's HL-93 envelopes (held to PGSuper) within 1% on a simple span and 1.5% on two continuous
+  spans with the two-truck pier moment; on the grillage, statics of the influence values and an
+  interior girder's share of a lane near Table 4.6.2.2.2b-1's.
+- Not yet: the FHWA examples and midas's tutorial as fixtures (benchmarks 3 to 5), the fatigue
+  truck and permit vehicles, live-load deflection, temperature and wind.
 
 ## 1. What is taken from midas Civil
 

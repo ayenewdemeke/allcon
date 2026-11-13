@@ -48,6 +48,8 @@ export type Generated = {
   /** Station positions along the bridge at the centerline (ft), and the stations at the supports. */
   stations: number[];
   supportStations: number[];
+  /** Across the bridge: each girder's Y, the deck's edges, the roadway between the barriers; the skew's tangent; a girder element's id from its girder (0-based) and first station. */
+  layout: { girderY: number[]; deck: [number, number]; roadway: [number, number]; tan: number; girderElement: (girder: number, station: number) => number };
 };
 
 type Composite = { beff: number; A: number; I: number; yb: number };
@@ -320,5 +322,12 @@ export function generate(d: BridgeDefinition): Generated {
     properties: { girder: { A: g.A, I: g.I, yb: g.yb, weight: wGirder }, composite: comp, n, Ec: { girder: EcG, deck: EcD } },
     stations,
     supportStations,
+    layout: {
+      girderY: Array.from({ length: nG }, (_, k) => yOf(k)),
+      deck: [yOf(0) - d.overhang, yOf(nG - 1) + d.overhang],
+      roadway: [yOf(0) - d.overhang + d.loads.barrierWidth, yOf(nG - 1) + d.overhang - d.loads.barrierWidth],
+      tan,
+      girderElement,
+    },
   };
 }
