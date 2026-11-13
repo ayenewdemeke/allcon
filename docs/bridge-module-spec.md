@@ -256,3 +256,18 @@ spectrum; drawings into Drafting; a free node-and-element editor; SI display.
 2. The section's name: "Bridge" (recommended; "Analysis" suggests a general FEM program).
 3. Steel plate girders in the first pass, or prestressed only first (steel adds its own design
    tool, which allcon doesn't have yet: the model would analyze them but not design them).
+
+## Status (2026-11-13): the model view redone as analysis programs draw one
+
+- `solids.ts`: the bridge as solids (girders in their real outline along each span, the deck,
+  barriers, diaphragms, pier caps, columns, bearings); an imported model's members as rectangles
+  and rounds of their section's size.
+- `bridge-view.tsx`: shaded solids with edges and lighting, or wireframe; supports as pyramids; a
+  ground grid and the axes; results as color contours on the members with a scale, or as diagrams;
+  value labels at the extremes, names of girders and supports, bearing reactions as arrows with
+  values, design lanes on the deck; a dark background. A display toolbar beside the view turns
+  each on and off.
+- The girder's composite section drawn in the properties panel; a "Model data" table (sections,
+  materials, nodes, elements).
+- Not yet: the truck drawn at its governing position, load arrows for the static cases, node and
+  element numbers as labels, zoom window and select by window, editing the model in tables.

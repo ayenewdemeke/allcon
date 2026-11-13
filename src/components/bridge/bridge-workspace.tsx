@@ -1,7 +1,7 @@
 "use client";
 
 import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
-import { Activity, AlertCircle, Anchor, ArrowDownUp, ArrowLeft, Box, Check, ChevronDown, ChevronRight, ClipboardCheck, Columns3, EyeOff, FileText, Grid3x3, Layers, Loader2, MoveVertical, PanelBottom, PencilRuler, Play, Ruler, Spline, Table2, TriangleAlert, Truck, Weight } from "lucide-react";
+import { Activity, AlertCircle, Anchor, ArrowDownUp, ArrowLeft, ArrowUpFromLine, Box, Check, Cuboid, Database, Frame, Maximize, Moon, Palette, Route, Tag, ChevronDown, ChevronRight, ClipboardCheck, Columns3, EyeOff, FileText, Grid3x3, Layers, Loader2, MoveVertical, PanelBottom, PencilRuler, Play, Ruler, Spline, Table2, TriangleAlert, Truck, Weight } from "lucide-react";
 import { toast } from "sonner";
 import { createBridgeCalc, renameBridge, saveBridgeDefinition, setBridgeProject } from "@/app/actions/bridge";
 import { DesignErrorCard, fmt } from "@/components/design/design-kit";
@@ -9,12 +9,13 @@ import { LinkButton } from "@/components/ui/link-button";
 import { analyzeBridge, type BridgeAnalysis, type Selection } from "@/lib/bridge/bridge";
 import type { BridgeDefinition } from "@/lib/bridge/definition";
 import type { Member } from "@/lib/bridge/generate";
-import { movingLoadSteps, type LiveLoad } from "@/lib/bridge/moving";
+import { LANE_WIDTH, movingLoadSteps, type LiveLoad } from "@/lib/bridge/moving";
+import { bridgeSolids, type SolidKind, type Vec3 } from "@/lib/bridge/solids";
 import { cn } from "@/lib/utils";
 import { DesignPanel } from "./bridge-design";
 import { BridgeForm, FORM_TITLES, type FormKey } from "./bridge-forms";
-import { ChecksPanel, MemberPanel, ReactionsPanel } from "./bridge-results";
-import { BridgeView, type BridgeViewHandle, type Overlay, type ViewName } from "./bridge-view";
+import { ChecksPanel, MemberPanel, ModelDataPanel, ReactionsPanel, SectionSketch } from "./bridge-results";
+import { BridgeView, contourCss, type Arrow, type BridgeViewHandle, type Contour, type Label, type Overlay, type Strip, type ViewName } from "./bridge-view";
 
 // The Bridge workspace, full screen, laid out as midas Civil is: a ribbon of tabs in the order
 // the work goes (structure, boundary, load, analysis, results, view), the model's tree on the
@@ -24,7 +25,8 @@ import { BridgeView, type BridgeViewHandle, type Overlay, type ViewName } from "
 
 type Tab = "structure" | "boundary" | "load" | "analysis" | "results" | "design" | "view";
 type Show = "none" | "deformed" | "My" | "Vz" | "N";
-type Table = "member" | "reactions" | "checks" | "design";
+type Table = "member" | "reactions" | "checks" | "design" | "data";
+type Display = { solid: boolean; deck: boolean; contour: boolean; values: boolean; names: boolean; reactions: boolean; lanes: boolean; grid: boolean; dark: boolean };
 type Save = "saved" | "saving" | "unsaved" | "error";
 
 const SHOW: Record<Exclude<Show, "none" | "deformed">, { label: string; unit: string; color: number }> = {
@@ -68,6 +70,8 @@ export function BridgeWorkspace({ bridge, projects }: { bridge: { id: string; na
   const [show, setShow] = useState<Show>("My");
   const [table, setTable] = useState<Table | null>(null);
   const [making, setMaking] = useState(false);
+  const [display, setDisplay] = useState<Display>({ solid: true, deck: true, contour: true, values: true, names: false, reactions: false, lanes: false, grid: true, dark: false });
+  const flip = (k: keyof Display) => setDisplay((d) => ({ ...d, [k]: !d[k] }));
   const view = useRef<BridgeViewHandle>(null);
   const makeCalc = async () => {
     setMaking(true);
@@ -155,24 +159,30 @@ export function BridgeWorkspace({ bridge, projects }: { bridge: { id: string; na
   const selected = useMemo(() => new Set(member?.elements ?? []), [member]);
   const displacements = useMemo(() => (a && show === "deformed" && sel.kind !== "live" ? a.displacements(sel) : null), [a, sel, show]);
 
-  // The diagram on the model: each member's line of values off its axis (moments on the tension
-  // side, so sagging hangs below), hatched back to the member; an envelope's two lines with live load.
-  const diagram = useMemo((): { overlay: Overlay; max: { v: number; where: string }; min: { v: number; where: string } } | null => {
+  // The result on the model: every member's values along it (an envelope's governing value with
+  // live load), as colors on the members or as diagrams off them (moments on the tension side, so
+  // sagging hangs below), with the extremes and where they are.
+  const field = useMemo(() => {
     if (!a || show === "none" || show === "deformed") return null;
     const total = a.generated.stations[a.generated.stations.length - 1];
     const rows = members.map((m) => ({ m, st: a.member(m, sel, 2, live) }));
     let peak = 0;
-    let max = { v: -Infinity, where: "" };
-    let min = { v: Infinity, where: "" };
+    let max = { v: -Infinity, where: "", p: [0, 0, 0] as Vec3 };
+    let min = { v: Infinity, where: "", p: [0, 0, 0] as Vec3 };
     for (const { m, st } of rows)
       for (const s of st) {
         const hi = s.max ? s.max[show] : s.forces[show];
         const lo = s.min ? s.min[show] : s.forces[show];
         peak = Math.max(peak, Math.abs(hi), Math.abs(lo));
-        if (hi > max.v) max = { v: hi, where: `${m.name}, ${fmt(s.x, 1)} ft` };
-        if (lo < min.v) min = { v: lo, where: `${m.name}, ${fmt(s.x, 1)} ft` };
+        if (hi > max.v) max = { v: hi, where: `${m.name}, ${fmt(s.x, 1)} ft`, p: s.p };
+        if (lo < min.v) min = { v: lo, where: `${m.name}, ${fmt(s.x, 1)} ft`, p: s.p };
       }
     if (!(peak > 1e-9)) return null;
+    // Colors: each element's value at its ends; with an envelope, the one further from zero.
+    const values = new Map<number, [number, number]>();
+    const governing = (s: (typeof rows)[0]["st"][0]) => (s.max ? (Math.abs(s.max[show]) >= Math.abs(s.min![show]) ? s.max[show] : s.min![show]) : s.forces[show]);
+    for (const { m, st } of rows) m.elements.forEach((id, k) => values.set(id, [governing(st[3 * k]), governing(st[3 * k + 2])]));
+    const contour: Contour = { values, min: min.v, max: max.v };
     const height = Math.min(40, Math.max(6, total * 0.08));
     const f = height / peak;
     const outline: number[] = [];
@@ -182,14 +192,77 @@ export function BridgeWorkspace({ bridge, projects }: { bridge: { id: string; na
       const dir = m.kind === "column" ? [sign, 0, 0] : [0, 0, sign];
       const point = (k: number, v: number) => [st[k].p[0] + dir[0] * v * f, st[k].p[1] + dir[1] * v * f, st[k].p[2] + dir[2] * v * f];
       const series = st[0]?.max ? [st.map((s) => s.max![show]), st.map((s) => s.min![show])] : [st.map((s) => s.forces[show])];
-      for (const values of series)
+      for (const vals of series)
         for (let k = 0; k < st.length; k++) {
-          if (k > 0 && st[k].x > st[k - 1].x) outline.push(...point(k - 1, values[k - 1]), ...point(k, values[k]));
-          if (k % 2 === 0) hatch.push(...st[k].p, ...point(k, values[k]));
+          if (k > 0 && st[k].x > st[k - 1].x) outline.push(...point(k - 1, vals[k - 1]), ...point(k, vals[k]));
+          if (k % 2 === 0) hatch.push(...st[k].p, ...point(k, vals[k]));
         }
     }
-    return { overlay: { outline: new Float32Array(outline), hatch: new Float32Array(hatch), color: SHOW[show].color }, max, min };
+    return { overlay: { outline: new Float32Array(outline), hatch: new Float32Array(hatch), color: SHOW[show].color } as Overlay, contour, max, min, rows };
   }, [a, members, sel, show, live]);
+  const diagram = field;
+
+  // The solids, and what is drawn over them.
+  const built = useMemo(() => (a ? bridgeSolids(JSON.parse(modelKey) as BridgeDefinition, a.generated) : null), [a, modelKey]);
+  const hidden = useMemo((): SolidKind[] => (display.deck ? [] : ["deck", "barrier"]), [display.deck]);
+  const nodeAt = useMemo(() => new Map((a?.generated.stage2.nodes ?? []).map((n) => [n.id, [n.x, n.y, n.z] as Vec3])), [a]);
+  const bearingRows = useMemo(() => (a && display.reactions && sel.kind !== "live" ? a.bearings(sel, live) : null), [a, sel, live, display.reactions]);
+  const labels = useMemo((): Label[] => {
+    if (!a) return [];
+    const out: Label[] = [];
+    if (field && display.values) {
+      out.push({ p: field.max.p, text: `max ${fmt(field.max.v, 0)}` }, { p: field.min.p, text: `min ${fmt(field.min.v, 0)}` });
+      // The selected member's own extremes.
+      const own = member ? field.rows.find((r) => r.m.id === member.id)?.st : null;
+      if (own?.length) {
+        const hi = own.reduce((b, s) => ((s.max ? s.max[show as "My"] : s.forces[show as "My"]) > (b.max ? b.max[show as "My"] : b.forces[show as "My"]) ? s : b));
+        const lo = own.reduce((b, s) => ((s.min ? s.min[show as "My"] : s.forces[show as "My"]) < (b.min ? b.min[show as "My"] : b.forces[show as "My"]) ? s : b));
+        out.push({ p: hi.p, text: fmt(hi.max ? hi.max[show as "My"] : hi.forces[show as "My"], 0) }, { p: lo.p, text: fmt(lo.min ? lo.min[show as "My"] : lo.forces[show as "My"], 0) });
+      }
+    }
+    if (display.names) {
+      const g = a.generated;
+      const lift = (built?.deckTop ?? 0) + 3;
+      for (const m of g.members.filter((x) => x.kind === "girder" && x.span === 1)) {
+        const st = a.member(m, { kind: "case", name: a.cases[0].name }, 1);
+        const mid = st[Math.floor(st.length / 2)];
+        out.push({ p: [mid.p[0], mid.p[1], mid.p[2] + lift], text: `G${m.girder}`, tone: "name" });
+      }
+      g.supportStations.forEach((s, k) => out.push({ p: [g.stations[s], g.layout.deck[1] + 4, lift], text: k === 0 ? "Abutment 1" : k === g.supportStations.length - 1 ? "Abutment 2" : `Pier ${k}`, tone: "name" }));
+    }
+    if (bearingRows)
+      for (const b of bearingRows) {
+        const node = a.generated.bearings.find((x) => x.link === b.link)?.node;
+        const p = node !== undefined ? nodeAt.get(node) : undefined;
+        if (p) out.push({ p: [p[0], p[1], p[2] - (a.generated.properties.girder.yb / 12 + 5)], text: fmt(b.max ?? b.vertical, 0) });
+      }
+    return out;
+  }, [a, field, display.values, display.names, member, show, built, bearingRows, nodeAt]);
+  const arrows = useMemo((): Arrow[] => {
+    if (!a || !bearingRows) return [];
+    const top = Math.max(1, ...bearingRows.map((b) => Math.abs(b.max ?? b.vertical)));
+    return bearingRows.flatMap((b) => {
+      const node = a.generated.bearings.find((x) => x.link === b.link)?.node;
+      const p = node !== undefined ? nodeAt.get(node) : undefined;
+      const v = b.max ?? b.vertical;
+      return p && Math.abs(v) > 1e-6 ? [{ p: [p[0], p[1], p[2] - a.generated.properties.girder.yb / 12 - 0.3] as Vec3, d: [0, 0, (4 * v) / top] as Vec3 }] : [];
+    });
+  }, [a, bearingRows, nodeAt]);
+  const strips = useMemo((): Strip[] => {
+    if (!a || !live || !display.lanes || !built) return [];
+    const g = a.generated;
+    const total = g.stations[g.stations.length - 1];
+    const [left, right] = g.layout.roadway;
+    const half = Math.min(LANE_WIDTH, right - left) / 2;
+    // The lanes centered on the roadway (one of the three arrangements tried).
+    return live.arrangements[2].map((k) => {
+      const y = live.lanes[k];
+      const ya = Math.max(left, y - half) + 0.15;
+      const yb = Math.min(right, y + half) - 0.15;
+      return { plan: [[ya * g.layout.tan, ya], [total + ya * g.layout.tan, ya], [total + yb * g.layout.tan, yb], [yb * g.layout.tan, yb]] as [number, number][], z: built.deckTop + 0.06, color: 0xf59e0b };
+    });
+  }, [a, live, display.lanes, built]);
+  const useContour = display.contour && display.solid;
 
   const pickMember = (id: string | null) => {
     setMemberId(id);
@@ -350,6 +423,7 @@ export function BridgeWorkspace({ bridge, projects }: { bridge: { id: string; na
               <Panel title="Tables">
                 <Big icon={Table2} label="Member" title="The selected member's diagrams and forces" onClick={() => setTable("member")} active={table === "member"} />
                 <Big icon={Anchor} label="Reactions" onClick={() => setTable("reactions")} active={table === "reactions"} />
+                <Big icon={Database} label="Model data" title="Nodes, elements, sections and materials" onClick={() => setTable("data")} active={table === "data"} />
                 <Big icon={PanelBottom} label="Hide" onClick={() => setTable(null)} disabled={!table} />
               </Panel>
             </>
@@ -419,9 +493,26 @@ export function BridgeWorkspace({ bridge, projects }: { bridge: { id: string; na
           )}
         </aside>
 
-        <main className="relative min-w-0 flex-1 bg-slate-50 dark:bg-slate-900">
+        <main className={cn("relative min-w-0 flex-1", display.dark ? "dark bg-gradient-to-b from-slate-800 to-slate-950 text-slate-100" : "bg-gradient-to-b from-slate-100 to-white")}>
           {a ? (
-            <BridgeView ref={view} model={a.generated.stage2} displacements={displacements} overlay={diagram?.overlay ?? null} selected={selected} onPick={(id) => pickMember(id === null ? null : (a.memberOf(id)?.id ?? null))} className="absolute inset-0" />
+            <BridgeView
+              ref={view}
+              model={a.generated.stage2}
+              solids={built?.solids}
+              mode={display.solid ? "solid" : "wire"}
+              hidden={hidden}
+              displacements={displacements}
+              overlay={field && !useContour ? field.overlay : null}
+              contour={field && useContour ? field.contour : null}
+              selected={selected}
+              labels={labels}
+              arrows={arrows}
+              strips={strips}
+              grid={display.grid}
+              dark={display.dark}
+              onPick={(id) => pickMember(id === null ? null : (a.memberOf(id)?.id ?? null))}
+              className="absolute inset-0"
+            />
           ) : (
             <div className="p-6">
               <DesignErrorCard message={outcome.error ?? "The bridge could not be analyzed."} />
@@ -441,12 +532,48 @@ export function BridgeWorkspace({ bridge, projects }: { bridge: { id: string; na
                   <p className="tabular-nums text-muted-foreground">
                     Min {fmt(diagram.min.v, 1)} · {diagram.min.where}
                   </p>
-                  {show === "My" && <p className="text-muted-foreground">Drawn on the tension side: sagging below the member.</p>}
+                  {show === "My" && !useContour && <p className="text-muted-foreground">Drawn on the tension side: sagging below the member.</p>}
                 </>
               )}
             </div>
           )}
-          <p className="pointer-events-none absolute right-3 bottom-2 text-[10px] text-muted-foreground">Drag to turn · scroll to zoom · right-drag to move · click a member</p>
+          <p className="pointer-events-none absolute right-14 bottom-2 text-[10px] text-muted-foreground">Drag to turn · scroll to zoom · right-drag to move · click a member</p>
+          {/* Color scale */}
+          {a && field && useContour && (
+            <div className="pointer-events-none absolute bottom-3 left-3 flex items-stretch gap-1.5 text-[10px] tabular-nums">
+              <div className="w-3 rounded-sm" style={{ background: `linear-gradient(to top, ${[0, 0.25, 0.5, 0.75, 1].map(contourCss).join(", ")})`, height: "9rem" }} />
+              <div className="flex flex-col justify-between">
+                {[1, 0.75, 0.5, 0.25, 0].map((t) => (
+                  <span key={t}>{fmt(field.contour.min + t * (field.contour.max - field.contour.min), 0)}</span>
+                ))}
+              </div>
+              <span className="self-end text-muted-foreground">{SHOW[show as "My"].unit}</span>
+            </div>
+          )}
+          {/* Display toolbar */}
+          <div className="absolute top-2 right-2 flex flex-col gap-0.5 rounded-md border bg-background/90 p-0.5 text-foreground shadow-sm">
+            {(
+              [
+                ["solid", Cuboid, "Solid members (off: wireframe)"],
+                ["deck", Layers, "Deck and barriers"],
+                ["contour", Palette, "Results as colors on the members (off: diagrams)"],
+                ["values", Tag, "Values at the extremes"],
+                ["names", Frame, "Names of girders and supports"],
+                ["reactions", ArrowUpFromLine, "Bearing reactions on the model"],
+                ["lanes", Route, "Design lanes on the deck"],
+                ["grid", Grid3x3, "Ground grid"],
+                ["dark", Moon, "Dark background"],
+              ] as [keyof Display, React.ComponentType<{ className?: string }>, string][]
+            ).map(([k, Icon, title]) => (
+              <button key={k} type="button" title={title} aria-label={title} aria-pressed={display[k]} onClick={() => flip(k)} className={cn("flex size-7 items-center justify-center rounded hover:bg-accent", display[k] ? "bg-accent text-primary" : "text-muted-foreground")}>
+                <Icon className="size-4" />
+              </button>
+            ))}
+            <span className="mx-1 my-0.5 h-px bg-border" />
+            <button type="button" title="Fit the model in the view" aria-label="Fit" onClick={() => view.current?.view("iso")} className="flex size-7 items-center justify-center rounded text-muted-foreground hover:bg-accent">
+              <Maximize className="size-4" />
+            </button>
+          </div>
         </main>
 
         <aside className="w-72 shrink-0 overflow-y-auto border-l px-3 py-2">
@@ -455,6 +582,7 @@ export function BridgeWorkspace({ bridge, projects }: { bridge: { id: string; na
           ) : form ? (
             <>
               <p className="pb-1 text-xs font-semibold">{FORM_TITLES[form]}</p>
+              {form === "girders" && a && <SectionSketch def={current} a={a} />}
               <BridgeForm form={form} def={def} setDef={setDef} />
             </>
           ) : (
@@ -473,13 +601,14 @@ export function BridgeWorkspace({ bridge, projects }: { bridge: { id: string; na
                 ["reactions", "Reactions"],
                 ["checks", "Checks and properties"],
                 ["design", "Design"],
+                ["data", "Model data"],
               ] as const
             ).map(([k, label]) => (
               <button key={k} type="button" onClick={() => setTable(k)} className={cn("rounded px-2 py-0.5", table === k ? "bg-background font-medium shadow-sm" : "text-muted-foreground hover:text-foreground")}>
                 {label}
               </button>
             ))}
-            <span className="ml-2 text-muted-foreground">{table !== "checks" && table !== "design" && selectionLabel}</span>
+            <span className="ml-2 text-muted-foreground">{table !== "checks" && table !== "design" && table !== "data" && selectionLabel}</span>
             <button type="button" onClick={() => setTable(null)} className="ml-auto rounded px-2 py-0.5 text-muted-foreground hover:bg-accent hover:text-foreground" aria-label="Close the tables">
               Close
             </button>
@@ -488,6 +617,7 @@ export function BridgeWorkspace({ bridge, projects }: { bridge: { id: string; na
             {table === "member" && (member ? <MemberPanel a={a} member={member} sel={sel} live={live} /> : <p className="p-3 text-xs text-muted-foreground">Pick a member in the tree or in the model to see its diagrams and forces.</p>)}
             {table === "reactions" && <ReactionsPanel a={a} sel={sel} def={current} live={live} />}
             {table === "checks" && <ChecksPanel a={a} live={live} />}
+            {table === "data" && <ModelDataPanel model={a.generated.stage2} />}
             {table === "design" && <DesignPanel bridgeId={bridge.id} def={def} saved={save === "saved"} onLinks={(designs) => setDefState((d) => ({ ...d, designs }))} />}
           </div>
         </div>

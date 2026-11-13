@@ -9,6 +9,7 @@ import { LinkButton } from "@/components/ui/link-button";
 import { compareBeamForces, FORCE_NAMES, FORCE_UNITS, LENGTH_UNITS } from "@/lib/bridge/compare";
 import type { ImportedInfo } from "@/lib/bridge/imported";
 import type { Dof6, Model } from "@/lib/bridge/model";
+import { modelSolids } from "@/lib/bridge/solids";
 import { analyze, localAxes, type Analysis } from "@/lib/bridge/solver";
 import { cn } from "@/lib/utils";
 import { BridgeView, type BridgeViewHandle, type Overlay, type ViewName } from "./bridge-view";
@@ -103,6 +104,8 @@ export function ImportedWorkspace({ bridge, info }: { bridge: { id: string; name
     }
     return { overlay: { outline: new Float32Array(outline), hatch: new Float32Array(hatch), color: SHOW[show].color }, max, min };
   }, [a, model, show, caseIndex]);
+  const solids = useMemo(() => (model ? modelSolids(model) : []), [model]);
+  const [solid, setSolid] = useState(true);
   const comparison = useMemo(() => (a && model && pasted.trim() ? compareBeamForces(model, a, pasted, units) : null), [a, model, pasted, units]);
   const selected = useMemo(() => new Set(picked === null ? [] : [picked]), [picked]);
   const elementRows = useMemo(() => {
@@ -158,6 +161,7 @@ export function ImportedWorkspace({ bridge, info }: { bridge: { id: string; name
             <Big icon={TriangleAlert} label="Import report" onClick={() => setTable("report")} active={table === "report"} />
           </Group>
           <Group title="View">
+            <Big icon={Box} label={solid ? "Wireframe" : "Solid"} onClick={() => setSolid((v) => !v)} />
             {(["iso", "top", "front", "side"] as ViewName[]).map((v) => (
               <Big key={v} icon={Box} label={v[0].toUpperCase() + v.slice(1)} onClick={() => view.current?.view(v)} />
             ))}
@@ -166,7 +170,7 @@ export function ImportedWorkspace({ bridge, info }: { bridge: { id: string; name
       </div>
 
       <main className="relative min-h-0 flex-1 bg-slate-50 dark:bg-slate-900">
-        {a ? <BridgeView ref={view} model={model} plain displacements={displacements} overlay={diagram?.overlay ?? null} selected={selected} onPick={(id) => (setPicked(id), id !== null && setTable("forces"))} className="absolute inset-0" /> : <div className="p-6"><DesignErrorCard message={outcome.error ?? "The model could not be analyzed."} /></div>}
+        {a ? <BridgeView ref={view} model={model} plain solids={solids} mode={solid ? "solid" : "wire"} displacements={displacements} overlay={diagram?.overlay ?? null} selected={selected} onPick={(id) => (setPicked(id), id !== null && setTable("forces"))} className="absolute inset-0" /> : <div className="p-6"><DesignErrorCard message={outcome.error ?? "The model could not be analyzed."} /></div>}
         {a && (
           <div className="pointer-events-none absolute top-2 left-3 space-y-0.5 text-[11px]">
             <p className="font-semibold">

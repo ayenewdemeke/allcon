@@ -5,7 +5,9 @@ import { fmt, KeyValues } from "@/components/design/design-kit";
 import type { BridgeAnalysis, Selection } from "@/lib/bridge/bridge";
 import type { BridgeDefinition } from "@/lib/bridge/definition";
 import type { Member } from "@/lib/bridge/generate";
+import type { Model } from "@/lib/bridge/model";
 import type { LiveLoad } from "@/lib/bridge/moving";
+import { customShape, shapeById } from "@/lib/design/girders/sections";
 import { cn } from "@/lib/utils";
 import { Diagram } from "./diagram";
 
@@ -227,6 +229,140 @@ export function ChecksPanel({ a, live }: { a: BridgeAnalysis; live: LiveLoad | n
           The model is a grillage of beam elements, as midas Civil&apos;s girder bridge wizard builds its &ldquo;All Frame&rdquo; model: each girder a line of elements with the composite section&apos;s properties, deck strips between them, bearings as links to the abutments and
           pier caps. The girders alone carry their weight, the deck and the diaphragms on simple spans; the composite bridge carries the barriers, the wearing surface and live load.
         </p>
+      </div>
+    </div>
+  );
+}
+
+/** The girder with its deck, drawn to scale: the composite section an interior girder works with. */
+export function SectionSketch({ def, a }: { def: BridgeDefinition; a: BridgeAnalysis }) {
+  const shape = def.girder.custom ? customShape(def.girder.custom.profile, def.girder.custom.web, def.girder.custom.topWidth) : shapeById(def.girder.shape);
+  if (!shape) return null;
+  const p = a.generated.properties;
+  const beff = Math.min(p.composite.interior.beff, def.spacing * 12);
+  const ts = def.deck.thickness;
+  const H = shape.depth;
+  const total = H + def.deck.haunch + ts;
+  const W = Math.max(beff, 2 * Math.max(...shape.profile.map((q) => q[1])));
+  const k = Math.min(200 / W, 150 / total);
+  const x = (v: number) => 120 + v * k;
+  const y = (v: number) => 8 + (total - v) * k;
+  const outline = [...shape.profile.map(([yy, h]) => `${x(h)},${y(yy)}`), ...[...shape.profile].reverse().map(([yy, h]) => `${x(-h)},${y(yy)}`)].join(" ");
+  return (
+    <figure className="pb-2">
+      <svg viewBox={`0 0 240 ${total * k + 30}`} className="w-full text-foreground" role="img" aria-label="Composite section">
+        <rect x={x(-beff / 2)} y={y(total)} width={beff * k} height={ts * k} fill="currentColor" fillOpacity="0.12" stroke="currentColor" strokeWidth="0.8" />
+        {def.deck.haunch > 0 && <rect x={x(-shape.topWidth / 2)} y={y(H + def.deck.haunch)} width={shape.topWidth * k} height={def.deck.haunch * k} fill="currentColor" fillOpacity="0.12" stroke="currentColor" strokeWidth="0.5" />}
+        <polygon points={outline} fill="currentColor" fillOpacity="0.28" stroke="currentColor" strokeWidth="0.8" />
+        <line x1={x(-W / 2) - 4} x2={x(W / 2) + 4} y1={y(p.composite.interior.yb)} y2={y(p.composite.interior.yb)} stroke="#1b76bb" strokeDasharray="4 3" strokeWidth="0.8" />
+        <text x={x(W / 2) + 4} y={y(p.composite.interior.yb) - 3} fontSize="8" textAnchor="end" fill="#1b76bb">
+          composite centroid
+        </text>
+        <text x="120" y={total * k + 24} fontSize="9" textAnchor="middle" fill="currentColor" fillOpacity="0.7">
+          {shape.name} · {fmt(H, 1)} in deep · deck {fmt(beff, 0)} × {fmt(ts, 2)} in
+        </text>
+      </svg>
+      <figcaption className="grid grid-cols-2 gap-x-3 text-[11px] tabular-nums text-muted-foreground">
+        <span>Girder A {fmt(p.girder.A, 0)} in²</span>
+        <span>I {fmt(p.girder.I, 0)} in⁴</span>
+        <span>Composite A {fmt(p.composite.interior.A, 0)} in²</span>
+        <span>I {fmt(p.composite.interior.I, 0)} in⁴</span>
+      </figcaption>
+    </figure>
+  );
+}
+
+/** The analysis model as tables: sections, materials, nodes and elements (midas Civil's model tables). */
+export function ModelDataPanel({ model }: { model: Model }) {
+  const LIMIT = 250;
+  const head = (cells: string[]) => (
+    <thead>
+      <tr className="border-b text-muted-foreground">
+        {cells.map((c, k) => (
+          <th key={c} className={k === 0 ? "py-1 pr-2 text-left font-medium" : th}>
+            {c}
+          </th>
+        ))}
+      </tr>
+    </thead>
+  );
+  return (
+    <div className="grid gap-4 p-3 text-xs xl:grid-cols-2">
+      <div className="space-y-4">
+        <div>
+          <p className="pb-1 font-semibold">Sections ({model.sections.length})</p>
+          <table className="w-full tabular-nums">
+            {head(["Section", "A (in²)", "I vertical (in⁴)", "I lateral (in⁴)", "J (in⁴)"])}
+            <tbody>
+              {model.sections.map((s) => (
+                <tr key={s.id} className="border-b border-border/40">
+                  <td className="py-0.5 pr-2">{s.id}. {s.name}</td>
+                  <td className={td}>{fmt(s.A * 144, 1)}</td>
+                  <td className={td}>{fmt(s.Iy * 20736, 0)}</td>
+                  <td className={td}>{fmt(s.Iz * 20736, 0)}</td>
+                  <td className={td}>{fmt(s.J * 20736, 0)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <div>
+          <p className="pb-1 font-semibold">Materials ({model.materials.length})</p>
+          <table className="w-full tabular-nums">
+            {head(["Material", "E (ksi)", "G (ksi)", "Unit weight (kcf)"])}
+            <tbody>
+              {model.materials.map((m) => (
+                <tr key={m.id} className="border-b border-border/40">
+                  <td className="py-0.5 pr-2">{m.id}. {m.name}</td>
+                  <td className={td}>{fmt(m.E / 144, 0)}</td>
+                  <td className={td}>{fmt(m.G / 144, 0)}</td>
+                  <td className={td}>{fmt(m.density, 3)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <div>
+          <p className="pb-1 font-semibold">Supports ({model.supports.length}) and bearings ({model.links.length})</p>
+          <p className="text-muted-foreground">Supports hold their nodes in every direction. Bearings are links between a girder&apos;s node and the node under it: stiff vertically and across the bridge, and along it where fixed.</p>
+        </div>
+      </div>
+      <div className="grid gap-4 md:grid-cols-2">
+        <div>
+          <p className="pb-1 font-semibold">Nodes ({model.nodes.length})</p>
+          <table className="w-full tabular-nums">
+            {head(["Node", "X (ft)", "Y (ft)", "Z (ft)"])}
+            <tbody>
+              {model.nodes.slice(0, LIMIT).map((n) => (
+                <tr key={n.id} className="border-b border-border/40">
+                  <td className="py-0.5 pr-2">{n.id}</td>
+                  <td className={td}>{fmt(n.x, 2)}</td>
+                  <td className={td}>{fmt(n.y, 2)}</td>
+                  <td className={td}>{fmt(n.z, 2)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {model.nodes.length > LIMIT && <p className="pt-1 text-muted-foreground">The first {LIMIT}.</p>}
+        </div>
+        <div>
+          <p className="pb-1 font-semibold">Elements ({model.elements.length})</p>
+          <table className="w-full tabular-nums">
+            {head(["Element", "Type", "Section", "Node 1", "Node 2"])}
+            <tbody>
+              {model.elements.slice(0, LIMIT).map((e) => (
+                <tr key={e.id} className="border-b border-border/40">
+                  <td className="py-0.5 pr-2">{e.id}</td>
+                  <td className={td}>{e.type}</td>
+                  <td className={td}>{e.sec}</td>
+                  <td className={td}>{e.n1}</td>
+                  <td className={td}>{e.n2}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {model.elements.length > LIMIT && <p className="pt-1 text-muted-foreground">The first {LIMIT}.</p>}
+        </div>
       </div>
     </div>
   );
