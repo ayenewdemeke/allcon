@@ -27,7 +27,7 @@ export const FOUNDATION_INFO: Record<FoundationKind, { name: string; short: stri
     name: "Drilled Shaft",
     short: "Side and tip resistance, lateral p–y, P–M and shear",
     description:
-      "A drilled shaft for a bridge: side and tip resistance through clay, sand and rock layers (or the report's values, CDOT's claystone method), uplift, the lateral response by p–y, axial with flexure by strain compatibility, shear and the bars' limits. AASHTO LRFD 10.8 and 5.6, FHWA GEC 10 and GEC 9, CDOT BDM 10.6.",
+      "A drilled shaft for a bridge: side and tip resistance through clay, sand and rock layers (or the report's values), uplift, the lateral response by p–y, axial with flexure by strain compatibility, shear and the bars' limits. AASHTO LRFD 10.8 and 5.6, FHWA GEC 10 and GEC 9, CDOT BDM 10.6.",
   },
   micropile: {
     name: "Micropile",
@@ -39,7 +39,7 @@ export const FOUNDATION_INFO: Record<FoundationKind, { name: string; short: stri
     name: "Abutment",
     short: "Integral on piles or shafts, semi-integral, seat type",
     description:
-      "A bridge abutment as CDOT builds them: integral on one row of H-piles or on drilled shafts (CDOT's limits, the piles pushed through the bridge's movement by p–y, the cap over the piles, the end diaphragm under passive pressure), or semi-integral and seat type on a footing or piles (stability, the stem and backwall, the seat width). CDOT BDM 11.3, AASHTO LRFD 3.11, 4.7.4.4, 10 and 11.6.",
+      "A bridge abutment: integral on one row of H-piles or on drilled shafts (the piles pushed through the bridge's movement by p–y, the cap over the piles, the end diaphragm under passive pressure), or semi-integral and seat type on a footing or piles (stability, the stem and backwall, the seat width). CDOT BDM 11.3, AASHTO LRFD 3.11, 4.7.4.4, 10 and 11.6.",
   },
 };
 

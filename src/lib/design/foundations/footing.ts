@@ -1,3 +1,4 @@
+import { agencyChecks, type Criteria } from "../agency-checks";
 import { BARS, DesignError, flexure, type Bars, type Check } from "../walls/cip";
 
 // A spread footing under a column, AASHTO LRFD (10th Edition) with the FHWA NHI Soils and Foundations
@@ -23,6 +24,8 @@ export type FootingCase = { name: string; limit: "strength" | "service" | "extre
 export type SettlementLayer = { thickness: number; gamma: number; E: number; source: "entered" | "silt" | "fine-sand" | "coarse-sand" | "gravel"; N160: number }; // ft; effective unit weight pcf; E ksf when entered
 
 export type FootingInputs = {
+  /** AASHTO LRFD, or with the CDOT Bridge Design Manual's rules too (none given: AASHTO). */
+  criteria?: Criteria;
   B: number; // ft, along the footing's B axis
   L: number; // ft
   t: number; // in
@@ -530,7 +533,7 @@ export function designFooting(i: FootingInputs) {
     const pp = gov((s) => s.P);
     add({ id: "col-bearing", name: `Bearing at the column (${pp.c.lc.name})`, demand: pp.P, capacity: Pr, unit: "kip", ref: "AASHTO 5.6.5, 5.12.8.8" });
   }
-  return { checks, cases, settle, struct, flexB, flexL, band, dB, dL, Wf, Ws, A, colArea, cB, cL, ec };
+  return { checks: agencyChecks(checks, i.criteria), cases, settle, struct, flexB, flexL, band, dB, dL, Wf, Ws, A, colArea, cB, cL, ec };
 }
 
 export type FootingResult = ReturnType<typeof designFooting>;

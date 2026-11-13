@@ -308,3 +308,14 @@ spectrum; drawings into Drafting; a free node-and-element editor; SI display.
   line-girder load path. Dead load on the girders alone within 0.3 %; barriers and wearing surface at
   the pier 3 % lower (the pier gives a little); an interior girder's live load moment 27 % lower than
   with AASHTO's distribution factors, and the largest abutment bearing's live load 14 % higher (the skew).
+
+## Status (2026-11-14): AASHTO the base, CDOT a layer on the ported tools
+
+- Spread Footing, Pile Foundation, Drilled Shaft, Micropile, Abutment, Approach Slab and Bridge
+  Description and Load Path now show for everyone. Each has `criteria` ("aashto", the default, or
+  "cdot"; `design/agency-checks.ts`): under AASHTO the agency's own checks (those citing only CDOT's
+  manual or worksheets) are left out and its citations dropped from shared checks; the editors offer
+  the choice with CDOT agency rules on. Only the LFR double-tee rating stays CDOT-only.
+- Still CDOT-flavoured under AASHTO criteria: the tools' defaults (pile sections, the approach
+  slab's B-601 bars and 50 % span), some notes in their calc packages, and the designs the
+  description record creates (which start with AASHTO criteria).

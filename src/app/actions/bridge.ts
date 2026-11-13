@@ -21,8 +21,7 @@ import { designBearing } from "@/lib/design/bearings/elastomeric";
 import { designDeck } from "@/lib/design/decks/deck";
 import { designGirder } from "@/lib/design/girders/prestressed";
 import { designStripSeal } from "@/lib/design/joints/strip-seal";
-import { agencyRulesOf } from "@/lib/design/agency";
-import { bearingInputs, deckInputs, designInputs, girderInputs, kindInfo, stripSealInputs } from "@/lib/design/kinds";
+import { bearingInputs, deckInputs, designInputs, girderInputs, stripSealInputs } from "@/lib/design/kinds";
 import { columnInputs, designColumn } from "@/lib/design/piers/column";
 import { db } from "@/lib/db";
 import { deleteFiles, putFile } from "@/lib/storage";
@@ -91,8 +90,6 @@ export async function createBridgeDesign(bridgeId: string, targetKey: string): P
   const definition = bridgeDefinition(bridge.definition);
   const target = designTargets(definition).find((t) => t.key === targetKey);
   if (!target) throw new Error("That part of the bridge has no design tool");
-  const needs = kindInfo(target.kind)?.agency;
-  if (needs && agencyRulesOf(user.agency) !== needs) throw new Error("This design follows CDOT's Bridge Design Manual: turn on CDOT under Design → Agency rules first");
   const analysis = analyzeBridge(definition);
   const live = movingLoad(analysis.generated, analysis.stage(2));
   const { inputs, name } = designPrefill(target, definition, analysis, live);

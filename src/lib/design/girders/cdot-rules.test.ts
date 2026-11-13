@@ -34,7 +34,7 @@ describe("CDOT BDM rules as worded", () => {
   });
 
   it("11.3.1: deck to cap bottom over 13 ft is \"typically\" (information); the 3.5–6 ft pile cap stays a requirement", () => {
-    const r = runFoundation("abutment", { ...ABUTMENT_DEFAULTS, type: "integral-piles", totalDepth: 13.6, capDepth: 7.5 });
+    const r = runFoundation("abutment", { ...ABUTMENT_DEFAULTS, criteria: "cdot", type: "integral-piles", totalDepth: 13.6, capDepth: 7.5 });
     const depth = r.checks.find((c) => c.id === "depth")!;
     expect(depth.advisory).toBe(true);
     expect(r.checks.find((c) => c.id === "cap-max")!.ok).toBe(false);
@@ -42,7 +42,7 @@ describe("CDOT BDM rules as worded", () => {
   });
 
   it("B-601's #5 at 12 in against 9.7.3.2: shown for information; other bars checked as before", () => {
-    const std = designApproachSlab({ ...APPROACH_SLAB_DEFAULTS, mainBars: { bar: 9, spacing: 6 } }).checks.find((c) => c.id === "dist")!;
+    const std = designApproachSlab({ ...APPROACH_SLAB_DEFAULTS, criteria: "cdot", mainBars: { bar: 9, spacing: 6 } }).checks.find((c) => c.id === "dist")!;
     expect(std.advisory).toBe(true);
     const other = designApproachSlab({ ...APPROACH_SLAB_DEFAULTS, mainBars: { bar: 9, spacing: 6 }, distBars: { bar: 6, spacing: 12 } }).checks.find((c) => c.id === "dist")!;
     expect(other.advisory).toBeFalsy();

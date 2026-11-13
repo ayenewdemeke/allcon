@@ -46,7 +46,7 @@ export function approachSlabCalcLines(i: ApproachSlabInputs, title: string, figu
   m(`\\theta\\coloneq ${num(i.skew)}\\mathrm{deg}`, "Skew");
   m(`t_s\\coloneq ${num(i.t)}\\mathrm{in}`, "Slab thickness");
   m(ok("7\\mathrm{in}", "t_s"), "Least depth, AASHTO 9.7.1.1");
-  m(ok("20\\mathrm{ft}", "L_s"), "For information: the worksheet's least length, CDOT B-601-1EA");
+  if (i.criteria === "cdot") m(ok("20\\mathrm{ft}", "L_s"), "For information: the worksheet's least length, CDOT B-601-1EA");
   m(`k_s\\coloneq ${num(i.supportLoss)}`, "The design span as a fraction of the length, CDOT BDM 11.3.7");
   m("S_d\\coloneq k_s\\cdot L_s=", "Design span", "ft");
   m(`f'_{c}\\coloneq ${num(i.fc)}\\mathrm{ksi}`);
@@ -99,7 +99,9 @@ export function approachSlabCalcLines(i: ApproachSlabInputs, title: string, figu
   m("a\\coloneq\\frac{A_s\\cdot f_y}{0.85\\cdot f'_{c}}=", "Stress block", "in");
   m("M_r\\coloneq0.9\\cdot A_s\\cdot f_y\\cdot\\left(d_e-\\frac{a}{2}\\right)=", "AASHTO 5.6.3.2", "kip*ft/ft");
   m(ok("M_u", "M_r"), "Flexure");
-  if (r.worksheet) {
+  if (i.criteria !== "cdot") {
+    // The worksheet's bars are CDOT's: compared only under its criteria.
+  } else if (r.worksheet) {
     text(`Worksheet:- CDOT B-601-1EA puts #${r.worksheet.bar} bars at ${r.worksheet.spacing} in in the bottom of a ${num(i.L)} ft slab (#6 at 20 ft, #9 over 20 ft and under 31 ft).`, "note");
     m(`A_{ws}\\coloneq\\frac{${num(BARS[r.worksheet.bar].area)}\\mathrm{in}^{2}}{${num(r.worksheet.spacing)}\\mathrm{in}}=`, "The worksheet's bars", "in^2/ft");
     m(ok("A_{ws}", "A_s"), "For information: at least the worksheet's, CDOT B-601-1EA");

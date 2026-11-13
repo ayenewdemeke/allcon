@@ -1,3 +1,4 @@
+import { agencyChecks, type Criteria } from "../agency-checks";
 import { BARS, DesignError, flexure, type Bars, type Check } from "../walls/cip";
 import { axialResistance, fixityEmbedment, flexuralResistance, HP_SECTIONS, interaction, PHI_PILE } from "./hpile";
 import { analyzeLateral, type Layer } from "./lateral";
@@ -58,6 +59,8 @@ export const toLayers = (soil: SoilLayer[]): Layer[] =>
   }));
 
 export type PileInputs = {
+  /** AASHTO LRFD, or with the CDOT Bridge Design Manual's rules too (none given: AASHTO). */
+  criteria?: Criteria;
   section: string;
   Fy: number;
   nB: number; // piles along B
@@ -331,7 +334,7 @@ export function designPiles(i: PileInputs) {
     const rp = pick(capCases, (x) => x.Rmax);
     add({ id: "cap-punch-pile", name: `Cap: two-way shear at a corner pile (${rp.c.lc.name})`, demand: rp.Rmax, capacity: 0.9 * Vnc, unit: "kip", ref: "AASHTO 5.12.8.6.3" });
   }
-  return { checks, section: s, piles, capB, capL, n, Wcap, Wsoil, cases, combined, capCases, flexB, flexL, dB, dL, phiGeo, smallGroup, fix, width, flexX, flexY };
+  return { checks: agencyChecks(checks, i.criteria), section: s, piles, capB, capL, n, Wcap, Wsoil, cases, combined, capCases, flexB, flexL, dB, dL, phiGeo, smallGroup, fix, width, flexX, flexY };
 }
 
 export type PileResult = ReturnType<typeof designPiles>;

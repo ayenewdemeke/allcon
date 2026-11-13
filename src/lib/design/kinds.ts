@@ -51,7 +51,7 @@ export const CATEGORIES: { id: string; name: string; kinds: { id: DesignKind; na
   {
     id: "bridges",
     name: "Bridges",
-    kinds: [{ id: "bridge", ...BRIDGE_INFO, available: true, agency: "cdot" }],
+    kinds: [{ id: "bridge", ...BRIDGE_INFO, available: true }],
   },
   {
     id: "superstructures",
@@ -68,13 +68,13 @@ export const CATEGORIES: { id: string; name: string; kinds: { id: DesignKind; na
       { id: "stm-d-region", name: "Strut-and-Tie Model", short: "Pier caps and abutments: struts, ties, nodes", description: "Planar strut-and-tie design of disturbed regions in reinforced concrete pier caps and abutments: the truss layout entered or found by optimization, solved in equilibrium for each load case; the 25° strut-tie angle limit, tie bars, node face strength with nonhydrostatic nodes and confinement, the crack-control grid, anchorage of the ties at the extended nodal zone, and the diagonal-cracking screen. Normalweight, nonprestressed concrete. AASHTO LRFD 5.8.2, 5.10.8.2 and C5.8.2.2.", available: true },
       { id: "pier-column", name: "Pier Column", short: "Round, rectangular or oblong: P–M, slenderness, collision", description: "A pier column under its cap: the forces from the cap's strut-and-tie design (the bent as a plane frame) with braking, wind and temperature along the bridge from the girder designs, or entered; slenderness by moment magnification, axial load with biaxial bending by strain compatibility, shear, bar and tie limits, the optional vehicle collision, and the bars detailed with their quantities. AASHTO LRFD 3.6.4, 3.6.5.1, 3.8, 3.12, 4.5.3.2.2b, 5.6.4 and 5.7.3.3.", available: true },
       { id: "pier-collision", name: "Pier Column Collision", short: "600 kip vehicle collision on a round column", description: "A round pier column for vehicle collision in Extreme Event II: the equivalent static force, the column's shear and moments, shear by the simplified procedure and axial load with bending by strain compatibility. AASHTO LRFD 3.6.5.1, 5.7.3.3 and 5.6.4.", available: true },
-      { id: "abutment", ...FOUNDATION_INFO.abutment, available: true, agency: "cdot" },
+      { id: "abutment", ...FOUNDATION_INFO.abutment, available: true },
     ],
   },
   {
     id: "foundations",
     name: "Foundations",
-    kinds: (["spread-footing", "pile-foundation", "drilled-shaft", "micropile"] as const).map((id) => ({ id, ...FOUNDATION_INFO[id], available: true, agency: "cdot" as const })),
+    kinds: (["spread-footing", "pile-foundation", "drilled-shaft", "micropile"] as const).map((id) => ({ id, ...FOUNDATION_INFO[id], available: true })),
   },
   {
     id: "walls",
@@ -97,7 +97,7 @@ export const CATEGORIES: { id: string; name: string; kinds: { id: DesignKind; na
     name: "Bridge Components",
     kinds: [
       { id: "deck-slab", name: "Deck Slab", short: "Equivalent strips: bars and overhang", description: "Cast-in-place deck on parallel girders by the equivalent strip method: the strip analyzed as a continuous beam under dead loads and the design truck's axles, the top, bottom and longitudinal bars, and the overhang for vehicle collision. AASHTO LRFD 4.6.2.1, 9.7.3 and A13.4.", available: true },
-      { id: "approach-slab", name: "Approach Slab", short: "On the abutment notch and a sleeper slab: bars and quantities", description: "A cast-in-place bridge approach slab anchored to the abutment and resting on a sleeper slab, designed as CDOT does for the span over which the fill may settle away (50% of its length, BDM 11.3.7): the axles over the equivalent strip of a slab-type bridge, the main bars (flexure, minimum, crack control, fatigue), shear, distribution and temperature bars, the dowels into the abutment, the sleeper slab's bearing and bars, and a barrier on its edge; with its bars detailed and its CDOT quantities. AASHTO LRFD 3.6.1.3.3, 4.6.2.3, 5.5.3, 5.6, 5.10.6 and 9.7.3.2.", available: true, agency: "cdot" },
+      { id: "approach-slab", name: "Approach Slab", short: "On the abutment notch and a sleeper slab: bars and quantities", description: "A cast-in-place bridge approach slab anchored to the abutment and resting on a sleeper slab, designed for the span over which the fill may settle away (a share of its length): the axles over the equivalent strip of a slab-type bridge, the main bars (flexure, minimum, crack control, fatigue), shear, distribution and temperature bars, the dowels into the abutment, the sleeper slab's bearing and bars, and a barrier on its edge; with its bars detailed and its CDOT quantities. AASHTO LRFD 3.6.1.3.3, 4.6.2.3, 5.5.3, 5.6, 5.10.6 and 9.7.3.2.", available: true },
       { id: "camber-haunch", name: "Camber and Haunch", short: "Haunch at supports and midspan, camber tolerances", description: "A girder span's haunch (or adjacent box beams' deck thickness) at the supports and midspan, from the deck's profile over the girder (vertical curve, chorded girders on a horizontal curve, cross-slope) and the girder's camber and dead load deflection, with over- and under-camber tolerances.", available: true },
       { id: "elastomeric-bearing", name: "Elastomeric Bearing", short: "Plain or steel-reinforced pads", description: "Elastomeric bearing pads, plain or steel-reinforced, by Method A or B: compression, shear strains, deflection, stability, shims and anchorage. AASHTO LRFD 14.7.5 and 14.7.6.", available: true },
       { id: "ptfe-bearing", name: "PTFE Sliding Bearing", short: "Sliding surface on an elastomeric pad", description: "A steel-reinforced elastomeric pad with a PTFE sliding surface: contact stresses (average and edge), the pad's deformation to the first slip and the sliding beyond, with the pad's own checks. AASHTO LRFD 14.7.2 and 14.7.5.", available: true },

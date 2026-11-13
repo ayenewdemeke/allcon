@@ -5,6 +5,8 @@ import { Card, CardContent } from "@/components/ui/card";
 import { designApproachSlab, SLEEPER_OF, type ApproachSlabInputs } from "@/lib/design/approach/approach-slab";
 import { APPROACH_GROUPS } from "@/lib/design/approach/approach-slab-calc";
 import { DesignError } from "@/lib/design/walls/cip";
+import { CRITERIA } from "@/lib/design/agency-checks";
+import { useCdot } from "./agency-context";
 import { BarsField, ChecksBanner, ChecksTable, Choice, DesignErrorCard, DesignHeader, Field, fmt, KeyValues, Section, Toggle } from "./design-kit";
 import { TakeoffPanel } from "./takeoff-panel";
 import { ApproachSlabSketch } from "./approach-slab-sketch";
@@ -17,6 +19,8 @@ const groupOf = (id: string) => APPROACH_GROUPS.find((g) => g.of(id))?.title ?? 
 export function ApproachSlabEditor({ design, projects }: { design: { id: string; name: string; projectId: string | null; inputs: ApproachSlabInputs }; projects: { id: string; name: string }[] }) {
   const [inputs, setInputs] = useState(design.inputs);
   const set = <K extends keyof ApproachSlabInputs>(key: K) => (v: ApproachSlabInputs[K]) => setInputs((s) => ({ ...s, [key]: v }));
+  const cdot = useCdot(); // CDOT's criteria are offered with its rules on (or where the design already uses them)
+  const criteria = inputs.criteria ?? "aashto";
 
   const outcome = useMemo(() => {
     try {
@@ -29,11 +33,12 @@ export function ApproachSlabEditor({ design, projects }: { design: { id: string;
 
   return (
     <div className="space-y-4">
-      <DesignHeader design={design} projects={projects} inputs={inputs} label={`Approach Slab · AASHTO LRFD, CDOT BDM 11.3.7 and ${inputs.joint === "device" ? "B-601-1EA" : "B-601-1"}`} canMakeCalc={!!r} />
+      <DesignHeader design={design} projects={projects} inputs={inputs} label={criteria === "cdot" ? `Approach Slab · AASHTO LRFD, CDOT BDM 11.3.7 and ${inputs.joint === "device" ? "B-601-1EA" : "B-601-1"}` : "Approach Slab · AASHTO LRFD"} canMakeCalc={!!r} />
 
       <div className="grid gap-4 lg:grid-cols-[minmax(300px,360px)_1fr]">
         <Card className="self-start">
           <CardContent className="py-2">
+            {(cdot || criteria === "cdot") && <Choice label="Design criteria" value={criteria} options={CRITERIA} onChange={set("criteria")} />}
             <Section title="Slab" open>
               <Field label="Length, abutment back face to the slab's end" unit="ft" value={inputs.L} onChange={set("L")} hint={r?.worksheet ? `B-601-1EA: #${r.worksheet.bar} @ ${r.worksheet.spacing} in bottom at this length` : "B-601-1EA covers 20 ft up to 31 ft"} />
               <Field label="Width" unit="ft" value={inputs.W} onChange={set("W")} />

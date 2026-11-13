@@ -1,3 +1,4 @@
+import { agencyChecks, type Criteria } from "../agency-checks";
 import { BARS, DesignError, type Check } from "../walls/cip";
 import { analyzeLateral } from "./lateral";
 import { toLayers, type SoilLayer } from "./piles";
@@ -49,6 +50,8 @@ export const GROUT_TYPES = ["A", "B", "C", "D", "E"] as const;
 const BAR_AREA: Record<number, { area: number; dia: number }> = { ...BARS, 20: { area: 4.91, dia: 2.5 } };
 
 export type MicropileInputs = {
+  /** AASHTO LRFD, or with the CDOT Bridge Design Manual's rules too (none given: AASHTO). */
+  criteria?: Criteria;
   // Section
   casingOD: number; // in
   casingT: number; // in, wall
@@ -212,7 +215,7 @@ export function designMicropile(i: MicropileInputs) {
     const g = pick(sv, (x) => Math.abs(x.r!.y0));
     add({ id: "deflection", name: `Lateral deflection at the cap (${g.c.name})`, demand: Math.abs(g.r!.y0), capacity: i.tolerable, unit: "in", ref: "AASHTO 10.9.3.9, 10.7.2.4" });
   }
-  return { checks, elastic, Ab, Ac, Act, AgCased, AgUncased, RnCC, RnCU, RnTC, RnTU, bond, Rs, Pt, Rp, EI, Mp, comb, length };
+  return { checks: agencyChecks(checks, i.criteria), elastic, Ab, Ac, Act, AgCased, AgUncased, RnCC, RnCU, RnTC, RnTU, bond, Rs, Pt, Rp, EI, Mp, comb, length };
 }
 
 export type MicropileResult = ReturnType<typeof designMicropile>;

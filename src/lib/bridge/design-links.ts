@@ -16,7 +16,7 @@ export function designTargets(d: BridgeDefinition): DesignTarget[] {
     { key: "girders", label: "Girders", tool: "LRFD Bridge Design Check", kind: "lrfd-girder-check", from: "Spans, girders, deck and loads" },
     { key: "deck", label: "Deck", tool: "Deck Slab", kind: "deck-slab", from: "Girder spacing, overhang, deck, barrier" },
   ];
-  out.push({ key: "description", label: "Whole bridge: load path and foundations", tool: "Bridge Description and Load Path (CDOT rules)", kind: "bridge", from: "Spans, skew, supports, girders, deck and piers; it then creates and updates the abutments, pier caps, columns, foundations and approach slabs, with one calc package and an IFC model with bars" });
+  out.push({ key: "description", label: "Whole bridge: load path and foundations", tool: "Bridge Description and Load Path", kind: "bridge", from: "Spans, skew, supports, girders, deck and piers; it then creates and updates the abutments, pier caps, columns, foundations and approach slabs, with one calc package and an IFC model with bars" });
   d.supports.forEach((_, k) => out.push({ key: `bearing-${k}`, label: `${lineName(d, k)} bearings`, tool: "Elastomeric Bearing", kind: "elastomeric-bearing", from: "The largest bearing reaction on the line, dead and live; the expansion length" }));
   if (d.piers.model) for (let k = 1; k < d.supports.length - 1; k++) out.push({ key: `column-${k}`, label: `Pier ${k} columns`, tool: "Pier Column", kind: "pier-column", from: "Strength I forces at the top of the hardest-worked column, with their concurrent forces" });
   d.supports.forEach((s, k) => {

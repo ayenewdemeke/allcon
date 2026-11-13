@@ -8,6 +8,8 @@ import { FOUNDATION_INFO, type FoundationKind } from "@/lib/design/foundations/k
 import { runFoundation } from "@/lib/design/foundations/run";
 import { DesignError, type Bars } from "@/lib/design/walls/cip";
 import { BarsField, ChecksBanner, ChecksTable, Choice, DesignErrorCard, DesignHeader, Field, KeyValues, Section, Toggle } from "./design-kit";
+import { CRITERIA, type Criteria } from "@/lib/design/agency-checks";
+import { useCdot } from "./agency-context";
 import { FOUNDATION_SPECS, type FieldSpec } from "./foundation-specs";
 import { FoundationSketch, LateralPlot } from "./foundation-sketch";
 import { TakeoffPanel } from "./takeoff-panel";
@@ -109,12 +111,16 @@ export function FoundationEditor({ kind, design, projects }: { kind: FoundationK
   }, [kind, inputs]);
   const r = outcome.r;
   const groupOf = (id: string) => r?.groups.find((g) => g.of(id))?.title ?? "Other";
+  // An agency's criteria are offered with its rules on (or where the design already uses them).
+  const cdot = useCdot();
+  const criteria = ((inputs as { criteria?: Criteria }).criteria ?? "aashto") as Criteria;
   return (
     <div className="space-y-4">
-      <DesignHeader design={design} projects={projects} inputs={inputs} label={`${info.name} · AASHTO LRFD 10th, FHWA, CDOT BDM`} canMakeCalc={!!r} />
+      <DesignHeader design={design} projects={projects} inputs={inputs} label={`${info.name} · AASHTO LRFD 10th, FHWA${criteria === "cdot" ? ", CDOT BDM" : ""}`} canMakeCalc={!!r} />
       <div className="grid gap-4 lg:grid-cols-[minmax(320px,420px)_1fr]">
         <Card className="self-start">
           <CardContent className="py-2">
+            {(cdot || criteria === "cdot") && <Choice label="Design criteria" value={criteria} options={CRITERIA} onChange={(v) => set("criteria", v)} />}
             {FOUNDATION_SPECS[kind].map((sec) => (
               <Section key={sec.title} title={sec.title} open={sec.open}>
                 {sec.fields.map((f, k) => (

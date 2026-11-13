@@ -1,3 +1,4 @@
+import { agencyChecks, type Criteria } from "../agency-checks";
 import { BARS, DesignError, flexure, type Bars, type Check } from "../walls/cip";
 import { development } from "../stm/anchorage";
 
@@ -19,6 +20,8 @@ import { development } from "../stm/anchorage";
 // the device.
 
 export type ApproachSlabInputs = {
+  /** AASHTO LRFD, or with the CDOT Bridge Design Manual and worksheet B-601 too (none given: AASHTO). */
+  criteria?: Criteria;
   L: number; // ft, along the roadway from the abutment's back face to the slab's end (B-601-1EA's 20'-0"); the slab also sits `seat` on the notch
   W: number; // ft, the slab's width, normal to the roadway
   roadway: number; // ft, clear roadway width on the slab (for the number of design lanes)
@@ -231,7 +234,7 @@ export function designApproachSlab(i: ApproachSlabInputs) {
   const distRequired = pct * area(i.mainBars);
   // CDOT's standard slab (B-601-1EA, B-601-1) details #5 at 12 in here, less than 9.7.3.2 asks for at CDOT's
   // half-span design assumption: with those bars the check is shown for information, the standard detail governing.
-  const worksheetDist = i.distBars.bar === APPROACH_SLAB_DEFAULTS.distBars.bar && i.distBars.spacing === APPROACH_SLAB_DEFAULTS.distBars.spacing;
+  const worksheetDist = i.criteria === "cdot" && i.distBars.bar === APPROACH_SLAB_DEFAULTS.distBars.bar && i.distBars.spacing === APPROACH_SLAB_DEFAULTS.distBars.spacing;
   add({
     id: "dist",
     name: `Bottom transverse: distribution, ${(pct * 100).toFixed(1)}% of the main bars${worksheetDist ? " (CDOT B-601 standard detail, for information)" : ""}`,
@@ -296,10 +299,11 @@ export function designApproachSlab(i: ApproachSlabInputs) {
     add({ id: "barrier", name: "Barrier on the edge: Case 1, the top transverse bars at its face", demand: i.Mc, capacity: MR, unit: "kip·ft/ft", ref: "AASHTO A13.4.1" });
   }
 
+  const shown = agencyChecks(checks, i.criteria);
   return {
     worksheet: ws,
-    ok: checks.every((c) => c.ok || c.advisory),
-    checks,
+    ok: shown.every((c) => c.ok || c.advisory),
+    checks: shown,
     span: { S, NL, L1, E1, Em, E, r, axlesOnly },
     loads: { wDC, wDW, MDC, MDW, VDC, VDW, gov: { M: govM.v.name, V: govV.v.name }, runs: runs.map((x) => ({ name: x.v.name, M: x.M, R: x.R })), laneM, laneV, MLLlane, VLLlane, MLL, VLL, Mu, Ms, Vu },
     main,

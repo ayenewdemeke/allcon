@@ -1,3 +1,4 @@
+import { agencyChecks, type Criteria } from "../agency-checks";
 import { columnSection } from "../piers/column-section";
 import { BARS, DesignError, flexure, type Bars, type Check } from "../walls/cip";
 import { nominalBearing } from "./footing";
@@ -30,6 +31,8 @@ import { pMultiplier, toLayers, type SoilLayer } from "./piles";
 export type AbutmentType = "integral-piles" | "integral-shafts" | "semi-integral" | "seat";
 
 export type AbutmentInputs = {
+  /** AASHTO LRFD, or with the CDOT Bridge Design Manual's rules too (none given: AASHTO). */
+  criteria?: Criteria;
   type: AbutmentType;
   // The bridge
   unitLength: number; // ft, the continuous unit (both abutments' unit for an integral bridge)
@@ -289,7 +292,7 @@ export function designAbutment(i: AbutmentInputs) {
   let seatOut: ReturnType<typeof seatDesign> | null = null;
   if (integral) integralOut = integralDesign();
   else seatOut = seatDesign();
-  return { checks, expansion, contraction, move, integral: integralOut, seat: seatOut, totalGirderR };
+  return { checks: agencyChecks(checks, i.criteria), expansion, contraction, move, integral: integralOut, seat: seatOut, totalGirderR };
 
   function integralDesign() {
     add({ id: "unit-length", name: "Bridge unit length (BDM Table 11-1)", demand: i.unitLength, capacity: 460, unit: "ft", ref: "CDOT BDM 11.3.1" });

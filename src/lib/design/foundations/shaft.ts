@@ -1,3 +1,4 @@
+import { agencyChecks, type Criteria } from "../agency-checks";
 import { columnSection } from "../piers/column-section";
 import { BARS, DesignError, type Check } from "../walls/cip";
 import { analyzeLateral } from "./lateral";
@@ -32,6 +33,8 @@ export type ShaftLayer = SoilLayer & {
 };
 
 export type ShaftInputs = {
+  /** AASHTO LRFD, or with the CDOT Bridge Design Manual's rules too (none given: AASHTO). */
+  criteria?: Criteria;
   D: number; // in
   length: number; // ft, top of shaft to tip
   topDepth: number; // ft, ground to the top of the shaft
@@ -249,7 +252,7 @@ export function designShaft(i: ShaftInputs) {
   add({ id: "bars-max", name: "Longitudinal bars at most 8 % of the section", demand: rho, capacity: 0.08, unit: "", ref: "AASHTO 5.6.4.2" });
   const clear = (Math.PI * Dr) / i.bars - db;
   add({ id: "clear", name: "Clear spacing of the longitudinal bars, at least 5 in for the concrete to flow (GEC 10)", demand: 5, capacity: clear, unit: "in", ref: "AASHTO 10.8.3.9.3, FHWA GEC 10", advisory: true });
-  return { checks, ax, Wshaft, EI, Ec, sec, structural, serv, de, dv, Dr, Pmin };
+  return { checks: agencyChecks(checks, i.criteria), ax, Wshaft, EI, Ec, sec, structural, serv, de, dv, Dr, Pmin };
 }
 
 export type ShaftResult = ReturnType<typeof designShaft>;

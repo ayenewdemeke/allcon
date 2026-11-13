@@ -90,7 +90,7 @@ describe("hand checks", () => {
     const r = designAbutment(ABUTMENT_DEFAULTS);
     expect(r.expansion).toBeCloseTo(6e-6 * 120 * 12 * 40, 9);
     expect(r.contraction).toBeCloseTo(6e-6 * 120 * 12 * 60 + 0.4, 9);
-    const long = designAbutment({ ...ABUTMENT_DEFAULTS, unitLength: 500 });
+    const long = designAbutment({ ...ABUTMENT_DEFAULTS, criteria: "cdot", unitLength: 500 });
     expect(long.checks.find((c) => c.id === "unit-length")!.ok).toBe(false);
   });
 });
