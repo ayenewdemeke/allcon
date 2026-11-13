@@ -1,11 +1,38 @@
 import { BEARING_DEFAULTS, PTFE_DEFAULTS, type BearingInputs } from "./bearings/elastomeric";
 import { CBC_DEFAULTS, type CbcInputs } from "./culverts/cbc";
-import { DECK_DEFAULTS, type DeckInputs } from "./decks/deck";
+import { cleanWingwalls } from "./culverts/m601-20";
+
+/** A culvert's excavation beyond M-206-1's trench, as saved. */
+function cleanExcavation(v: unknown): CbcInputs["excavation"] {
+  if (!v || typeof v !== "object") return undefined;
+  const o = v as Record<string, unknown>;
+  const el = (x: unknown) => (typeof x === "number" && Number.isFinite(x) ? x : null);
+  return { to: el(o.to), inletInvert: el(o.inletInvert), outletInvert: el(o.outletInvert), wingwalls: o.wingwalls !== false, depth: el(o.depth) };
+}
+
+/** A culvert extension's dowels as saved: none unless it has joints. */
+function cleanExtension(v: unknown): CbcInputs["extension"] {
+  if (!v || typeof v !== "object") return undefined;
+  const o = v as Record<string, unknown>;
+  const n = (x: unknown, d: number) => (typeof x === "number" && Number.isFinite(x) && x >= 0 ? x : d);
+  const pieces = (Array.isArray(o.pieces) ? o.pieces : [])
+    .slice(0, 4)
+    .filter((p): p is Record<string, unknown> => !!p && typeof p === "object")
+    .map((p, k) => ({ name: typeof p.name === "string" ? p.name.slice(0, 20) : `Piece ${k + 1}`, length: n(p.length, 0) }));
+  return { pieces, bar: Math.round(n(o.bar, 5)), length: n(o.length, 36), spacing: n(o.spacing, 12) || 12, removalBackfill: n(o.removalBackfill, 0), waterproofJoints: o.waterproofJoints === true };
+}
+import { DECK_DEFAULTS, RAIL_DEFAULT, type DeckInputs } from "./decks/deck";
 import { STRIP_SEAL_DEFAULTS, type StripSealInputs } from "./joints/strip-seal";
 import { HAUNCH_DEFAULTS, type HaunchInputs } from "./girders/haunch";
+import { GIRDER_DEFAULTS, type GirderInputs } from "./girders/prestressed";
+import { SITE_WIND_DEFAULTS } from "./girders/substructure-loads";
+import { applyRail, CROWN_DEFAULT, GIRDER_RAIL_DEFAULT } from "./girders/bridge-deck";
+import { columnInputs } from "./piers/column";
 import { COLLISION_DEFAULTS, type CollisionInputs } from "./piers/collision";
 import { ZONE1_DEFAULTS, type Zone1Inputs } from "./seismic/zone1";
 import { SIGN_DEFAULTS, type SignInputs } from "./signs/cantilever";
+import { stmInputs } from "./stm/strut-tie";
+import { TAKEOFF_KINDS, takeoffSettings } from "./takeoff/types";
 import { CIP_DEFAULTS, DEFAULT_FACTORS, type CipInputs, type Combo } from "./walls/cip";
 import { MSE_DEFAULTS, MSE_FACTORS, type MseInputs } from "./walls/mse";
 import { WINGWALL_DEFAULTS, type WingwallInputs } from "./walls/wingwall";
@@ -13,9 +40,25 @@ import { WINGWALL_DEFAULTS, type WingwallInputs } from "./walls/wingwall";
 // The Design section's categories and design types: highway structures to AASHTO LRFD, grouped
 // by element. What can be designed, and what's coming next.
 
-export type DesignKind = "cip-cantilever-wall" | "mse-wall" | "cantilever-wingwall" | "box-culvert" | "deck-slab" | "seismic-zone1" | "pier-collision" | "camber-haunch" | "sign-cantilever" | "elastomeric-bearing" | "ptfe-bearing" | "strip-seal-joint";
+export type DesignKind = "lrfd-girder-check" | "stm-d-region" | "cip-cantilever-wall" | "mse-wall" | "cantilever-wingwall" | "box-culvert" | "deck-slab" | "seismic-zone1" | "pier-column" | "pier-collision" | "camber-haunch" | "sign-cantilever" | "elastomeric-bearing" | "ptfe-bearing" | "strip-seal-joint";
 
 export const CATEGORIES: { id: string; name: string; kinds: { id: DesignKind; name: string; short: string; description: string; available: boolean }[] }[] = [
+  {
+    id: "superstructures",
+    name: "Superstructures",
+    kinds: [
+      { id: "lrfd-girder-check", name: "LRFD Bridge Design Check", short: "Precast prestressed girders: DFs, stresses, flexure, shear, camber", description: "A simple-span precast, pretensioned girder bridge with a composite deck (AASHTO I-beams, AASHTO-PCI bulb-tees, CDOT Colorado Bulb Tees or a custom section): live load distribution factors, HL-93 envelopes, prestress losses, stresses at release and service, flexure and shear at Strength I, interface shear, and camber, for the interior and exterior girders. AASHTO LRFD 4.6.2.2, 5.6, 5.7 and 5.9.", available: true },
+    ],
+  },
+  {
+    id: "substructures",
+    name: "Substructures",
+    kinds: [
+      { id: "stm-d-region", name: "Strut-and-Tie Model", short: "Pier caps and abutments: struts, ties, nodes", description: "Planar strut-and-tie design of disturbed regions in reinforced concrete pier caps and abutments: the truss layout entered or found by optimization, solved in equilibrium for each load case; the 25° strut-tie angle limit, tie bars, node face strength with nonhydrostatic nodes and confinement, the crack-control grid, anchorage of the ties at the extended nodal zone, and the diagonal-cracking screen. Normalweight, nonprestressed concrete. AASHTO LRFD 5.8.2, 5.10.8.2 and C5.8.2.2.", available: true },
+      { id: "pier-column", name: "Pier Column", short: "Round, rectangular or oblong: P–M, slenderness, collision", description: "A pier column under its cap: the forces from the cap's strut-and-tie design (the bent as a plane frame) with braking, wind and temperature along the bridge from the girder designs, or entered; slenderness by moment magnification, axial load with biaxial bending by strain compatibility, shear, bar and tie limits, the optional vehicle collision, and the bars detailed with their quantities. AASHTO LRFD 3.6.4, 3.6.5.1, 3.8, 3.12, 4.5.3.2.2b, 5.6.4 and 5.7.3.3.", available: true },
+      { id: "pier-collision", name: "Pier Column Collision", short: "600 kip vehicle collision on a round column", description: "A round pier column for vehicle collision in Extreme Event II: the equivalent static force, the column's shear and moments, shear by the simplified procedure and axial load with bending by strain compatibility. AASHTO LRFD 3.6.5.1, 5.7.3.3 and 5.6.4.", available: true },
+    ],
+  },
   {
     id: "walls",
     name: "Walls",
@@ -38,7 +81,6 @@ export const CATEGORIES: { id: string; name: string; kinds: { id: DesignKind; na
     kinds: [
       { id: "deck-slab", name: "Deck Slab", short: "Equivalent strips: bars and overhang", description: "Cast-in-place deck on parallel girders by the equivalent strip method: the strip analyzed as a continuous beam under dead loads and the design truck's axles, the top, bottom and longitudinal bars, and the overhang for vehicle collision. AASHTO LRFD 4.6.2.1, 9.7.3 and A13.4.", available: true },
       { id: "camber-haunch", name: "Camber and Haunch", short: "Haunch at supports and midspan, camber tolerances", description: "A girder span's haunch (or adjacent box beams' deck thickness) at the supports and midspan, from the deck's profile over the girder (vertical curve, chorded girders on a horizontal curve, cross-slope) and the girder's camber and dead load deflection, with over- and under-camber tolerances.", available: true },
-      { id: "pier-collision", name: "Pier Column Collision", short: "600 kip vehicle collision on a round column", description: "A round pier column for vehicle collision in Extreme Event II: the equivalent static force, the column's shear and moments, shear by the simplified procedure and axial load with bending by strain compatibility. AASHTO LRFD 3.6.5.1, 5.7.3.3 and 5.6.4.", available: true },
       { id: "elastomeric-bearing", name: "Elastomeric Bearing", short: "Plain or steel-reinforced pads", description: "Elastomeric bearing pads, plain or steel-reinforced, by Method A or B: compression, shear strains, deflection, stability, shims and anchorage. AASHTO LRFD 14.7.5 and 14.7.6.", available: true },
       { id: "ptfe-bearing", name: "PTFE Sliding Bearing", short: "Sliding surface on an elastomeric pad", description: "A steel-reinforced elastomeric pad with a PTFE sliding surface: contact stresses (average and edge), the pad's deformation to the first slip and the sliding beyond, with the pad's own checks. AASHTO LRFD 14.7.2 and 14.7.5.", available: true },
       { id: "strip-seal-joint", name: "Strip Seal Expansion Joint", short: "Movement and seal size", description: "A strip seal deck joint: the movement from temperature, creep and shrinkage normal to the skewed joint against the seal's range, and the gap to set at each installation temperature. AASHTO LRFD 3.12.2 and 14.5.3.", available: true },
@@ -81,19 +123,13 @@ export function mseInputs(saved: unknown): MseInputs {
 export function cbcInputs(saved: unknown): CbcInputs {
   const s = (saved && typeof saved === "object" ? saved : {}) as Partial<CbcInputs>;
   const old = s.steel && !s.reinf ? ({ reinf: "wwr", construction: "precast" } as const) : {};
-  return { ...CBC_DEFAULTS, ...old, ...s, steel: { ...CBC_DEFAULTS.steel, ...(s.steel ?? {}) }, bars: { ...CBC_DEFAULTS.bars, ...(s.bars ?? {}) } };
+  return { ...CBC_DEFAULTS, ...old, ...s, steel: { ...CBC_DEFAULTS.steel, ...(s.steel ?? {}) }, bars: { ...CBC_DEFAULTS.bars, ...(s.bars ?? {}) }, wingwalls: cleanWingwalls(s.wingwalls), cornerBars: s.cornerBars === true, extension: cleanExtension(s.extension), excavation: cleanExcavation(s.excavation) };
 }
 
 /** A haunch design's inputs as saved, filled in from the defaults. */
 export function haunchInputs(saved: unknown): HaunchInputs {
   const s = (saved && typeof saved === "object" ? saved : {}) as Partial<HaunchInputs>;
   return { ...HAUNCH_DEFAULTS, ...s };
-}
-
-/** A pier collision design's inputs as saved, filled in from the defaults. */
-export function collisionInputs(saved: unknown): CollisionInputs {
-  const s = (saved && typeof saved === "object" ? saved : {}) as Partial<CollisionInputs>;
-  return { ...COLLISION_DEFAULTS, ...s };
 }
 
 /** A cantilever sign's inputs as saved, filled in from the defaults. */
@@ -111,7 +147,7 @@ export function zone1Inputs(saved: unknown): Zone1Inputs {
 /** A deck's inputs as saved, filled in from the defaults. */
 export function deckInputs(saved: unknown): DeckInputs {
   const s = (saved && typeof saved === "object" ? saved : {}) as Partial<DeckInputs>;
-  return { ...DECK_DEFAULTS, ...s };
+  return { ...DECK_DEFAULTS, ...s, rail: { ...RAIL_DEFAULT, ...(s.rail ?? {}) } };
 }
 
 /** A wingwall's inputs as saved, filled in from the defaults. */
@@ -138,7 +174,58 @@ export function stripSealInputs(saved: unknown): StripSealInputs {
   return { ...STRIP_SEAL_DEFAULTS, ...s };
 }
 
-/** A design's inputs as saved, filled in from its kind's defaults. */
+/** A girder design check's inputs as saved, filled in from the defaults (its lists kept as saved). */
+export function girderInputs(saved: unknown): GirderInputs {
+  const s = (saved && typeof saved === "object" ? saved : {}) as Partial<GirderInputs>;
+  // Saved before Phase 2 (no loss method): kept as designed, with approximate losses and straight strands only.
+  const phase1 = Object.keys(s).length > 0 && s.losses === undefined ? { losses: "approximate" as const, elasticGain: false, harped: { ...GIRDER_DEFAULTS.harped, count: 0 } } : {};
+  // A standard rail sets the barrier: its width, weight and height (applyRail).
+  return applyRail({
+    ...GIRDER_DEFAULTS,
+    ...phase1,
+    ...s,
+    harped: { ...GIRDER_DEFAULTS.harped, ...(phase1.harped ?? {}), ...(s.harped ?? {}) },
+    bottomBars: { ...GIRDER_DEFAULTS.bottomBars, ...(s.bottomBars ?? {}) },
+    pierBars: { ...GIRDER_DEFAULTS.pierBars, ...(s.pierBars ?? {}) },
+    connection: { ...GIRDER_DEFAULTS.connection, ...(s.connection ?? {}) },
+    extraSpans: Array.isArray(s.extraSpans) ? s.extraSpans.slice(0, 4).map((x) => ({ L: Number(x?.L) || GIRDER_DEFAULTS.L, strands: Array.isArray(x?.strands) && x.strands.length ? x.strands : null, harped: x?.harped ? { ...GIRDER_DEFAULTS.harped, ...x.harped } : null })) : [],
+    restraintMoments: s.restraintMoments === "positive" || s.restraintMoments === "none" ? s.restraintMoments : "all",
+    criteria: s.criteria === "cdot" ? "cdot" : "aashto",
+    continuity: s.continuity === "envelope" ? "envelope" : "auto",
+    wcLoad: Number(s.wcLoad) > 0 ? Number(s.wcLoad) : undefined,
+    wcDeckLoad: Number(s.wcDeckLoad) > 0 ? Number(s.wcDeckLoad) : undefined,
+    haunchMode: s.haunchMode === "computed" ? "computed" : "given",
+    deckPanels: s.deckPanels === true,
+    crossSlope: Number.isFinite(Number(s.crossSlope)) && s.crossSlope !== null && s.crossSlope !== undefined ? Number(s.crossSlope) : 0.02,
+    profileOrdinate: Number(s.profileOrdinate) || 0,
+    confinement: { ...GIRDER_DEFAULTS.confinement, ...(s.confinement ?? {}) },
+    handling: { ...GIRDER_DEFAULTS.handling, ...(s.handling ?? {}), truck: { ...GIRDER_DEFAULTS.handling.truck, ...(s.handling?.truck ?? {}) } },
+    custom: { ...GIRDER_DEFAULTS.custom, ...(s.custom ?? {}) },
+    site: { ...SITE_WIND_DEFAULTS, ...(s.site ?? {}) },
+    strands: Array.isArray(s.strands) && s.strands.length ? s.strands : GIRDER_DEFAULTS.strands,
+    stirrups: Array.isArray(s.stirrups) && s.stirrups.length ? s.stirrups : GIRDER_DEFAULTS.stirrups,
+    crown: { ...CROWN_DEFAULT, ...(s.crown ?? {}) },
+    rail: { ...GIRDER_RAIL_DEFAULT, ...(s.rail ?? {}) },
+  });
+}
+
+/** A pier collision design's inputs as saved, filled in from the defaults. */
+export function collisionInputs(saved: unknown): CollisionInputs {
+  const s = (saved && typeof saved === "object" ? saved : {}) as Partial<CollisionInputs>;
+  return { ...COLLISION_DEFAULTS, ...s };
+}
+
+/** A design's inputs as saved, filled in from its kind's defaults, with its take-off settings kept. */
 export function designInputs(kind: string, saved: unknown) {
-  return kind === "mse-wall" ? mseInputs(saved) : kind === "box-culvert" ? cbcInputs(saved) : kind === "elastomeric-bearing" ? bearingInputs(saved) : kind === "cantilever-wingwall" ? wingwallInputs(saved) : kind === "deck-slab" ? deckInputs(saved) : kind === "seismic-zone1" ? zone1Inputs(saved) : kind === "pier-collision" ? collisionInputs(saved) : kind === "camber-haunch" ? haunchInputs(saved) : kind === "sign-cantilever" ? signInputs(saved) : kind === "ptfe-bearing" ? ptfeInputs(saved) : kind === "strip-seal-joint" ? stripSealInputs(saved) : cipInputs(saved);
+  const parsed = parseInputs(kind, saved);
+  const t = TAKEOFF_KINDS.includes(kind) ? takeoffSettings((saved as Record<string, unknown> | null)?.takeoff) : undefined;
+  return (t ? { ...parsed, takeoff: t } : parsed) as typeof parsed;
+}
+
+function parseInputs(kind: string, saved: unknown) {
+  if (kind === "lrfd-girder-check") return girderInputs(saved);
+  if (kind === "pier-collision") return collisionInputs(saved);
+  if (kind === "stm-d-region") return stmInputs(saved);
+  if (kind === "pier-column") return columnInputs(saved);
+  return kind === "mse-wall" ? mseInputs(saved) : kind === "box-culvert" ? cbcInputs(saved) : kind === "elastomeric-bearing" ? bearingInputs(saved) : kind === "cantilever-wingwall" ? wingwallInputs(saved) : kind === "deck-slab" ? deckInputs(saved) : kind === "seismic-zone1" ? zone1Inputs(saved) : kind === "camber-haunch" ? haunchInputs(saved) : kind === "sign-cantilever" ? signInputs(saved) : kind === "ptfe-bearing" ? ptfeInputs(saved) : kind === "strip-seal-joint" ? stripSealInputs(saved) : cipInputs(saved);
 }

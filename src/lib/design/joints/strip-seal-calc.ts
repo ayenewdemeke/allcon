@@ -1,12 +1,12 @@
 import type { Line } from "@/lib/calcs/library/templates";
-import { COLOR_NOTE, INPUT_COLOR, isInput } from "../calc-style";
+import { checksSummary } from "../checks-summary";
+import { COLOR_NOTE, INPUT_COLOR, isInput, num } from "../calc-style";
 import type { Figure } from "../figures";
 import { designStripSeal, type StripSealInputs } from "./strip-seal";
 
 // A strip seal joint as a Calcs worksheet: the movements and the setting at the planned
 // installation temperature as live math, and the table of settings.
 
-const num = (v: number, d = 6) => String(+v.toFixed(d));
 const ok = (demand: string, capacity: string) => `\\operatorname{if}\\left(${demand}\\le ${capacity},\\text{OK},\\text{NG}\\right)=`;
 const STATUS: Record<string, string> = { ok: "", wait: " (under the installation opening: wait for the structure to cool)", "too small": " (the seal can't take the movements from here)", outside: " (outside the design temperatures)" };
 
@@ -48,5 +48,6 @@ export function stripSealCalcLines(i: StripSealInputs, title: string, figures?: 
 
   text("Settings by installation temperature", "subheading");
   for (const row of r.table) text(`${num(row.Ti)}°F: A = ${row.status === "too small" ? "—" : `${num(row.A, 3)} in, W = ${num(row.W, 3)} in`}${STATUS[row.status]}`);
+  lines.push(...checksSummary([{ checks: r.checks }]));
   return lines;
 }

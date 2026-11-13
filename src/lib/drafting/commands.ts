@@ -37,8 +37,9 @@ import {
   TextEditCommand,
 } from "./commands-annotate";
 import { AttachCommand, AttdefCommand, AttEditCommand, BeditCommand, BlockCommand, BlockLineCommand, InsertCommand, InsertPaletteCommand } from "./commands-blocks";
+import { PdfImportCommand } from "./commands-import";
 import { LayerLineCommand } from "./commands-layer";
-import { insertTitleBlock, LayoutCommand, lockViewports, MspaceCommand, MviewCommand } from "./commands-layout";
+import { LayoutCommand, lockViewports, MspaceCommand, MviewCommand, TitleBlockCommand } from "./commands-layout";
 import type { Editor } from "./editor";
 import type { Vec } from "./types";
 
@@ -160,7 +161,11 @@ export const COMMANDS: CommandInfo[] = [
   command("PURGE", ["PU"], "Removes unused blocks, layers and styles from the drawing", (ed) => new ImmediateCommand(ed, "PURGE", (e) => e.openDialog({ kind: "purge", done: () => {} }))),
   command("IMAGEATTACH", ["IAT", "ATTACH"], "Attaches a picture under the drawing", (ed) => new AttachCommand(ed, "image")),
   command("PDFATTACH", [], "Attaches a page of a PDF under the drawing", (ed) => new AttachCommand(ed, "pdf")),
-  command("DXFOUT", ["EXPORT", "SAVEAS"], "Downloads the drawing as a DXF file for AutoCAD and other CAD programs", (ed) => new ImmediateCommand(ed, "DXFOUT", (e) => e.ui.exportDxf())),
+  command("PDFIMPORT", [], "Imports a PDF page's lines, text, fills and pictures as objects you can edit", (ed) => new PdfImportCommand(ed)),
+  command("DXFOUT", ["EXPORT"], "Downloads the drawing as a DXF file for AutoCAD and other CAD programs", (ed) => new ImmediateCommand(ed, "DXFOUT", (e) => e.ui.exportDxf())),
+  command("SAVEAS", [], "Saves a copy of the drawing under a new name, as a drawing, a drawing template or DXF", (ed) =>
+    new ImmediateCommand(ed, "SAVEAS", (e) => e.openDialog({ kind: "save-as", name: e.drawingName, done: (r) => r && e.ui.saveAs(r) })),
+  ),
   // Layouts and plotting
   command("LAYOUT", ["LO"], "Creates, renames, deletes and switches layouts", (ed) => new LayoutCommand(ed)),
   command("MVIEW", ["MV"], "Creates a layout viewport onto the model", (ed) => new MviewCommand(ed)),
@@ -168,7 +173,7 @@ export const COMMANDS: CommandInfo[] = [
   command("PSPACE", ["PS"], "Returns from a viewport to the layout's paper", (ed) => new ImmediateCommand(ed, "PSPACE", (e) => (e.viewport ? e.exitViewport() : e.print("Already on the paper.", "info")))),
   command("VPLOCK", [], "Locks the scale and view of viewports", (ed) => new ImmediateCommand(ed, "VPLOCK", (e) => lockViewports(e, true))),
   command("VPUNLOCK", [], "Unlocks the scale and view of viewports", (ed) => new ImmediateCommand(ed, "VPUNLOCK", (e) => lockViewports(e, false))),
-  command("TITLEBLOCK", ["TB"], "Puts a title block on the layout's paper", (ed) => new ImmediateCommand(ed, "TITLEBLOCK", insertTitleBlock)),
+  command("TITLEBLOCK", ["TB"], "Puts a title block on the layout's paper: a strip along the bottom or down the side", (ed) => new TitleBlockCommand(ed)),
   command("PAGESETUP", [], "Sets a layout's paper size and how it plots", (ed) =>
     new ImmediateCommand(ed, "PAGESETUP", (e) => (e.layoutId ? e.openDialog({ kind: "page-setup", layout: e.layoutId, done: () => {} }) : e.openDialog({ kind: "plot", done: () => {} }))),
   ),

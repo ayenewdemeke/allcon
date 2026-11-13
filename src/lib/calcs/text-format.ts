@@ -7,13 +7,14 @@ import type { TextFont, TextRegion, TextStyle } from "./types";
 export type TextLook = { font: TextFont; size: number; bold: boolean; italic: boolean; underline: boolean; color: string };
 export type TextFormat = Pick<TextRegion, "font" | "size" | "bold" | "italic" | "underline">;
 
+// Named as Mathcad Prime's styles: Normal at its 11 pt, Heading 1 (heading) and Heading 2
+// (subheading) bold; Note is allcon's own (the code references beside the math).
 const STYLE_LOOK: Record<TextStyle, Omit<TextLook, "font" | "underline">> = {
-  normal: { size: 14, bold: false, italic: false, color: "#171717" },
+  normal: { size: (11 * 4) / 3, bold: false, italic: false, color: "#171717" },
   heading: { size: 20, bold: true, italic: false, color: "#171717" },
   subheading: { size: 16, bold: true, italic: false, color: "#171717" },
   note: { size: 12, bold: false, italic: true, color: "#525252" },
 };
-
 export const TEXT_FONTS: { id: TextFont; label: string; css?: string }[] = [
   { id: "sans", label: "Sans serif" }, // the app's font on screen, Helvetica in the PDF
   { id: "serif", label: "Serif", css: '"Times New Roman", Times, serif' },

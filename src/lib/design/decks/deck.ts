@@ -1,4 +1,5 @@
 import { BARS, DesignError, flexure, type Bars, type Check } from "../walls/cip";
+import { railDef, railOnDeck, type RailKey, type RailSteel, type TestLevel } from "./rails";
 
 // A cast-in-place concrete deck on parallel girders, AASHTO LRFD, by the approximate (equivalent
 // strip) method: the transverse strip is a continuous beam on rigid supports at the girders, with
@@ -39,7 +40,36 @@ export type DeckInputs = {
   Fv: number; // kip, vertical design force
   Lv: number; // ft, its longitudinal distribution
   la: number; // ft, its lever arm to the barrier face
+  /** A CDOT standard bridge rail (B-606): it sets the barrier's width, weight and c.g. and, for a parapet, Mc and T; "custom" keeps them as entered. */
+  rail?: { type: RailKey; testLevel: TestLevel; steel: RailSteel };
+  /** Started from a girder design, which carries the deck's concrete, the rails and the waterproofing in its quantities: this design adds the bars. */
+  fromGirder?: { id: string; name: string } | null;
 };
+
+export const RAIL_DEFAULT: NonNullable<DeckInputs["rail"]> = { type: "custom", testLevel: "TL-5", steel: "A1035" };
+
+/** The deck's inputs with a standard rail's values in place of the entered barrier, and the rail's design. */
+export function withRail(i: DeckInputs) {
+  const choice = { ...RAIL_DEFAULT, ...(i.rail ?? {}) };
+  const def = railDef(choice.type);
+  if (!def) return { inputs: i, rail: null };
+  const r = railOnDeck(def, { fc: 4.5, steel: choice.steel, testLevel: choice.testLevel, gammaC: i.gammaC });
+  const parapet = r.resistance;
+  return {
+    inputs: {
+      ...i,
+      barrierWidth: def.width,
+      barrierWeight: r.weight,
+      barrierCg: r.cg,
+      Fv: r.Fv,
+      Lv: r.Lv,
+      la: r.la,
+      // The deck develops the wall's Mc as the yield lines take it, averaged over its varying height (A13.4.2, CA13.3.1).
+      ...(parapet ? { Mc: parapet.interior.Mc, T: parapet.interior.T } : {}),
+    },
+    rail: { ...r, choice },
+  };
+}
 
 /** The defaults: a 43 ft deck on four box girders at 11 ft, with a TL-4 (MASH) barrier. */
 export const DECK_DEFAULTS: DeckInputs = {
@@ -149,7 +179,8 @@ const CLEAR = 4; // ft between the nearest wheels of adjacent trucks
 const PRESENCE = [1.2, 1.0, 0.85, 0.65]; // Table 3.6.1.1.2-1
 const IM = 0.33; // 3.6.2.1
 
-export function designDeck(i: DeckInputs) {
+export function designDeck(entered: DeckInputs) {
+  const { inputs: i, rail } = withRail(entered);
   if (i.nGirders < 2) throw new DesignError("The deck needs at least two girders.");
   if (i.S <= 0 || i.S > 15) throw new DesignError("Girder spacing must be over 0 and at most 15 ft: beyond 15 ft AASHTO 4.6.2.1.6 adds the lane load and wider-spaced axles, which this tool doesn't cover.");
   const checks: Check[] = [];
@@ -305,7 +336,28 @@ export function designDeck(i: DeckInputs) {
   case3.MR = capacity(case3.h, asTop, 0.9);
   add({ id: "oh-case3", name: "Overhang, Case 3: dead and live load at the girder", demand: case3.Mu, capacity: case3.MR, unit: "kip·ft/ft", ref: "AASHTO A13.4.1" });
 
+  // --- the bridge rail ------------------------------------------------------------------------------------------
+  let endCase1: { Mc: number; T: number; Mu: number; MR: number } | null = null;
+  if (rail) {
+    const f = rail.forces;
+    add({ id: "rail-height", name: `Rail height for ${rail.choice.testLevel}`, demand: f.H, capacity: rail.rail.height, unit: "in", ref: "AASHTO 13.7.3.2" });
+    const p = rail.resistance;
+    if (p) {
+      // The standard is crash tested or designed by Staff Bridge: its resistance is shown, not a pass or fail of the standard.
+      add({ id: "rail-rw", name: `Rail resistance Rw within a segment, ${rail.choice.testLevel} (yield lines)`, demand: f.Ft, capacity: p.interior.Rw, unit: "kip", ref: "AASHTO A13.3.1", advisory: true, ok: p.interior.Rw >= f.Ft });
+      add({ id: "rail-rw-end", name: `Rail resistance Rw at an end or joint, ${rail.choice.testLevel}`, demand: f.Ft, capacity: p.end.Rw, unit: "kip", ref: "AASHTO A13.3.1", advisory: true, ok: p.end.Rw >= f.Ft });
+      // At the rail's ends (its end zones' closer bars): the deck there carries the larger Mc and T.
+      const McE = p.end.Mc;
+      const AsE = asTop - (0.5 * p.end.T) / i.fy;
+      endCase1 = { Mc: McE, T: p.end.T, Mu: dcAt(bw) + dwAt(bw) + McE, MR: capacity(h1, AsE, 1.0) };
+      add({ id: "oh-case1-end", name: "Overhang, Case 1 at the rail's ends and joints (its end zones)", demand: endCase1.Mu, capacity: endCase1.MR, unit: "kip·ft/ft", ref: "AASHTO A13.4.2", advisory: true, ok: endCase1.Mu <= endCase1.MR });
+    }
+  }
+
   return {
+    rail,
+    applied: i,
+    endCase1,
     ok: checks.every((c) => c.ok),
     checks,
     geometry: { W, girders, bw, flangeEdge, lanes, stripPos, stripNeg, Se },

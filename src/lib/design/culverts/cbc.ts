@@ -9,6 +9,7 @@
 import { abutmentHeq } from "../walls/mse";
 import { BARS, type Bars, type Check, DesignError } from "../walls/cip";
 import { type DistLoad, type EndForces, Frame, type FrameElement, type FrameNode, type LoadCase, type NodalLoad } from "../frame";
+import { type CulvertWingwall, wingwallChecks } from "./m601-20";
 
 export type Steel = { topIn: number; topOut: number; botIn: number; botOut: number; wallIn: number; wallOut: number; intWall: number }; // in²/ft
 export type Face = keyof Steel;
@@ -56,6 +57,21 @@ export type CbcInputs = {
   phiF: number;
   phiV: number;
   phiC: number;
+  // Detailing: the outside corner bars of CDOT M-601-1 (c1, c2: the exterior walls' outside bars bent
+  // into the top of the top slab and the bottom of the bottom slab, lapped with t1/b1)
+  cornerBars?: boolean;
+  // An extension of an existing barrel: its pieces (ft), each with a joint to the existing barrel
+  // (dowels drilled and epoxy grouted into it) and a new headwall at its open end
+  // (dowel length and spacing in inches); the backfill where the existing wingwalls and footings are
+  // removed (CY, from the removal limits); waterproofing at the joints as plans may require
+  extension?: { pieces: { name: string; length: number }[]; bar: number; length: number; spacing: number; removalBackfill?: number; waterproofJoints?: boolean };
+  // Wingwalls by CDOT M-601-20 (their tables, not designed here)
+  wingwalls?: CulvertWingwall[];
+  // Structure excavation beyond M-206-1's trench (its general note 1: as the plans show): below the
+  // box down to an elevation (bedrock, or firm ground), from the inverts at the inlet and outlet, and
+  // around the wingwalls (M-206-1 Sheet 2)
+  // (to an elevation, or when that's null a depth below the box, ft)
+  excavation?: { to: number | null; inletInvert: number | null; outletInvert: number | null; wingwalls: boolean; depth?: number | null };
 };
 
 /** φ for flexure and shear, AASHTO Table 12.5.5-1. */
@@ -72,7 +88,7 @@ const BARS_DEFAULT: Record<Face, Bars> = {
 };
 
 /** A face's steel: its area per foot, the bar (or wire) diameter for d, and the spacing. */
-export function faceSteel(i: CbcInputs, face: Face): { As: number; db: number; s: number; bars?: Bars } {
+export function faceSteel(i: CbcInputs, face: Face): { As: number; db: number; s: number; bars?: Bars; corner?: Bars } {
   if (i.reinf === "wwr") return { As: i.steel[face], db: i.dw, s: i.spacing };
   const b = i.bars[face];
   return { As: (BARS[b.bar].area * 12) / b.spacing, db: BARS[b.bar].dia, s: b.spacing, bars: b };
@@ -143,6 +159,11 @@ export function combos(eta: number): { id: ComboId; name: string; strength: bool
     { id: "SerIc", name: "Service I, no live load", strength: false, f: { DC: 1, EV: 1, LL: 0, EHmax: 1, EHmin: 0, LS: 1, WA: 0 } },
   ];
 }
+
+/** The groups the checks are listed in (the design tool and the calc package's summary). */
+export const CHECK_GROUPS = ["Top slab", "Bottom slab", "Exterior walls", "Interior walls", "Wingwalls (M-601-20)"] as const;
+export const checkGroup = (id: string): (typeof CHECK_GROUPS)[number] =>
+  id.startsWith("ww-") ? "Wingwalls (M-601-20)" : id.startsWith("top") ? "Top slab" : id.startsWith("bottom") ? "Bottom slab" : id.startsWith("iwall") ? "Interior walls" : "Exterior walls";
 
 export type MemberKind = "top" | "bottom" | "wall" | "iwall";
 export const GROUPS: { kind: MemberKind; name: string }[] = [
@@ -532,6 +553,18 @@ export function designCbc(i: CbcInputs) {
   const thickness = (kind: MemberKind) => (kind === "top" ? i.Tt : kind === "bottom" ? i.Tb : kind === "wall" ? i.Ts : i.Ti);
   const faceOf = (kind: MemberKind, sign: 1 | -1): Face => (kind === "top" ? (sign > 0 ? "topIn" : "topOut") : kind === "bottom" ? (sign > 0 ? "botIn" : "botOut") : kind === "wall" ? (sign > 0 ? "wallIn" : "wallOut") : "intWall");
   type FaceSteel = ReturnType<typeof faceSteel>;
+  /** A face's steel at a station: at a slab's end against an exterior wall the outside face also has
+   * the corner bar (c1 into the top slab, c2 into the bottom slab), lapped with t1/b1 (M-601-1). */
+  const stationSteel = (s: Station, sign: 1 | -1, key: Face): FaceSteel => {
+    const st = faceSteel(i, key);
+    if (!i.cornerBars || i.reinf !== "bars" || sign !== -1 || s.role !== "end" || (s.kind !== "top" && s.kind !== "bottom")) return st;
+    const el = model.elements[s.el];
+    const x = model.nodes[s.end === "i" ? el.i : el.j].x;
+    const wall = model.xs.reduce((w, xw) => (Math.abs(xw - x) < Math.abs(w - x) ? xw : w), model.xs[0]);
+    if (!(Math.abs(wall) < 1e-9 || Math.abs(wall - B) < 1e-9)) return st; // an interior wall: no corner bar
+    const c = faceSteel(i, "wallOut");
+    return { As: st.As + c.As, db: Math.max(st.db, c.db), s: Math.max(st.s, c.s), bars: st.bars, corner: c.bars };
+  };
   const faceName = (kind: MemberKind, sign: 1 | -1) => (kind === "iwall" ? (sign > 0 ? "right face" : "left face") : sign > 0 ? "inside face" : "outside face");
   const b = 12;
   const flexure = (h: number, st: FaceSteel, Mu: number) => {
@@ -580,7 +613,7 @@ export function designCbc(i: CbcInputs) {
       const u = pick(m, true, sign);
       if (!u) continue;
       const key = faceOf(s.kind, sign);
-      const st = faceSteel(i, key);
+      const st = stationSteel(s, sign, key);
       const sv = pick(m, false, sign);
       faces.push({ station: s, index: m, sign, face: faceName(s.kind, sign), key, steel: st, h, As: st.As, Mu: Math.abs(u.M), combo: u.combo, u, flex: flexure(h, st, Math.abs(u.M)), Ms: sv ? Math.abs(sv.M) : 0, Ns: sv?.N ?? 0, serCombo: sv?.combo ?? null, s: sv, crack: sv ? crack(h, st, sv.M, sv.N) : null });
     }
@@ -646,12 +679,15 @@ export function designCbc(i: CbcInputs) {
         const cr = governing(withCrack, (f) => f.crack!.fs / f.crack!.fss);
         add({ id: `${id}-crack`, name: `${g.name}, ${label}: crack control`, demand: cr.crack!.fs, capacity: cr.crack!.fss, unit: "ksi", ref: "AASHTO 5.6.7, C12.11.3", note: `${cr.station.name}, ${comboName(cr.serCombo)}; needs ${cr.crack!.AsReq.toFixed(3)} in²/ft` });
       }
-      const { As, steel } = list[0];
-      const d = h - i.cover - steel.db / 2;
-      governs.push({ kind: g.kind, key: g.kind === "iwall" ? "each" : key > 0 ? "in" : "out", face: list[0].key, steel, label: `${g.name}, ${label}`, flex: fl, crack: withCrack.length ? governing(withCrack, (f) => f.crack!.fs / f.crack!.fss) : null, As, h });
+      // The face's own bars (minimum steel, spacing); the governing section's (with any corner bars) as provided.
+      const steel = faceSteel(i, list[0].key);
+      const As = steel.As;
+      const most = list.reduce((w, f) => (f.As > w.As ? f : w), list[0]);
+      const d = h - i.cover - most.steel.db / 2;
+      governs.push({ kind: g.kind, key: g.kind === "iwall" ? "each" : key > 0 ? "in" : "out", face: list[0].key, steel: fl.steel, label: `${g.name}, ${label}`, flex: fl, crack: withCrack.length ? governing(withCrack, (f) => f.crack!.fs / f.crack!.fss) : null, As: fl.steel.As, h });
       add({ id: `${id}-min`, name: `${g.name}, ${label}: minimum steel`, demand: 0.002 * b * h, capacity: As, unit: "in²/ft", ref: "AASHTO 12.11.4.3.2 (0.002 Ag)" });
-      // Tension controlled, so φ applies as given: c/d ≤ 0.003/(0.003 + εtl), 0.375 up to fy 75 ksi.
-      add({ id: `${id}-max`, name: `${g.name}, ${label}: tension controlled`, demand: As, capacity: (cdMax * d * 0.85 * i.fc * beta1 * b) / i.fy, unit: "in²/ft", ref: "AASHTO 5.6.2.1" });
+      // Tension controlled, so φ applies as given: c/d ≤ 0.003/(0.003 + εtl), 0.375 up to fy 75 ksi. The most steel at any section (corner bars included).
+      add({ id: `${id}-max`, name: `${g.name}, ${label}: tension controlled`, demand: most.As, capacity: (cdMax * d * 0.85 * i.fc * beta1 * b) / i.fy, unit: "in²/ft", ref: "AASHTO 5.6.2.1", note: most.steel.corner ? `${most.station.name}: with the corner bars` : undefined });
       if (steel.bars) add({ id: `${id}-spacing`, name: `${g.name}, ${label}: bar spacing`, demand: steel.s, capacity: Math.min(1.5 * h, 18), unit: "in", ref: "AASHTO 5.10.3.2 (1.5 h, 18 in)" });
     }
     const sh = shears.filter((x) => x.station.kind === g.kind);
@@ -668,6 +704,8 @@ export function designCbc(i: CbcInputs) {
       add({ id: `${g.kind}-thrust`, name: `${g.name}: thrust`, demand: Pu, capacity: i.phiC * 0.1 * i.fc * b * h, unit: "kip/ft", ref: "AASHTO 5.6.4.5 (0.10 f'c Ag)" });
     }
   }
+  // Wingwalls by M-601-20: within its tables, or a special design.
+  checks.push(...wingwallChecks(i.wingwalls ?? []));
 
   return {
     ok: checks.every((c) => c.ok),

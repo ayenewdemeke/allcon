@@ -106,6 +106,8 @@ export async function listDrawings(ctx: ToolContext) {
     objects: d.entityCount,
     updated: d.updatedAt.toISOString(),
     link: link(d.id),
+    // A drawing template (DWT): new drawings start as a copy of it; edit it only when asked to change the template.
+    ...(d.isTemplate ? { template: true, description: d.description ?? "" } : {}),
   }));
 }
 

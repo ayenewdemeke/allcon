@@ -4,7 +4,8 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { uprightUnits, type Result } from "@/lib/calcs/evaluate";
 import { verdictColor } from "@/lib/calcs/colors";
 import { TEXT_FONTS, textLook } from "@/lib/calcs/text-format";
-import type { ImageRegion, MathRegion, TextRegion } from "@/lib/calcs/types";
+import { boldVerdict, MATH_SIZE, mathColor, styleUnits } from "@/lib/calcs/look";
+import type { Grid, ImageRegion, MathRegion, TextRegion } from "@/lib/calcs/types";
 import { cn } from "@/lib/utils";
 import { loadMathLive, makeField, type MathfieldElement } from "./mathlive";
 
@@ -66,9 +67,12 @@ export function MathRegionView({
   takePending,
   takeInsert,
   returnPending,
+  grid,
 }: {
   ml: MathLive | null;
   region: MathRegion;
+  /** The worksheet's grid settings (whether values entered show in blue). */
+  grid?: Grid;
   result: Result | undefined;
   editing: boolean;
   selected: boolean;
@@ -190,15 +194,15 @@ export function MathRegionView({
   const error = result?.kind === "error" && !(editing && result.incomplete) ? result : null;
   const shown = result?.kind === "ok" ? result.result : undefined;
   return (
-    <span style={{ color: region.color }} className={cn("inline-flex items-baseline gap-1 rounded-sm px-1 py-0.5 text-[16px] leading-tight", error && "bg-red-50 ring-1 ring-red-500", selected && !editing && "ring-1 ring-primary")}>
+    <span style={{ color: mathColor(region, grid), fontSize: MATH_SIZE }} className={cn("inline-flex items-baseline gap-1 rounded-sm px-1 py-0.5 leading-tight", error && "bg-red-50 ring-1 ring-red-500", selected && !editing && "ring-1 ring-primary")}>
       {editing ? (
         <span ref={host} className="calc-field inline-block min-w-8" />
       ) : (
-        <StaticMath ml={ml} latex={region.latex ? uprightUnits(region.latex, result?.kind === "ok" ? (result.units ?? []) : []) : "\\placeholder{}"} />
+        <StaticMath ml={ml} latex={region.latex ? styleUnits(uprightUnits(region.latex, result?.kind === "ok" ? (result.units ?? []) : [])) : "\\placeholder{}"} />
       )}
       {shown && (
         <span style={{ color: verdictColor(shown) }}>
-          <StaticMath ml={ml} latex={shown} />
+          <StaticMath ml={ml} latex={verdictColor(shown) ? boldVerdict(shown) : styleUnits(shown)} />
         </span>
       )}
       {shown && (selected || editing || region.displayUnit) && shown.includes("\\mathrm") && (

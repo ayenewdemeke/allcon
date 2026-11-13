@@ -1,5 +1,7 @@
 import type { Line } from "@/lib/calcs/library/templates";
-import { COLOR_NOTE, INPUT_COLOR, isInput } from "../calc-style";
+import { checksSummary } from "../checks-summary";
+import { designWingwall } from "./wingwall";
+import { COLOR_NOTE, INPUT_COLOR, isInput, num } from "../calc-style";
 import type { Figure } from "../figures";
 import { BARS } from "./cip";
 import type { WingwallInputs } from "./wingwall";
@@ -7,7 +9,6 @@ import type { WingwallInputs } from "./wingwall";
 // A cantilever wingwall as a Calcs worksheet: inputs as definitions and every step as live math
 // with its AASHTO reference, worked out by Calcs independently of the design engine.
 
-const num = (v: number) => String(+v.toFixed(6));
 const ok = (demand: string, capacity: string) => `\\operatorname{if}\\left(${demand}\\le ${capacity},\\text{OK},\\text{NG}\\right)=`;
 
 export function wingwallCalcLines(i: WingwallInputs, title: string, figures?: { section?: Figure }): Line[] {
@@ -103,5 +104,6 @@ export function wingwallCalcLines(i: WingwallInputs, title: string, figures?: { 
     m(`T_{z${s}}\\coloneq ${V}\\cdot\\left(\\frac{L}{2}+\\frac{A'}{2}\\right)=`, "Torsion from self weight", "kip*ft");
   }
   text("The tension P, shear V, torsion and both moments act together on the abutment; detail the wingwall bars to develop into it.", "note");
+  lines.push(...checksSummary([{ checks: designWingwall(i).checks }]));
   return lines;
 }

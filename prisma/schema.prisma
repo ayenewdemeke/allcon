@@ -810,6 +810,8 @@ model Drawing {
   backupKey   String?           @map("backup_key") // the file before an AI app's last edit, for undo
   revision    Int               @default(0)
   entityCount Int               @default(0) @map("entity_count")
+  isTemplate  Boolean           @default(false) @map("is_template") // a drawing template (AutoCAD's DWT): new drawings start as a copy
+  description String? // a template's description, shown when choosing one
   createdById String?           @map("created_by") @db.Uuid
   createdAt   DateTime          @default(now()) @map("created_at")
   updatedAt   DateTime          @default(now()) @updatedAt @map("updated_at")
@@ -852,15 +854,18 @@ model Calc {
   backupKey   String?      @map("backup_key") // the file before an AI app's last edit, for undo
   revision    Int          @default(0)
   regionCount Int          @default(0) @map("region_count")
+  designId    String?      @map("design_id") @db.Uuid // the design it was made from (a calc package or quantity sheet), for listing by tool
   createdById String?      @map("created_by") @db.Uuid
   createdAt   DateTime     @default(now()) @map("created_at")
   updatedAt   DateTime     @default(now()) @updatedAt @map("updated_at")
   org         Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
   project     Project?     @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  design      Design?      @relation(fields: [designId], references: [id], onDelete: SetNull)
   presence    CalcPresence[]
 
   @@index([orgId])
   @@index([projectId])
+  @@index([designId])
   @@map("calc")
 }
 
@@ -897,6 +902,7 @@ model Design {
   updatedAt   DateTime     @default(now()) @updatedAt @map("updated_at")
   org         Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
   project     Project?     @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  calcs       Calc[]
 
   @@index([orgId])
   @@index([projectId])

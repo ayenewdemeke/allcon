@@ -5,6 +5,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { DesignError } from "@/lib/design/walls/cip";
 import { designWingwall, type WingwallInputs } from "@/lib/design/walls/wingwall";
 import { BarsField, ChecksBanner, ChecksTable, DesignErrorCard, DesignHeader, Field, fmt, KeyValues, Section, Toggle } from "./design-kit";
+import { TakeoffPanel } from "./takeoff-panel";
 import { WingwallSketch } from "./wingwall-sketch";
 
 // Designing a cantilever wingwall: the inputs on the left, worked out as they change (sketch,
@@ -73,11 +74,12 @@ export function WingwallEditor({ design, projects }: { design: { id: string; nam
                   </CardContent>
                 </Card>
                 <ChecksTable checks={r.checks} groupOf={() => "Section A: horizontal bars"} />
+                <TakeoffPanel kind="cantilever-wingwall" design={design} inputs={inputs} ok={r.checks.every((c) => c.advisory || c.ok)} onSettings={(t) => setInputs((s) => ({ ...s, takeoff: t }))} />
                 <div className="grid gap-4 xl:grid-cols-2">
                   <KeyValues
                     title="Earth pressure and Section A"
                     rows={[
-                      ["k (W = k γs)", `${fmt(r.soil.k, 4)} (${fmt(r.soil.W * 1000, 1)} pcf)`],
+                      ["k (W = k γs)", `${fmt(r.soil.k)} (${fmt(r.soil.W * 1000, 1)} pcf)`],
                       ["Thrust P, service / strength", `${fmt(r.service.P)} / ${fmt(r.strength.P)} kip`],
                       ["Moment about the abutment face", `${fmt(r.service.MA)} / ${fmt(r.strength.MA)} kip·ft`],
                       ["Moment about the top", `${fmt(r.service.MC)} / ${fmt(r.strength.MC)} kip·ft`],

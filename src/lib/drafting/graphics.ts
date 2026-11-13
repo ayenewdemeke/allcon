@@ -1,5 +1,6 @@
 import earcut from "earcut";
 import { add, angleOf, arcPoints, dist, mul, normalizeAngle, perp, polar, sub, sweepOf, unit, type Graphics, type TextRun, setAnnotationGraphics } from "./geometry";
+import { evaluateFields, hasFields, type FieldContext } from "./fields";
 import { formatLength, trimNumber } from "./units";
 import type { DimensionEntity, DimStyle, Entity, HatchEntity, LeaderEntity, MTextEntity, TextEntity, TextStyle, Units, Vec } from "./types";
 
@@ -14,6 +15,19 @@ let styles: Styles = { units: "architectural", text: new Map(), dim: new Map(), 
 export function applyStyles(next: Omit<Styles, "version">) {
   styles = { ...next, version: styles.version + 1 };
 }
+
+let fields: FieldContext = { fileName: "", layout: "Model" };
+
+/** What fields show (the drawing's name, the layout being drawn or plotted); text is redrawn when it changes. */
+export function applyFields(next: Partial<FieldContext>) {
+  const merged = { ...fields, ...next };
+  if (merged.fileName === fields.fileName && merged.layout === fields.layout && merged.now === fields.now) return;
+  fields = merged;
+  styles = { ...styles, version: styles.version + 1 };
+}
+
+/** Text as shown: its fields filled in. */
+export const shownText = (text: string) => evaluateFields(text, fields);
 
 const FALLBACK_TEXT: TextStyle = { name: "Standard", font: "Arial", widthFactor: 1 };
 const textStyle = (name: string) => styles.text.get(name) ?? styles.text.values().next().value ?? FALLBACK_TEXT;
@@ -62,7 +76,8 @@ export function textBox(run: TextRun): Vec[] {
 }
 
 /** Text runs, laid out: single-line text, or multiline text wrapped to its width. */
-function textRuns(e: TextEntity | MTextEntity): TextRun[] {
+function textRuns(source: TextEntity | MTextEntity): TextRun[] {
+  const e = hasFields(source.text) ? { ...source, text: shownText(source.text) } : source;
   const style = textStyle(e.style);
   if (e.type === "text") return [{ at: e.at, text: e.text, height: e.height, rotation: e.rotation, font: style.font, widthFactor: style.widthFactor, halign: e.halign, valign: e.valign }];
   const lines: string[] = [];

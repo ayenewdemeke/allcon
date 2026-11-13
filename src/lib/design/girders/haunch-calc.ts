@@ -1,12 +1,12 @@
 import type { Line } from "@/lib/calcs/library/templates";
-import { COLOR_NOTE, INPUT_COLOR, isInput } from "../calc-style";
+import { checksSummary } from "../checks-summary";
+import { COLOR_NOTE, INPUT_COLOR, isInput, num } from "../calc-style";
 import type { Figure } from "../figures";
 import { designHaunch, type HaunchInputs } from "./haunch";
 
 // Camber and haunch as a Calcs worksheet: the profile grade's elevations as given values, then
 // every step as live math.
 
-const num = (v: number, d = 6) => String(+v.toFixed(d));
 const ok = (demand: string, capacity: string) => `\\operatorname{if}\\left(${demand}\\le ${capacity},\\text{OK},\\text{NG}\\right)=`;
 
 export function haunchCalcLines(i: HaunchInputs, title: string, figures?: { section?: Figure }): Line[] {
@@ -59,5 +59,6 @@ export function haunchCalcLines(i: HaunchInputs, title: string, figures?: { sect
   m("D_{avgu}\\coloneq\\frac{D_1}{3}+\\frac{2\\cdot D_{2u}}{3}=", "Its average, for the girder's dead load", "in");
   m(`\\Delta_{DLu}\\coloneq ${num(i.deflectionUnder)}\\mathrm{in}`, "Dead load deflection with that haunch (from the girder's design)");
   m(ok("0\\mathrm{in}", "C_{dp}+\\delta_{un}+\\Delta_{DLu}"), "The girder keeps a positive camber");
+  lines.push(...checksSummary([{ checks: r.checks }]));
   return lines;
 }

@@ -1,15 +1,18 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
-import { AlertCircle, ArrowLeft, Check, Cloud, Loader2, Redo2, Undo2 } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { AlertCircle, ArrowLeft, Check, Cloud, Loader2, Redo2, SaveAll, Undo2 } from "lucide-react";
+import { saveDrawingAs } from "@/app/actions/drawings";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { LinkButton } from "@/components/ui/link-button";
-import { DEFAULT_SETTINGS, Editor, type Settings } from "@/lib/drafting/editor";
+import { DEFAULT_SETTINGS, Editor, type SaveAsRequest, type Settings } from "@/lib/drafting/editor";
 import { emptyDrawing, type DrawingData, type Units } from "@/lib/drafting/types";
 import { cn } from "@/lib/utils";
 import { attachFile } from "./attach";
+import { importPdf } from "./pdf-import";
 import { BlocksPalette } from "./blocks-palette";
 import { CommandLine } from "./command-line";
 import { DraftingDialog } from "./dialogs";
@@ -275,8 +278,27 @@ function Workspace({ editor, drawing, backHref, hadView, projects }: { editor: E
     }
   }, [editor, drawing.id, drawing.name, saveNow]);
 
+  const router = useRouter();
+  const saveAs = useCallback(
+    async (r: SaveAsRequest) => {
+      if (r.type === "dxf") return void exportDxf();
+      // The copy is made from the saved drawing: save first.
+      while (saving.current) await new Promise((res) => setTimeout(res, 200));
+      await saveNow();
+      editor.print(r.type === "template" ? `Saving the template ${r.name}…` : `Saving ${r.name}…`, "info");
+      try {
+        const { id } = await saveDrawingAs(drawing.id, { name: r.name, template: r.type === "template", description: r.description });
+        router.push(`/drafting/${id}`);
+      } catch (err) {
+        editor.print(err instanceof Error ? err.message : "Could not save the copy", "error");
+      }
+    },
+    [editor, drawing.id, exportDxf, saveNow, router],
+  );
+
   useEffect(() => {
     editor.setUi({
+      saveAs: (r) => void saveAs(r),
       openPalette: (p) => setPalettes((s) => ({ ...s, [p]: true })),
       attach: async (source) => {
         try {
@@ -289,8 +311,16 @@ function Workspace({ editor, drawing, backHref, hadView, projects }: { editor: E
         }
       },
       exportDxf: () => void exportDxf(),
+      importPdf: async () => {
+        try {
+          return await importPdf(editor, drawing.id);
+        } catch (err) {
+          editor.print(err instanceof Error ? `Could not import the PDF: ${err.message}` : "Could not import the PDF", "error");
+          return null;
+        }
+      },
     });
-  }, [editor, drawing.id, choosePage, exportDxf]);
+  }, [editor, drawing.id, choosePage, exportDxf, saveAs]);
 
   // --- the keyboard ---------------------------------------------------------------------------
   useEffect(() => {
@@ -344,6 +374,9 @@ function Workspace({ editor, drawing, backHref, hadView, projects }: { editor: E
             </button>
             <button type="button" onClick={() => editor.redo()} disabled={!state.canRedo} className="rounded p-1 hover:bg-accent disabled:opacity-40" title="Redo (Ctrl+Y)" aria-label="Redo">
               <Redo2 className="size-3.5" />
+            </button>
+            <button type="button" onClick={() => editor.runCommand("SAVEAS")} className="rounded p-1 hover:bg-accent" title="Save As: a copy, a drawing template or DXF (SAVEAS)" aria-label="Save As">
+              <SaveAll className="size-3.5" />
             </button>
           </>
         }

@@ -1,5 +1,7 @@
+import { maxLines } from "@/lib/calcs/library/fit";
 import type { Line } from "@/lib/calcs/library/templates";
-import { COLOR_NOTE, INPUT_COLOR, isInput } from "../calc-style";
+import { checksSummary } from "../checks-summary";
+import { COLOR_NOTE, INPUT_COLOR, isInput, num } from "../calc-style";
 import type { Figure } from "../figures";
 import { BARS } from "./cip";
 import { designMseWall, PHI_PO, PHI_PO_EE, type MseInputs } from "./mse";
@@ -8,7 +10,6 @@ import { designMseWall, PHI_PO, PHI_PO_EE, type MseInputs } from "./mse";
 // with its AASHTO reference: external stability, each reinforcement layer, and the facing panel.
 // Calcs works the numbers out on its own; the design engine only lays out the layers.
 
-const num = (v: number) => String(+v.toFixed(6));
 const ok = (demand: string, capacity: string) => `\\operatorname{if}\\left(${demand}\\le ${capacity},\\text{OK},\\text{NG}\\right)=`;
 
 export function mseCalcLines(i: MseInputs, title: string, figures?: { section?: Figure }): Line[] {
@@ -227,9 +228,10 @@ export function mseCalcLines(i: MseInputs, title: string, figures?: { section?: 
   m(`s_p\\coloneq ${num(i.panelSpan / 12)}\\mathrm{ft}`, "Horizontal span between connections");
   m(`d_{bv}\\coloneq ${num(BARS[i.panelV.bar].dia)}\\mathrm{in}`, `Vertical bars #${i.panelV.bar} @ ${num(i.panelV.spacing)} in`);
   m(`d_{bh}\\coloneq ${num(BARS[i.panelH.bar].dia)}\\mathrm{in}`, `Horizontal bars #${i.panelH.bar} @ ${num(i.panelH.spacing)} in, inside the vertical`);
-  const pick = (t: (k: number) => string) => each(t, ",");
-  m(`p_u\\coloneq\\max\\left(${pick((k) => `\\frac{T_{${k}}}{S_{v${k}}}`)}${eq ? `,${pick((k) => `\\frac{T_{ee${k}}}{S_{v${k}}}`)}` : ""}\\right)=`, "Largest factored pressure", "ksf");
-  m(`p_s\\coloneq\\max\\left(${pick((k) => `\\frac{T_{s${k}}}{S_{v${k}}}`)}\\right)=`, "Service I", "ksf");
+  // Each layer's pressure, the largest governing: in groups that fit the page.
+  const cases = (t: (k: number) => string) => layers.map((_, k) => t(k + 1));
+  lines.push(...maxLines("p", "u", [...cases((k) => `\\frac{T_{${k}}}{S_{v${k}}}`), ...(eq ? cases((k) => `\\frac{T_{ee${k}}}{S_{v${k}}}`) : [])], { ref: "Largest factored pressure", unit: "ksf" }));
+  lines.push(...maxLines("p", "s", cases((k) => `\\frac{T_{s${k}}}{S_{v${k}}}`), { ref: "Service I", unit: "ksf" }));
   m("d_v\\coloneq t_p-c_p-\\frac{d_{bv}}{2}=", "Vertical bars, from the inside face", "in");
   m("d_h\\coloneq t_p-c_p-d_{bv}-\\frac{d_{bh}}{2}=", "Horizontal bars, from the inside face", "in");
 
@@ -268,6 +270,7 @@ export function mseCalcLines(i: MseInputs, title: string, figures?: { section?: 
     m(`V_{r${k}}\\coloneq0.9\\cdot0.0316\\cdot2\\cdot\\sqrt{\\frac{f'_{c}}{\\mathrm{ksi}}}\\cdot\\mathrm{ksi}\\cdot d_{vs${k}}=`, "β = 2, AASHTO 5.7.3.3", "kip/ft");
     m(ok(`V_{u${k}}`, `V_{r${k}}`), "Shear");
   }
+  lines.push(...checksSummary([{ checks: r.checks }]));
   return lines;
 }
 

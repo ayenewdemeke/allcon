@@ -31,9 +31,25 @@ export function DeckSketch({ inputs, result }: { inputs: DeckInputs; result: Dec
         Cross-section ({result.geometry.W.toFixed(1)} ft, slab thickness exaggerated)
       </text>
       <polygon points={`${X(0)},${top} ${X(W)},${top} ${bottom.split(" ").reverse().join(" ")}`} fill={SLAB} stroke={LINE} strokeWidth="1" />
-      {[0, W - bw].map((x) => (
-        <rect key={x} x={X(x)} y={top - 44} width={bw * s} height={44} fill={BARRIER} stroke={LINE} strokeWidth="0.8" />
-      ))}
+      {result.rail
+        ? [1, -1].map((side) => {
+            const rl = result.rail!.rail;
+            const k = 44 / rl.height; // px per inch of the rail's height
+            const px = (x: number) => (side > 0 ? X(x / 12) : X(W - x / 12));
+            return (
+              <g key={side}>
+                <polygon points={rl.outline.map(([x, y]) => `${px(x)},${top - y * k}`).join(" ")} fill={BARRIER} stroke={LINE} strokeWidth="0.8" />
+                {rl.posts && <line x1={px(rl.posts.x)} y1={top - 13 * k} x2={px(rl.posts.x)} y2={top - rl.height * k} stroke={LINE} strokeWidth="1.5" />}
+                {rl.posts?.tubes.map((t) => <rect key={t.y0} x={Math.min(px(t.x0), px(t.x1))} y={top - t.y1 * k} width={Math.abs(px(t.x1) - px(t.x0))} height={(t.y1 - t.y0) * k} fill="none" stroke={LINE} strokeWidth="0.8" />)}
+              </g>
+            );
+          })
+        : [0, W - bw].map((x) => <rect key={x} x={X(x)} y={top - 44} width={bw * s} height={44} fill={BARRIER} stroke={LINE} strokeWidth="0.8" />)}
+      {result.rail && (
+        <text x={X(0)} y={top - 50} fontSize="10" fill={LINE}>
+          {result.rail.rail.name}
+        </text>
+      )}
       {girders.map((g) => (
         <g key={g}>
           <rect x={X(g) - (inputs.flange / 24) * s} y={top + inputs.t * ts} width={(inputs.flange / 12) * s} height={5} fill={LINE} />

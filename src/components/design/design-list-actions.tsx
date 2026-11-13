@@ -1,7 +1,7 @@
 "use client";
 
 import { useTransition } from "react";
-import { useRouter } from "next/navigation";
+import { unstable_rethrow, useRouter } from "next/navigation";
 import { ChevronDown, Loader2, Pencil, Plus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { createDesign, deleteDesign, renameDesign } from "@/app/actions/design";
@@ -18,6 +18,7 @@ function useCreate() {
       try {
         await createDesign(kind, null); // opens it; filed under a project from the editor
       } catch (err) {
+        unstable_rethrow(err); // the redirect to the new design isn't a failure
         toast.error(err instanceof Error ? err.message : "Could not start the design");
       }
     });

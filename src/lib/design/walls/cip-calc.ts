@@ -1,5 +1,8 @@
 import type { Line } from "@/lib/calcs/library/templates";
-import { COLOR_NOTE, INPUT_COLOR, isInput } from "../calc-style";
+import { maxLines } from "@/lib/calcs/library/fit";
+import { checksSummary } from "../checks-summary";
+import { designCipWall } from "./cip";
+import { COLOR_NOTE, INPUT_COLOR, isInput, num } from "../calc-style";
 import type { Figure } from "../figures";
 import { BARS, COMBOS, type Combo, type CipInputs } from "./cip";
 
@@ -8,7 +11,6 @@ import { BARS, COMBOS, type Combo, type CipInputs } from "./cip";
 // way an engineer would write it by hand. Calcs checks the numbers independently of the design
 // engine.
 
-const num = (v: number) => String(+v.toFixed(6));
 const combName = (c: Combo) => COMBOS.find((x) => x.id === c)!.name;
 const SUB: Record<Combo, string> = { StrIa: "Ia", StrIb: "Ib", StrIV: "IV", ExtIIa: "IIa", ExtIIb: "IIb", SerI: "SI" };
 const ok = (demand: string, capacity: string) => `\\operatorname{if}\\left(${demand}\\le ${capacity},\\text{OK},\\text{NG}\\right)=`;
@@ -220,7 +222,14 @@ export function cipCalcLines(i: CipInputs, title: string, figures?: { section?: 
 
   // --- members ------------------------------------------------------------------------------
   const stemDead = vert.filter(([n]) => ["DC_1", "DC_2", "DC_3", "DC_5"].includes(n)).map(([n]) => n).join("+");
-  const member = (key: string, name: string, opts: { Mu: string; Ms: string; Vu: string; h: string; cover: number; bars: { bar: number; spacing: number }; exposure: number; shear: "general" | "simplified" | "none" }) => {
+  // The design groups' cases, named for the notes beside them.
+  const groupName = (c: Combo) => c.replace(/^Str/, "Strength ").replace(/^Ext/, "Extreme Event ").replace(/^Ser/, "Service ");
+  /** Mu or Vu: one expression, or the design groups' cases (the greatest governs), on as many lines as fit the page. */
+  const factored = (base: string, k: string, e: string | string[], ref: string, unit: string) => {
+    if (typeof e === "string") return m(`${base}_{u${k}}\\coloneq ${e}=`, ref, unit);
+    lines.push(...maxLines(base, `u${k}`, e, { ref, unit, names: designGroups.map(groupName) }));
+  };
+  const member = (key: string, name: string, opts: { Mu: string | string[]; Ms: string; Vu: string | string[]; h: string; cover: number; bars: { bar: number; spacing: number }; exposure: number; shear: "general" | "simplified" | "none" }) => {
     const k = key;
     const bar = BARS[opts.bars.bar];
     m(`c_{${k}}\\coloneq ${num(opts.cover)}\\mathrm{in}`, `${name}: cover`);
@@ -230,7 +239,7 @@ export function cipCalcLines(i: CipInputs, title: string, figures?: { section?: 
     m(`d_{e${k}}\\coloneq h_{${k}}-c_{${k}}-\\frac{d_{b${k}}}{2}=`, "Effective depth", "in");
     m(`A_{s${k}}\\coloneq\\frac{${num(bar.area)}\\mathrm{in}^{2}}{s_{${k}}}=`, "Steel per foot of wall", "in^2/ft");
     m(`a_{${k}}\\coloneq\\frac{A_{s${k}}\\cdot f_y}{0.85\\cdot f'_{c}}=`, "Stress block depth", "in");
-    m(`M_{u${k}}\\coloneq ${opts.Mu}=`, "Factored moment", "kip*ft/ft");
+    factored("M", k, opts.Mu, "Factored moment", "kip*ft/ft");
     m(`M_{r${k}}\\coloneq\\phi_f\\cdot A_{s${k}}\\cdot f_y\\cdot\\left(d_{e${k}}-\\frac{a_{${k}}}{2}\\right)=`, "AASHTO 5.6.3.2", "kip*ft/ft");
     m(ok(`M_{u${k}}`, `M_{r${k}}`), "Flexure");
     m(`M_{cr${k}}\\coloneq0.67\\cdot1.6\\cdot f_r\\cdot\\frac{h_{${k}}^{2}}{6}=`, "Cracking moment, AASHTO Eq. 5.6.3.3-1", "kip*ft/ft");
@@ -244,7 +253,7 @@ export function cipCalcLines(i: CipInputs, title: string, figures?: { section?: 
     m(`s_{max${k}}\\coloneq\\frac{700\\cdot${opts.exposure === 1 ? "1.00" : "0.75"}\\cdot\\frac{\\mathrm{kip}}{\\mathrm{in}}}{\\beta_{s${k}}\\cdot f_{ss${k}}}-2\\cdot d_{c${k}}=`, `Crack control, AASHTO Eq. 5.6.7-1 (Class ${opts.exposure})`, "in");
     m(ok(`s_{${k}}`, `s_{max${k}}`), "Bar spacing");
     if (opts.shear !== "none") {
-      m(`V_{u${k}}\\coloneq ${opts.Vu}=`, "Factored shear", "kip/ft");
+      factored("V", k, opts.Vu, "Factored shear", "kip/ft");
       m(`d_{v${k}}\\coloneq\\max\\left(d_{e${k}}-\\frac{a_{${k}}}{2},0.9\\cdot d_{e${k}},0.72\\cdot h_{${k}}\\right)=`, "AASHTO 5.7.2.8", "in");
       if (opts.shear === "general") {
         m(`N_{u${k}}\\coloneq-1.25\\cdot\\left(${stemDead}\\right)=`, "Axial compression from the stem's weight", "kip/ft");
@@ -269,9 +278,9 @@ export function cipCalcLines(i: CipInputs, title: string, figures?: { section?: 
   const stemV = designGroups.map((c) => `${num(i.factors[c].eh)}\\cdot EH_s${live ? `+${num(i.factors[c].lsh)}\\cdot LS_s` : ""}${ctS(c, false)}`);
   const stemM = (c: Combo) => `${num(i.factors[c].eh)}\\cdot EH_s\\cdot\\frac{h_{ss}}{3}${live ? `+${num(i.factors[c].lsh)}\\cdot LS_s\\cdot\\frac{h_{ss}}{2}` : ""}${ctS(c, true)}`;
   member("st", "Stem", {
-    Mu: `\\max\\left(${designGroups.map(stemM).join(",")}\\right)`,
+    Mu: designGroups.map(stemM),
     Ms: stemM("SerI"),
-    Vu: `\\max\\left(${stemV.join(",")}\\right)`,
+    Vu: stemV,
     h: "T_b",
     cover: i.coverStem,
     bars: i.stemBars,
@@ -285,7 +294,7 @@ export function cipCalcLines(i: CipInputs, title: string, figures?: { section?: 
   m("EV_h\\coloneq\\gamma_s\\cdot h_s\\cdot C=", undefined, "kip/ft");
   const heelV = (c: Combo) => `${num(i.factors[c].dc)}\\cdot DC_h+${num(i.factors[c].ev)}\\cdot EV_h`;
   const heelM = (c: Combo) => `\\left(${heelV(c)}\\right)\\cdot\\frac{C}{2}`;
-  member("he", "Heel", { Mu: `\\max\\left(${designGroups.map(heelM).join(",")}\\right)`, Ms: heelM("SerI"), Vu: `\\max\\left(${designGroups.map(heelV).join(",")}\\right)`, h: "D", cover: i.coverHeel, bars: i.heelBars, exposure: i.exposureFooting, shear: "simplified" });
+  member("he", "Heel", { Mu: designGroups.map(heelM), Ms: heelM("SerI"), Vu: designGroups.map(heelV), h: "D", cover: i.coverHeel, bars: i.heelBars, exposure: i.exposureFooting, shear: "simplified" });
 
   text("Toe (at the front face of the stem)", "subheading");
   text("Under the largest factored bearing pressure; the toe's weight and fill are conservatively neglected.", "note");
@@ -295,9 +304,12 @@ export function cipCalcLines(i: CipInputs, title: string, figures?: { section?: 
 
   if (i.shearKey) {
     text("Shear key", "subheading");
-    m("M_{key}\\coloneq\\frac{0.5\\cdot K_p\\cdot\\gamma_s\\cdot y_1\\cdot c_k^{2}+\\frac{1}{3}\\cdot K_p\\cdot\\gamma_s\\cdot c_k^{3}}{R_{ep}}\\cdot R_{ep}=", "Passive pressure on the inert block", "kip*ft/ft");
+    m("M_{k1}\\coloneq0.5\\cdot K_p\\cdot\\gamma_s\\cdot y_1\\cdot c_k^{2}=", "Passive pressure on the inert block: the rectangle");
+    m("M_{k2}\\coloneq\\frac{1}{3}\\cdot K_p\\cdot\\gamma_s\\cdot c_k^{3}=", "and the triangle");
+    m("M_{key}\\coloneq\\frac{M_{k1}+M_{k2}}{R_{ep}}\\cdot R_{ep}=", "Passive pressure on the inert block", "kip*ft/ft");
     member("k", "Shear key", { Mu: "M_{key}", Ms: "M_{key}", Vu: "0", h: "D_w", cover: i.coverKey, bars: i.keyBars, exposure: 1, shear: "none" });
   }
+  lines.push(...checksSummary([{ checks: designCipWall(i).checks }]));
   return lines;
 }
 

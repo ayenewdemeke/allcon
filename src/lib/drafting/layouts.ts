@@ -18,7 +18,7 @@ export function layoutSheet(doc: DraftDocument, layoutId: string): PlotSheet {
   const views: PlotView[] = entities
     .filter((e): e is ViewportEntity => e.type === "viewport" && doc.isVisible(e))
     .map((v) => ({ center: v.center, width: v.width, height: v.height, view: v.view, scale: v.scale }));
-  return { paper: layout.paper, plot: layout.plot, paperEntities: entities, views };
+  return { paper: layout.paper, plot: layout.plot, paperEntities: entities, views, name: layout.name };
 }
 
 /** Model space on a sheet (the Model tab's Plot): an area of the drawing, centred, at a scale
@@ -35,7 +35,7 @@ export function modelSheet(doc: DraftDocument, options: { paper: Paper; plot: Pl
     view: { x: (area.minX + area.maxX) / 2, y: (area.minY + area.maxY) / 2 },
     scale: options.scale === "fit" ? fit : options.scale,
   };
-  return { paper, plot: options.plot, paperEntities: [], views: [view] };
+  return { paper, plot: options.plot, paperEntities: [], views: [view], name: "Model" };
 }
 
 const METERS_PER_UNIT: Record<Units, number> = { architectural: 0.0254, mm: 0.001 };
@@ -125,6 +125,109 @@ export function titleBlock(paper: Paper, units: Units): Block {
   entities.push({ ...base, id: id(), type: "text", at: { x: sx + pad, y: y1 - pad - label }, text: "PROJECT", height: label, rotation: 0, style: "Standard", halign: "left", valign: "baseline" });
   entities.push({ ...base, id: id(), type: "attdef", tag: "PROJECT", prompt: "Project", value: "", at: { x: sx + strip / 2, y: y1 - u(0.6) }, height: u(0.2), rotation: 0, style: "Standard", halign: "center", valign: "middle", invisible: false });
   return { name: `Title Block ${paper.name.split(" (")[0]}`, base: { x: 0, y: 0 }, entities, description: `Border and title strip for ${paper.name} paper` };
+}
+
+/**
+ * A title block with its strip along the bottom, as many engineers' 11x17 sheets have: boxes
+ * for the seal, the client and designer, the project, a legend, the title and sheet number, and
+ * a vicinity map. The values are attributes (double-click the title block to fill them in); the
+ * print date and file name are fields that fill themselves in. The seal and map boxes are empty
+ * for a picture (IMAGEATTACH), the legend box for the drawing's hatches.
+ */
+export function titleBlockBottom(paper: Paper, units: Units): Block {
+  const u = (inches: number) => (units === "mm" ? Math.round(inches * 25.4 * 10) / 10 : inches);
+  const base = { layer: "0", color: null, lineweight: -2, linetype: "ByLayer" };
+  let n = 0;
+  const id = () => `tbb${n++}`;
+  const m = u(0.5);
+  const [x0, y0, x1, y1] = [m, m, paper.width - m, paper.height - m];
+  const strip = Math.min(u(2.2), paper.height * 0.22);
+  const top = y0 + strip;
+  const W = x1 - x0;
+  const entities: Entity[] = [
+    { ...base, id: id(), lineweight: 70, type: "polyline", points: [{ x: x0, y: y0 }, { x: x1, y: y0 }, { x: x1, y: y1 }, { x: x0, y: y1 }], bulges: [0, 0, 0, 0], closed: true },
+    { ...base, id: id(), lineweight: 50, type: "line", a: { x: x0, y: top }, b: { x: x1, y: top } },
+  ];
+  // Column edges, left to right: seal, client and designer, project, legend, title, map.
+  const shares = [0.14, 0.17, 0.16, 0.15, 0.2];
+  const edges = [x0];
+  for (const s of shares) edges.push(edges[edges.length - 1] + s * W);
+  edges.push(x1);
+  for (const x of edges.slice(1, -1)) entities.push({ ...base, id: id(), lineweight: 50, type: "line", a: { x, y: y0 }, b: { x, y: top } });
+
+  const pad = u(0.08);
+  const small = Math.max(u(0.07), strip / 26);
+  const text = (x: number, y: number, s: string, height = small, halign: "left" | "center" = "left") =>
+    entities.push({ ...base, id: id(), type: "text", at: { x, y }, text: s, height, rotation: 0, style: "Standard", halign, valign: halign === "center" ? "middle" : "baseline" });
+  const attr = (x: number, y: number, tag: string, prompt: string, value = "", height = small, halign: "left" | "center" = "left") =>
+    entities.push({ ...base, id: id(), type: "attdef", tag, prompt, value, at: { x, y }, height, rotation: 0, style: "Standard", halign, valign: halign === "center" ? "middle" : "baseline", invisible: false } satisfies AttdefEntity);
+
+  // A column of label: value rows, from the top of the strip.
+  const rows = (col: number, items: ([string, string, string, string?] | null)[]) => {
+    const step = (strip - 2 * pad) / items.length;
+    const labelW = (edges[col + 1] - edges[col]) * 0.36;
+    items.forEach((item, i) => {
+      if (!item) return;
+      const [label, tag, prompt, value] = item;
+      const y = top - pad - step * (i + 0.7);
+      text(edges[col] + pad, y, label);
+      attr(edges[col] + pad + labelW, y, tag, prompt, value ?? "");
+    });
+  };
+
+  text(edges[0] + pad, top - pad - small, "SEAL");
+  rows(1, [
+    ["Client:", "CLIENT", "Client"],
+    ["Email:", "CLIENT_EMAIL", "Client email"],
+    ["Address:", "CLIENT_ADDRESS", "Client address"],
+    ["Phone:", "CLIENT_PHONE", "Client phone"],
+    null,
+    ["Designer:", "DESIGNER", "Designer (name, PE)"],
+    ["Email:", "DESIGNER_EMAIL", "Designer email"],
+    ["Phone:", "DESIGNER_PHONE", "Designer phone"],
+  ]);
+  rows(2, [
+    ["Project No.:", "PROJECT_NUMBER", "Project number"],
+    ["Structure:", "STRUCTURE_TYPE", "Structure type"],
+    ["Location:", "PROJECT_LOCATION", "Project location"],
+    null,
+    ["Print Date:", "PRINT_DATE", "Print date", '%<\\AcVar PlotDate \\f "M/d/yyyy">%'],
+    ["File Name:", "FILE_NAME", "File name", "%<\\AcVar Filename>%"],
+    ["Horiz. Scale:", "HORIZ_SCALE", "Horizontal scale", "As Noted"],
+    ["Vert. Scale:", "VERT_SCALE", "Vertical scale", "As Noted"],
+  ]);
+  text(edges[3] + pad, top - pad - small * 1.4, "LEGEND", small * 1.4);
+
+  // The title: project and sheet title centred above three rows (designer, detailer, sheet).
+  const [tx0, tx1] = [edges[4], edges[5]];
+  const rowH = strip * 0.13;
+  for (let i = 1; i <= 3; i++) entities.push({ ...base, id: id(), lineweight: 35, type: "line", a: { x: tx0, y: y0 + rowH * i }, b: { x: tx1, y: y0 + rowH * i } });
+  const titleMid = (top + y0 + 3 * rowH) / 2;
+  const big = Math.max(u(0.12), strip / 14);
+  attr((tx0 + tx1) / 2, titleMid + big * 1.1, "PROJECT", "Project", "", big, "center");
+  attr((tx0 + tx1) / 2, titleMid - big * 0.6, "SHEET_TITLE", "Sheet title", "", big, "center");
+  const titleRows: [string, string, string][] = [
+    ["Sheet Number:", "SHEET_NUMBER", "Sheet number"],
+    ["Detailer:", "DETAILER", "Detailer"],
+    ["Designer:", "DESIGNED_BY", "Designed by"],
+  ];
+  titleRows.forEach(([label, tag, prompt], i) => {
+    const y = y0 + rowH * i + (rowH - small) / 2;
+    text(tx0 + pad, y, label);
+    attr(tx0 + pad + (tx1 - tx0) * 0.3, y, tag, prompt);
+  });
+  text(edges[5] + pad, top - pad - small * 1.4, "Vicinity Map", small * 1.4);
+
+  return { name: `Title Block Bottom ${paper.name.split(" (")[0]}`, base: { x: 0, y: 0 }, entities, description: `Border and bottom title strip for ${paper.name} paper` };
+}
+
+/** Where a title block style leaves room for the drawing: above a bottom strip, or left of a side one. */
+export function drawingAreaBottom(paper: Paper, units: Units): Box {
+  const u = (inches: number) => (units === "mm" ? inches * 25.4 : inches);
+  const m = u(0.5);
+  const strip = Math.min(u(2.2), paper.height * 0.22);
+  const gap = u(0.25);
+  return { minX: m + gap, minY: m + strip + gap, maxX: paper.width - m - gap, maxY: paper.height - m - gap };
 }
 
 /** The area inside a title block's border, left of its strip: where viewports go. */

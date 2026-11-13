@@ -3,9 +3,11 @@
 import { useMemo, useState } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
-import { CASES, designCbc, PHI_BOX, type CbcInputs, type CbcResult, type Face } from "@/lib/design/culverts/cbc";
+import { CASES, checkGroup, designCbc, PHI_BOX, type CbcInputs, type CbcResult, type Face } from "@/lib/design/culverts/cbc";
 import { DesignError } from "@/lib/design/walls/cip";
 import { BarsField, ChecksBanner, ChecksTable, Choice, DesignErrorCard, DesignHeader, Field, fmt, KeyValues, Section, Toggle } from "./design-kit";
+import { TakeoffPanel } from "./takeoff-panel";
+import { WingwallInputs, WingwallResults } from "./culvert-wingwalls";
 import { CbcSketch } from "./wall-sketch";
 
 // Designing a box culvert: the inputs on the left, worked out as they change (section and moment
@@ -21,7 +23,6 @@ const FACES: { key: Face; label: string }[] = [
   { key: "intWall", label: "Interior walls, each face" },
 ];
 
-const groupOf = (id: string) => (id.startsWith("top") ? "Top slab" : id.startsWith("bottom") ? "Bottom slab" : id.startsWith("iwall") ? "Interior walls" : "Exterior walls");
 
 export function CbcEditor({ design, projects }: { design: { id: string; name: string; projectId: string | null; inputs: CbcInputs }; projects: { id: string; name: string }[] }) {
   const [inputs, setInputs] = useState(design.inputs);
@@ -100,6 +101,12 @@ export function CbcEditor({ design, projects }: { design: { id: string; name: st
                 ),
               )}
               <Field label="Clear cover" unit="in" value={inputs.cover} onChange={set("cover")} step={0.25} />
+              {inputs.reinf === "bars" && (
+                <>
+                  <Toggle label="Corner bars c1/c2 bent into the slabs (M-601-1)" value={!!inputs.cornerBars} onChange={set("cornerBars")} />
+                  {inputs.cornerBars && <p className="pb-1 text-[11px] text-muted-foreground">The walls&apos; outside bars bend into the slabs and lap t1/b1: a slab&apos;s outside face at an exterior wall has both. Their legs come from M-601-1 Sheet 2, where the box is in its table.</p>}
+                </>
+              )}
               {inputs.reinf === "wwr" && (
                 <>
                   <Field label="Wire diameter" unit="in" value={inputs.dw} onChange={set("dw")} step={0.125} />
@@ -121,6 +128,74 @@ export function CbcEditor({ design, projects }: { design: { id: string; name: st
                 onChange={set("gammaE")}
               />
               <Field label="Maximum aggregate" unit="in" value={inputs.agg} onChange={set("agg")} step={0.125} />
+            </Section>
+            <Section title="Extension of an existing barrel" open={(inputs.extension?.pieces.length ?? 0) > 0}>
+              <p className="pb-1 text-[11px] text-muted-foreground">
+                {(inputs.extension?.pieces.length ?? 0) > 0
+                  ? "Each piece is new barrel with a joint to the existing barrel (dowels) at one end and a new headwall at the other. Their lengths are the take-off's barrel."
+                  : "None: a new culvert, a headwall at each end. Add the extension's pieces (one at each end extended)."}
+              </p>
+              {(inputs.extension?.pieces ?? []).map((p, k) => (
+                <div key={k} className="flex items-center gap-2">
+                  <input className="w-20 rounded border bg-background px-1.5 py-0.5 text-xs" value={p.name} aria-label="Piece name" onChange={(e) => setInputs((s) => ({ ...s, extension: { ...s.extension!, pieces: s.extension!.pieces.map((q, j) => (j === k ? { ...q, name: e.target.value } : q)) } }))} />
+                  <div className="flex-1">
+                    <Field label="Length" unit="ft" value={p.length} step={0.5} onChange={(v) => setInputs((s) => ({ ...s, extension: { ...s.extension!, pieces: s.extension!.pieces.map((q, j) => (j === k ? { ...q, length: v } : q)) } }))} />
+                  </div>
+                  <button type="button" className="text-xs text-muted-foreground hover:text-red-600" onClick={() => setInputs((s) => ({ ...s, extension: { ...s.extension!, pieces: s.extension!.pieces.filter((_, j) => j !== k) } }))}>
+                    Remove
+                  </button>
+                </div>
+              ))}
+              {(inputs.extension?.pieces.length ?? 0) < 2 && (
+                <button
+                  type="button"
+                  className="my-1 rounded border px-2 py-1 text-xs hover:bg-muted"
+                  onClick={() => setInputs((s) => {
+                    const e = s.extension ?? { pieces: [], bar: 5, length: 36, spacing: 12 };
+                    return { ...s, extension: { ...e, pieces: [...e.pieces, { name: e.pieces.some((p) => p.name === "Inlet") ? "Outlet" : "Inlet", length: 10 }] } };
+                  })}
+                >
+                  Add piece
+                </button>
+              )}
+              {(inputs.extension?.pieces.length ?? 0) > 0 && inputs.extension && (
+                <>
+                  <Choice label="Dowel bar" value={inputs.extension.bar} options={[4, 5, 6, 7, 8].map((b) => ({ value: b, label: `#${b}` }))} onChange={(v) => setInputs((s) => ({ ...s, extension: { ...s.extension!, bar: v } }))} />
+                  <Field label="Dowel length" unit="in" value={inputs.extension.length} onChange={(v) => setInputs((s) => ({ ...s, extension: { ...s.extension!, length: v } }))} hint="Half drilled and epoxy grouted into the existing barrel" />
+                  <Field label="Dowel spacing" unit="in" value={inputs.extension.spacing} onChange={(v) => setInputs((s) => ({ ...s, extension: { ...s.extension!, spacing: v } }))} />
+                  <Field label="Backfill where existing wingwalls come out" unit="CY" value={inputs.extension.removalBackfill ?? 0} step={0.1} hint="From the plans' removal limits (their excavation is paid with the removal)" onChange={(v) => setInputs((s) => ({ ...s, extension: { ...s.extension!, removalBackfill: v } }))} />
+                  <Toggle label="Waterproof the top and the joints" value={!!inputs.extension.waterproofJoints} onChange={(v) => setInputs((s) => ({ ...s, extension: { ...s.extension!, waterproofJoints: v } }))} />
+                </>
+              )}
+            </Section>
+            <Section title="Excavation (M-206-1)" open={inputs.excavation?.to != null || (inputs.excavation?.depth ?? 0) > 0}>
+              <p className="pb-1 text-[11px] text-muted-foreground">M-206-1 measures the trench to the box&apos;s bottom. Where the plans dig deeper under the barrel (a set depth, or to bedrock), give it: it&apos;s excavated and refilled with structure backfill.</p>
+              <Choice
+                label="Below the box"
+                value={inputs.excavation?.to != null ? "elevation" : (inputs.excavation?.depth ?? 0) > 0 ? "depth" : "none"}
+                options={[
+                  { value: "none", label: "None" },
+                  { value: "depth", label: "A depth" },
+                  { value: "elevation", label: "To an elevation" },
+                ]}
+                onChange={(v) => setInputs((s) => ({ ...s, excavation: { inletInvert: null, outletInvert: null, wingwalls: true, ...s.excavation, to: v === "elevation" ? (s.excavation?.to ?? 0) : null, depth: v === "depth" ? (s.excavation?.depth || 0.5) : null } }))}
+              />
+              {inputs.excavation?.to == null && (inputs.excavation?.depth ?? 0) > 0 && (
+                <Field label="Depth below the box" unit="ft" value={inputs.excavation!.depth!} step={0.25} onChange={(v) => setInputs((s) => ({ ...s, excavation: { ...s.excavation!, depth: v } }))} />
+              )}
+              {inputs.excavation?.to != null && (
+                <>
+                  <Field label="To elevation (e.g. bedrock)" unit="ft" value={inputs.excavation.to} step={0.1} onChange={(v) => setInputs((s) => ({ ...s, excavation: { ...s.excavation!, to: v } }))} />
+                  <Field label="Invert at the inlet" unit="ft" value={inputs.excavation.inletInvert ?? 0} step={0.01} hint="The box's flowline (top of the bottom slab); its bottom is this less the slab" onChange={(v) => setInputs((s) => ({ ...s, excavation: { ...s.excavation!, inletInvert: v } }))} />
+                  <Field label="Invert at the outlet" unit="ft" value={inputs.excavation.outletInvert ?? 0} step={0.01} onChange={(v) => setInputs((s) => ({ ...s, excavation: { ...s.excavation!, outletInvert: v } }))} />
+                </>
+              )}
+              {(inputs.wingwalls ?? []).length > 0 && (
+                <Toggle label="Wingwalls' excavation (M-206-1 Sheet 2)" value={inputs.excavation?.wingwalls ?? true} onChange={(v) => setInputs((s) => ({ ...s, excavation: { to: null, inletInvert: null, outletInvert: null, ...s.excavation, wingwalls: v } }))} />
+              )}
+            </Section>
+            <Section title="Wingwalls (M-601-20)" open={(inputs.wingwalls ?? []).length > 0}>
+              <WingwallInputs walls={inputs.wingwalls ?? []} rise={inputs.rise} onChange={set("wingwalls")} />
             </Section>
             <Section title="Factors">
               <Choice
@@ -159,7 +234,9 @@ export function CbcEditor({ design, projects }: { design: { id: string; name: st
                   </CardContent>
                 </Card>
                 <SteelSummary r={r} />
-                <ChecksTable checks={r.checks} groupOf={groupOf} />
+                <ChecksTable checks={r.checks} groupOf={checkGroup} />
+                <WingwallResults walls={inputs.wingwalls ?? []} />
+                <TakeoffPanel kind="box-culvert" design={design} inputs={inputs} ok={r.checks.every((c) => c.advisory || c.ok)} onSettings={(t) => setInputs((s) => ({ ...s, takeoff: t }))} />
                 <Working r={r} />
               </>
             )
@@ -201,7 +278,11 @@ function SteelSummary({ r }: { r: CbcResult }) {
                   <td className={need === min ? "font-medium" : ""}>{fmt(min)}</td>
                   <td>{fmt(need)}</td>
                   <td className={cn("whitespace-nowrap", g.As + 1e-9 < need ? "text-red-600" : "text-emerald-600")}>
-                    {g.steel.bars && <span className="pr-1 text-muted-foreground">#{g.steel.bars.bar} @ {g.steel.bars.spacing}&quot;</span>}
+                    {g.steel.bars && (
+                      <span className="pr-1 text-muted-foreground">
+                        #{g.steel.bars.bar} @ {g.steel.bars.spacing}&quot;{g.steel.corner && ` + c #${g.steel.corner.bar} @ ${g.steel.corner.spacing}"`}
+                      </span>
+                    )}
                     {fmt(g.As)}
                   </td>
                 </tr>

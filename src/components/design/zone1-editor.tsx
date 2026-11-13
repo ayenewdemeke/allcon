@@ -147,9 +147,9 @@ export function Zone1Editor({ design, projects }: { design: { id: string; name: 
                             {r.columns.map((c, k) => (
                               <tr key={k} className="border-b border-border/40">
                                 <td>{c.name}</td>
-                                <td className="text-right tabular-nums">{fmt(c.rho1, 4)}</td>
-                                <td className="text-right tabular-nums">{fmt(c.rho2, 4)}</td>
-                                <td className="text-right tabular-nums">{fmt(c.rho, 4)}</td>
+                                <td className="text-right tabular-nums">{fmt(c.rho1)}</td>
+                                <td className="text-right tabular-nums">{fmt(c.rho2)}</td>
+                                <td className="text-right tabular-nums">{fmt(c.rho)}</td>
                                 <td className="text-right tabular-nums">
                                   {fmt(c.AspReq, 3)} in² (#{inputs.columns[k].bar}: {BARS[inputs.columns[k].bar].area})
                                 </td>

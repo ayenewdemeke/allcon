@@ -12,6 +12,7 @@ import {
   Eraser,
   FileCog,
   FileDown,
+  FileInput,
   FilePlus2,
   FileStack,
   FileText,
@@ -599,6 +600,9 @@ function InsertTab({ editor, onPalette, palettes }: { editor: Editor; onPalette:
         <Big icon={Component} label="Create Block" title="Create a block (B)" onClick={() => run(editor, "BLOCK")} />
         <Big icon={Tag} label="Define Attributes" title="Define an attribute (ATT)" onClick={() => run(editor, "ATTDEF")} />
         <Big icon={SquarePen} label="Block Editor" title="Edit a block (BE)" onClick={() => run(editor, "BEDIT")} />
+      </Panel>
+      <Panel title="Import">
+        <Big icon={FileInput} label="PDF Import" title="Import a PDF page's lines, text, fills and pictures as objects you can edit (PDFIMPORT)" onClick={() => run(editor, "PDFIMPORT")} />
       </Panel>
       <Panel title="Reference">
         <Big icon={ImagePlus} label="Attach Image" title="Attach a picture under the drawing (IAT)" onClick={() => run(editor, "IMAGEATTACH")} />

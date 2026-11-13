@@ -1,6 +1,8 @@
 import { Command, type Prompt } from "./command-base";
 import type { Editor } from "./editor";
-import { titleBlock, VIEWPORT_LAYER, viewportScaleName } from "./layouts";
+import { attributeDefs } from "./blocks";
+import { drawingArea, drawingAreaBottom, titleBlock, titleBlockBottom, VIEWPORT_LAYER, viewportScaleName } from "./layouts";
+import type { Box } from "./geometry";
 import type { Entity, InsertEntity, Vec, ViewportEntity } from "./types";
 
 // Layouts and viewports, with AutoCAD's prompts: LAYOUT, MVIEW, MSPACE and PSPACE, viewport
@@ -196,23 +198,63 @@ export function setViewportScale(ed: Editor, scale: number) {
   }
 }
 
-/** A title block for the layout's paper, at its origin (the block is made the first time). */
-export function insertTitleBlock(ed: Editor) {
+/** A title block for the layout's paper, at its origin (the block is made the first time):
+ * a strip along the bottom (fields for client, designer, project, legend, title, seal and map
+ * boxes) or a strip down the right side. */
+export function insertTitleBlock(ed: Editor, style: "bottom" | "side" = "side") {
   const layout = ed.doc.layout;
   if (!layout || ed.viewport) return ed.print("Title blocks go on a layout's paper: switch to a layout tab.", "error");
-  const block = titleBlock(layout.paper, ed.doc.units);
+  const block = style === "bottom" ? titleBlockBottom(layout.paper, ed.doc.units) : titleBlock(layout.paper, ed.doc.units);
   const viewport = [...ed.doc.entities.values()].find((e): e is ViewportEntity => e.type === "viewport");
+  const scale = viewport ? viewportScaleName(viewport.scale, ed.doc.units) : "";
+  const attribs: Record<string, string> =
+    style === "bottom"
+      ? Object.fromEntries(attributeDefs(block).map((d) => [d.tag, d.value]))
+      : { SCALE: scale, DATE: new Date().toLocaleDateString("en-US"), SHEET_NUMBER: "" };
+  Object.assign(attribs, { PROJECT: ed.drawingName, SHEET_TITLE: layout.name });
   ed.doc.begin("TITLEBLOCK");
+  // A layout has one title block: the one there (a new layout's, say) is replaced, and the
+  // viewports are fitted inside the new one's border, clear of its strip.
+  let old: Box | null = null;
+  for (const e of [...ed.doc.entities.values()]) {
+    if (e.type !== "insert" || !/^Title Block /.test(e.block)) continue;
+    old = /^Title Block Bottom /.test(e.block) ? drawingAreaBottom(layout.paper, ed.doc.units) : drawingArea(layout.paper, ed.doc.units);
+    ed.doc.remove(e.id);
+  }
+  const area = style === "bottom" ? drawingAreaBottom(layout.paper, ed.doc.units) : drawingArea(layout.paper, ed.doc.units);
+  const at = (v: number, edge: number | undefined) => edge !== undefined && Math.abs(v - edge) < 1e-6;
+  for (const e of [...ed.doc.entities.values()]) {
+    if (e.type !== "viewport") continue;
+    // An edge on the old title block's drawing area moves to the new one's; others stay, inside it.
+    const [l, r, b, t] = [e.center.x - e.width / 2, e.center.x + e.width / 2, e.center.y - e.height / 2, e.center.y + e.height / 2];
+    const minX = at(l, old?.minX) ? area.minX : Math.max(l, area.minX);
+    const maxX = at(r, old?.maxX) ? area.maxX : Math.min(r, area.maxX);
+    const minY = at(b, old?.minY) ? area.minY : Math.max(b, area.minY);
+    const maxY = at(t, old?.maxY) ? area.maxY : Math.min(t, area.maxY);
+    if (maxX - minX < 1e-6 || maxY - minY < 1e-6) continue;
+    const center = { x: (minX + maxX) / 2, y: (minY + maxY) / 2 };
+    // The model stays where it was on the paper: the view moves with the frame's centre.
+    const view = { x: e.view.x + (center.x - e.center.x) / e.scale, y: e.view.y + (center.y - e.center.y) / e.scale };
+    if (minX !== e.center.x - e.width / 2 || maxX !== e.center.x + e.width / 2 || minY !== e.center.y - e.height / 2 || maxY !== e.center.y + e.height / 2)
+      ed.doc.update({ ...e, center, width: maxX - minX, height: maxY - minY, view });
+  }
   if (!ed.doc.blocks.has(block.name)) ed.doc.setBlock(block);
-  ed.doc.add(
-    ed.make<InsertEntity>({
-      type: "insert",
-      block: block.name,
-      at: { x: 0, y: 0 },
-      scale: { x: 1, y: 1 },
-      rotation: 0,
-      attribs: { PROJECT: ed.drawingName, SHEET_TITLE: layout.name, SCALE: viewport ? viewportScaleName(viewport.scale, ed.doc.units) : "", DATE: new Date().toLocaleDateString("en-US"), SHEET_NUMBER: "" },
-    }),
-  );
+  ed.doc.add(ed.make<InsertEntity>({ type: "insert", block: block.name, at: { x: 0, y: 0 }, scale: { x: 1, y: 1 }, rotation: 0, attribs }));
   ed.doc.commit();
+  if (style === "bottom") ed.print("Title block placed. Double-click it to fill in the client, project and sheet; the print date and file name fill themselves in.", "info");
+}
+
+/** TITLEBLOCK: which style, then it's placed on the layout's paper. */
+export class TitleBlockCommand extends Command {
+  name = "TITLEBLOCK";
+  prompt(): Prompt {
+    return { text: "Enter title block style", keywords: [{ key: "B", label: "Bottom" }, { key: "S", label: "Side" }], enterLabel: "Bottom" };
+  }
+  keyword(key: string) {
+    this.ed.finish();
+    insertTitleBlock(this.ed, key === "S" ? "side" : "bottom");
+  }
+  enter() {
+    this.keyword("B");
+  }
 }

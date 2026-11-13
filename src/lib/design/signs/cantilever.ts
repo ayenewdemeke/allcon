@@ -1,4 +1,4 @@
-import { roundSection } from "../piers/collision";
+import { roundSection } from "../piers/round-section";
 import { BARS, DesignError, type Check } from "../walls/cip";
 
 // A cantilever sign structure's drilled shaft foundation: the dead and wind loads on the pole, arm

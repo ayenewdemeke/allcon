@@ -18,6 +18,7 @@ import { searchManuals } from "@/lib/tools/library";
 import { createModel, editModel, getModel, ifcHelp, ifcQuery, listModels } from "@/lib/tools/models3d";
 import { listElementGroups, mapGroups } from "@/lib/tools/mapping";
 import { getProject, listProjects, takeoffSummary } from "@/lib/tools/projects";
+import { createGirderDesignFromPlans, getDesign, listDesigns, planInputsGuide } from "@/lib/tools/designs";
 
 // allcon as an MCP server: the user's own AI app (Claude, ChatGPT, Gemini...) does the thinking and
 // calls these tools; allcon does exact work on the project and keeps the results. Each call
@@ -38,6 +39,7 @@ To measure SOV / BoQ items from the models, use list_element_groups and map_grou
 To draft 2D drawings (plans, details, sheets), use the drafting tools: list_drawings / create_drawing, get_drawing to read one (with a picture), run_commands to draw with AutoCAD command scripts, add_objects and edit_objects for direct edits, and publish_layouts to put its layouts into a project's Sheets. The draft_drawing prompt has the procedure.
 
 To write engineering calculations (like Mathcad: math with units, worked out live), use the Calcs tools: list_calcs / create_calc (optionally from a template), get_calc to read a worksheet and what it works out to, edit_calc to add math, text, steel sections, tables, plots and solve blocks or change them, and publish_calc to put it in a project's Sheets. The write_calc prompt has the procedure.
+To check bridge designs (AASHTO LRFD design checks such as the prestressed girder check), use list_designs and get_design; to start a girder check from a project's uploaded plans, read the sheets with read_sheet and call create_girder_design_from_plans with each value and the sheet lines it came from. The engineer confirms every value in allcon before the results count. The girder_check_from_plans prompt has the procedure.
 
 Models are built to a target level of development (LOD 100, 200, 300 or 350): check the drawings support it and ask the user before modelling what they don't. Keep a model's description current: ifc_edit takes a new description.`;
 
@@ -604,6 +606,81 @@ Edits in one request build one revision of the model; the user can undo the whol
 
   const user = (text: string) => ({ messages: [{ role: "user" as const, content: { type: "text" as const, text } }] });
 
+  server.registerTool(
+    "list_designs",
+    {
+      title: "List design checks",
+      description: "The design checks (LRFD girder checks, walls, culverts, bearings and others), optionally in one project, with links.",
+      inputSchema: z.object({ project_id: uuid.optional() }),
+      annotations: readOnly,
+    },
+    async ({ project_id }) => out(await run("list_designs", "Listed design checks", () => listDesigns(ctx, project_id), () => ({ projectId: project_id ?? null }))),
+  );
+
+  server.registerTool(
+    "get_design",
+    {
+      title: "Read a design check",
+      description: "A design check's inputs and, for a girder check, its results: whether every check passes, the controlling girder, the failing checks, and how many values from the plans are still to confirm.",
+      inputSchema: z.object({ design_id: uuid }),
+      annotations: readOnly,
+    },
+    async ({ design_id }) => out(await run("get_design", "Read a design check", () => getDesign(ctx, design_id), (v) => ({ projectId: v.projectId, summary: `Read design ${v.name}` }))),
+  );
+
+  server.registerTool(
+    "create_girder_design_from_plans",
+    {
+      title: "Start a girder check from plans",
+      description: `Creates an LRFD Bridge Design Check (precast prestressed girders, AASHTO LRFD 9th ed.) in a project from values read off its plans with read_sheet. Give each value with the sheet and the line ids (L<id> from read_sheet) it came from, and confidence "read" or "unsure" (with a note). Leave out what the plans don't show; the tool uses its defaults and asks the engineer. allcon works out every check; the engineer confirms each value in allcon. Only I-girders and bulb-tees in the library are supported: don't use it for box girders, slabs or steel. The inputs (values in ft, in, ksi, klf, psf as noted):\n${planInputsGuide()}`,
+      inputSchema: z.object({
+        project_id: uuid,
+        name: z.string().min(1).max(200).describe("e.g. the bridge's name and structure number"),
+        drawing_set_id: uuid.optional(),
+        values: z
+          .array(
+            z.object({
+              input: z.string().describe("One of the inputs listed above"),
+              value: z.unknown(),
+              sheet_id: uuid.optional(),
+              line_ids: z.array(z.number().int()).optional(),
+              confidence: z.enum(["read", "unsure"]),
+              note: z.string().max(400).optional(),
+            }),
+          )
+          .min(1),
+        findings: z.array(z.string().max(500)).optional().describe("Inconsistencies found in the plans, e.g. a strand table that doesn't match the drawn pattern"),
+      }),
+      annotations: additive,
+    },
+    async (a) =>
+      out(
+        await run(
+          "create_girder_design_from_plans",
+          `Started girder check ${a.name} from plans`,
+          () => createGirderDesignFromPlans(ctx, { projectId: a.project_id, name: a.name, drawingSetId: a.drawing_set_id, values: a.values as never, findings: a.findings }),
+          () => ({ projectId: a.project_id }),
+        ),
+      ),
+  );
+
+  server.registerPrompt(
+    "girder_check_from_plans",
+    {
+      title: "Start a girder check from plans",
+      description: "Reads a bridge's plans in allcon and sets up an LRFD girder design check from them, for the engineer to confirm.",
+      argsSchema: z.object({ plans: z.string().describe("The project or drawing set, e.g. 'the Airport-Powers bridge plans'") }),
+    },
+    ({ plans }) =>
+      user(`Set up an LRFD Bridge Design Check in ${APP_NAME} from these plans: ${plans}.
+
+1. Find the project and its drawing set (list_projects, list_sheets). Pick the sheets that hold the girder data: the general layout, typical section, framing plan, girder details (the girder schedule, strand pattern and its table, debonding, stirrups), the deck and pier diaphragm details, and the general notes.
+2. Read each with read_sheet. If a sheet has no text layer, read it from the image, and mark what you read that way "unsure".
+3. Check that the girders are precast, prestressed I-girders or bulb-tees matching one of the tool's sections (CDOT "CBT 54" is cbt-54, "Type IV" is aashto-iv, "BT-72" is bt-72). If they're box girders, slabs, steel or a section the tool doesn't have, stop and tell me; don't force a fit.
+4. Collect the inputs listed in create_girder_design_from_plans's description. For each: the value in the tool's units, the sheet and the line ids it came from, and "read" only when the plans state it clearly; otherwise "unsure" with a note. Spans are bearing to bearing; stirrup zones from the girder's end; strand heights from the girder's bottom. For a girder schedule with several girder lines, use the interior girder's line and say so in a note. Also give the schedule's girder length as girderLength: it's checked against the spans and the end distance.
+5. Don't guess what the plans don't show (humidity, ages, hauling): leave it out. Note any inconsistency you find (a strand count that doesn't match the pattern, spans that don't add up) in findings.
+6. Call create_girder_design_from_plans. Then tell me its link, what you read, what you were unsure of and why, what you left out, and any findings, so I can confirm the values in ${APP_NAME}.`),
+  );
   server.registerPrompt(
     "review_sheet",
     {

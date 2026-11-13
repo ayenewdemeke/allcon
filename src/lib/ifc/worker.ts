@@ -128,8 +128,9 @@ export async function workerHelp(usecase: string) {
 }
 
 /** A drawing (its file at `drawingKey`) as DXF, written to `dxfKey`. */
-export async function workerDxfExport(drawingKey: string, dxfKey: string) {
-  const body = await call("dxf_export", {}, { read: drawingKey, readAs: "drawing_url", write: dxfKey, writeAs: { contentType: "application/dxf" } });
+/** `fileName`: what Filename fields show in the DXF. */
+export async function workerDxfExport(drawingKey: string, dxfKey: string, fileName = "") {
+  const body = await call("dxf_export", { fileName }, { read: drawingKey, readAs: "drawing_url", write: dxfKey, writeAs: { contentType: "application/dxf" } });
   return { size: body.size ?? null, skipped: body.skipped ?? {} };
 }
 

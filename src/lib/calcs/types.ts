@@ -44,8 +44,15 @@ export type Header = { project: string; title: string; by: string; checked: stri
 export type Paper = "letter" | "a4";
 
 /** The grid regions snap to, as Mathcad's: shown (and printed) or not, Standard or Fine. */
-export type Grid = { show: boolean; size: "standard" | "fine" };
-export const DEFAULT_GRID: Grid = { show: true, size: "standard" };
+export type Grid = {
+  show: boolean;
+  size: "standard" | "fine";
+  /** Mathcad's major gridlines (every inch, or 25 mm): shown unless false. */
+  major?: boolean;
+  /** Values entered shown in blue (an allcon option; Mathcad shows them black). */
+  inputsBlue?: boolean;
+};
+export const DEFAULT_GRID: Grid = { show: true, size: "standard", major: true };
 
 /** Grid spacing in CSS pixels: 0.2 in (Fine 0.1 in) on US paper, 5 mm (Fine 2.5 mm) on A4. */
 export const gridStep = (paper: Paper, grid: Grid) => (paper === "a4" ? 96 / 25.4 : 96) * (paper === "a4" ? 5 : 0.2) * (grid.size === "fine" ? 0.5 : 1);

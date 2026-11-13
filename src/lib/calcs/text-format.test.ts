@@ -3,7 +3,7 @@ import { ptToPx, pxToPt, stepSize, textLook, textMiddle } from "./text-format";
 
 describe("textLook", () => {
   it("takes the style's look by default", () => {
-    expect(textLook({ style: "normal" })).toEqual({ font: "sans", size: 14, bold: false, italic: false, underline: false, color: "#171717" });
+    expect(textLook({ style: "normal" })).toEqual({ font: "sans", size: ptToPx(11), bold: false, italic: false, underline: false, color: "#171717" });
     expect(textLook({ style: "heading" })).toMatchObject({ size: 20, bold: true });
     expect(textLook({ style: "note" })).toMatchObject({ size: 12, italic: true, color: "#525252" });
   });

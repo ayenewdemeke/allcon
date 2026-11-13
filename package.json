@@ -42,6 +42,7 @@
     "earcut": "^3.2.4",
     "exceljs": "^4.4.0",
     "fflate": "^0.8.3",
+    "highs": "^1.15.4",
     "lucide-react": "^1.47.0",
     "mathjax-full": "^3.2.2",
     "mathjs": "^15.2.0",

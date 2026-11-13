@@ -1,12 +1,12 @@
 import type { Line } from "@/lib/calcs/library/templates";
-import { COLOR_NOTE, INPUT_COLOR, isInput } from "../calc-style";
+import { checksSummary } from "../checks-summary";
+import { COLOR_NOTE, INPUT_COLOR, isInput, num } from "../calc-style";
 import { BARS } from "../walls/cip";
 import { designZone1, type Zone1Inputs } from "./zone1";
 
 // Seismic Zone 1 requirements as a Calcs worksheet: inputs as definitions and every step as live
 // math with its AASHTO reference.
 
-const num = (v: number) => String(+v.toFixed(6));
 const ok = (demand: string, capacity: string) => `\\operatorname{if}\\left(${demand}\\le ${capacity},\\text{OK},\\text{NG}\\right)=`;
 
 export function zone1CalcLines(i: Zone1Inputs, title: string): Line[] {
@@ -74,5 +74,6 @@ export function zone1CalcLines(i: Zone1Inputs, title: string): Line[] {
     });
     text("Splice spirals in the hinge regions by full welds or full mechanical connections, not laps (5.11.4.1.4).", "note");
   }
+  lines.push(...checksSummary([{ checks: r.checks }]));
   return lines;
 }

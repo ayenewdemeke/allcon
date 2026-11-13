@@ -10,13 +10,28 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, Di
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
-export function NewDrawingDialog({ label = "New drawing" }: { label?: string }) {
+export type TemplateOption = { id: string; name: string; description: string | null; units: string };
+
+/** New drawing, as AutoCAD's NEW: start from a template, or with none (imperial or metric). */
+export function NewDrawingDialog({
+  label = "New drawing",
+  templates = [],
+  template: initial = "",
+  variant = "default",
+}: {
+  label?: string;
+  templates?: TemplateOption[];
+  template?: string;
+  variant?: "default" | "outline" | "ghost";
+}) {
   const [state, action, pending] = useActionState<DrawingFormState, FormData>(createDrawing, {});
+  const [template, setTemplate] = useState(initial);
+  const chosen = templates.find((t) => t.id === template);
   return (
-    <Dialog>
-      <DialogTrigger render={<Button />}>
+    <Dialog onOpenChange={(open) => open && setTemplate(initial)}>
+      <DialogTrigger render={<Button variant={variant} size={variant === "ghost" ? "icon-sm" : "default"} title={variant === "ghost" ? label : undefined} aria-label={label} />}>
         <Plus />
-        {label}
+        {variant !== "ghost" && label}
       </DialogTrigger>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
@@ -28,13 +43,31 @@ export function NewDrawingDialog({ label = "New drawing" }: { label?: string }) 
             <Label htmlFor="drawing-name">Name</Label>
             <Input id="drawing-name" name="name" required autoFocus placeholder="e.g. Site plan, Footing details" />
           </div>
-          <div className="grid gap-1.5">
-            <Label htmlFor="drawing-units">Units</Label>
-            <select id="drawing-units" name="units" defaultValue="architectural" className="h-8 rounded-lg border border-input bg-transparent px-2.5 text-sm">
-              <option value="architectural">Architectural (feet and inches)</option>
-              <option value="mm">Millimeters</option>
-            </select>
-          </div>
+          {templates.length > 0 && (
+            <div className="grid gap-1.5">
+              <Label htmlFor="drawing-template">Template</Label>
+              <select id="drawing-template" name="template" value={template} onChange={(e) => setTemplate(e.target.value)} className="h-8 rounded-lg border border-input bg-transparent px-2.5 text-sm">
+                <option value="">None (start empty)</option>
+                {templates.map((t) => (
+                  <option key={t.id} value={t.id}>
+                    {t.name}
+                  </option>
+                ))}
+              </select>
+              {chosen?.description && <p className="text-xs text-muted-foreground">{chosen.description}</p>}
+            </div>
+          )}
+          {chosen ? (
+            <p className="text-sm text-muted-foreground">Units: {chosen.units === "mm" ? "Millimeters" : "Architectural (feet and inches)"}, from the template.</p>
+          ) : (
+            <div className="grid gap-1.5">
+              <Label htmlFor="drawing-units">Units</Label>
+              <select id="drawing-units" name="units" defaultValue="architectural" className="h-8 rounded-lg border border-input bg-transparent px-2.5 text-sm">
+                <option value="architectural">Architectural (feet and inches)</option>
+                <option value="mm">Millimeters</option>
+              </select>
+            </div>
+          )}
           {state.error && <p className="text-sm text-destructive">{state.error}</p>}
           <div className="flex justify-end">
             <Button type="submit" disabled={pending}>
@@ -131,29 +164,30 @@ export function ImportDxfDialog() {
   );
 }
 
-export function DrawingRowActions({ id, name }: { id: string; name: string }) {
+export function DrawingRowActions({ id, name, template = false }: { id: string; name: string; template?: boolean }) {
+  const kind = template ? "template" : "drawing";
   const router = useRouter();
   const [pending, start] = useTransition();
   const rename = () => {
-    const next = window.prompt("Rename drawing", name)?.trim();
+    const next = window.prompt(`Rename ${kind}`, name)?.trim();
     if (!next || next === name) return;
     start(async () => {
       try {
         await renameDrawing(id, next);
         router.refresh();
       } catch (err) {
-        toast.error(err instanceof Error ? err.message : "Could not rename the drawing");
+        toast.error(err instanceof Error ? err.message : `Could not rename the ${kind}`);
       }
     });
   };
   const remove = () => {
-    if (!window.confirm(`Delete "${name}"? This can't be undone.`)) return;
+    if (!window.confirm(`Delete ${template ? "the template " : ""}"${name}"? This can't be undone.${template ? " Drawings made from it keep their copy." : ""}`)) return;
     start(async () => {
       try {
         await deleteDrawing(id);
-        toast.success("Drawing deleted");
+        toast.success(template ? "Template deleted" : "Drawing deleted");
       } catch {
-        toast.error("Could not delete the drawing");
+        toast.error(`Could not delete the ${kind}`);
       }
     });
   };

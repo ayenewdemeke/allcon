@@ -9,9 +9,10 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { cn } from "@/lib/utils";
 import { DesignRowActions } from "./design-list-actions";
 
-// The designs made, newest first, narrowed by category, project or name.
+// The designs made, a table for each design tool (in the catalog's order), newest first in each,
+// narrowed by category, project or name.
 
-export type DesignRow = { id: string; name: string; kindName: string; category: string; project: { id: string; name: string } | null; updatedAt: string };
+export type DesignRow = { id: string; name: string; kind: string; kindName: string; kindOrder: number; category: string; project: { id: string; name: string } | null; updatedAt: string };
 
 export function DesignList({ designs, categories }: { designs: DesignRow[]; categories: { id: string; name: string }[] }) {
   const [category, setCategory] = useState("all");
@@ -30,6 +31,14 @@ export function DesignList({ designs, categories }: { designs: DesignRow[]; cate
       (project === "all" || (project === "none" ? !d.project : d.project?.id === project)) &&
       (!q || d.name.toLowerCase().includes(q) || d.kindName.toLowerCase().includes(q)),
   );
+  // A table for each tool, in the catalog's order; the rows keep their order (newest first).
+  const byKind = new Map<string, { kind: string; name: string; order: number; rows: DesignRow[] }>();
+  for (const d of shown) {
+    const g = byKind.get(d.kind) ?? { kind: d.kind, name: d.kindName, order: d.kindOrder, rows: [] };
+    g.rows.push(d);
+    byKind.set(d.kind, g);
+  }
+  const groups = [...byKind.values()].sort((a, b) => a.order - b.order);
   const chip = (id: string, label: string, count: number) => (
     <button key={id} type="button" onClick={() => setCategory(id)} className={cn("rounded-full border px-3 py-1 text-xs transition-colors", category === id ? "border-primary bg-primary text-primary-foreground" : "hover:bg-accent")}>
       {label} <span className="opacity-70">{count}</span>
@@ -58,53 +67,56 @@ export function DesignList({ designs, categories }: { designs: DesignRow[]; cate
           </label>
         </div>
       </div>
-      <Card>
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Design</TableHead>
-              <TableHead>Type</TableHead>
-              <TableHead>Project</TableHead>
-              <TableHead>Updated</TableHead>
-              <TableHead className="w-24" />
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {shown.map((d) => (
-              <TableRow key={d.id}>
-                <TableCell>
-                  <Link href={`/design/${d.id}`} className="font-medium hover:text-primary hover:underline">
-                    {d.name}
-                  </Link>
-                </TableCell>
-                <TableCell className="text-muted-foreground">{d.kindName}</TableCell>
-                <TableCell className="text-muted-foreground">
-                  {d.project ? (
-                    <Link href={`/projects/${d.project.id}`} className="hover:text-primary hover:underline">
-                      {d.project.name}
-                    </Link>
-                  ) : (
-                    "—"
-                  )}
-                </TableCell>
-                <TableCell className="text-muted-foreground">
-                  <LocalTime date={d.updatedAt} />
-                </TableCell>
-                <TableCell>
-                  <DesignRowActions id={d.id} name={d.name} />
-                </TableCell>
-              </TableRow>
-            ))}
-            {shown.length === 0 && (
-              <TableRow>
-                <TableCell colSpan={5} className="py-6 text-center text-sm text-muted-foreground">
-                  No designs match.
-                </TableCell>
-              </TableRow>
-            )}
-          </TableBody>
-        </Table>
-      </Card>
+      {groups.length === 0 && (
+        <Card>
+          <p className="py-6 text-center text-sm text-muted-foreground">No designs match.</p>
+        </Card>
+      )}
+      {groups.map((g) => (
+        <section key={g.kind} className="space-y-2">
+          <h2 className="text-sm font-semibold">
+            {g.name} <span className="font-normal text-muted-foreground tabular-nums">({g.rows.length})</span>
+          </h2>
+          <Card>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Design</TableHead>
+                  <TableHead>Project</TableHead>
+                  <TableHead>Updated</TableHead>
+                  <TableHead className="w-24" />
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {g.rows.map((d) => (
+                  <TableRow key={d.id}>
+                    <TableCell>
+                      <Link href={`/design/${d.id}`} className="font-medium hover:text-primary hover:underline">
+                        {d.name}
+                      </Link>
+                    </TableCell>
+                    <TableCell className="text-muted-foreground">
+                      {d.project ? (
+                        <Link href={`/projects/${d.project.id}`} className="hover:text-primary hover:underline">
+                          {d.project.name}
+                        </Link>
+                      ) : (
+                        "—"
+                      )}
+                    </TableCell>
+                    <TableCell className="text-muted-foreground">
+                      <LocalTime date={d.updatedAt} />
+                    </TableCell>
+                    <TableCell>
+                      <DesignRowActions id={d.id} name={d.name} />
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </Card>
+        </section>
+      ))}
     </div>
   );
 }

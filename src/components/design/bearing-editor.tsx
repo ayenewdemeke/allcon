@@ -6,6 +6,7 @@ import { designBearing, HARDNESS, type BearingInputs, type Hardness } from "@/li
 import { DesignError } from "@/lib/design/walls/cip";
 import { BearingSketch } from "./bearing-sketch";
 import { ChecksBanner, ChecksTable, Choice, DesignErrorCard, DesignHeader, Field, fmt, KeyValues, Section, Toggle } from "./design-kit";
+import { TakeoffPanel } from "./takeoff-panel";
 
 // Designing an elastomeric bearing pad: the inputs on the left, worked out as they change (sketch,
 // checks and the working) on the right, saved as you go.
@@ -150,6 +151,7 @@ export function BearingEditor({ design, projects }: { design: { id: string; name
                   </CardContent>
                 </Card>
                 <ChecksTable checks={r.checks} groupOf={groupOf} />
+                <TakeoffPanel kind={inputs.sliding ? "ptfe-bearing" : "elastomeric-bearing"} design={design} inputs={inputs} ok={r.checks.every((c) => c.advisory || c.ok)} onSettings={(t) => setInputs((s) => ({ ...s, takeoff: t }))} />
                 <div className="grid gap-4 xl:grid-cols-2">
                   <KeyValues
                     title="Pad and loads"
@@ -157,32 +159,32 @@ export function BearingEditor({ design, projects }: { design: { id: string; name
                       ["Shape factor S (Eq. 14.7.5.1-1)", fmt(r.pad.S, 3)],
                       ["Total elastomer hrt", `${fmt(r.pad.hrt)} in`],
                       ["Total height", `${fmt(r.pad.height)} in`],
-                      ["G, least to most", `${fmt(r.pad.G.Gmin, 4)}–${fmt(r.pad.G.Gmax, 4)} ksi`],
-                      ["σs (total) / σd / σL", `${fmt(r.loads.sigmaS, 4)} / ${fmt(r.loads.sigmaD, 4)} / ${fmt(r.loads.sigmaL, 4)} ksi`],
-                      ["Thermal movement α L ΔT", `${fmt(r.movement.thermal, 4)} in`],
-                      ["Shear deformation Δs (static / total)", `${fmt(r.movement.dsStatic, 4)} / ${fmt(r.movement.ds, 4)} in`],
+                      ["G, least to most", `${fmt(r.pad.G.Gmin)}–${fmt(r.pad.G.Gmax)} ksi`],
+                      ["σs (total) / σd / σL", `${fmt(r.loads.sigmaS)} / ${fmt(r.loads.sigmaD)} / ${fmt(r.loads.sigmaL)} ksi`],
+                      ["Thermal movement α L ΔT", `${fmt(r.movement.thermal)} in`],
+                      ["Shear deformation Δs (static / total)", `${fmt(r.movement.dsStatic)} / ${fmt(r.movement.ds)} in`],
                     ]}
                   />
                   <KeyValues
                     title="Deflection and anchorage"
                     rows={
                       [
-                        ["Live load deflection", `${fmt(r.deflection.dL, 4)} in`],
-                        ["Dead load deflection, initial / long-term", `${fmt(r.deflection.dD, 4)} / ${fmt(r.deflection.dLong, 4)} in`],
+                        ["Live load deflection", `${fmt(r.deflection.dL)} in`],
+                        ["Dead load deflection, initial / long-term", `${fmt(r.deflection.dD)} / ${fmt(r.deflection.dLong)} in`],
                         ...(methodB
                           ? [
-                              ["Rotation, static / cyclic", `${fmt(r.strains.thetaSt, 4)} / ${fmt(r.strains.thetaCy, 4)} rad`],
+                              ["Rotation, static / cyclic", `${fmt(r.strains.thetaSt)} / ${fmt(r.strains.thetaCy)} rad`],
                               ["Shear strains γa, γr, γs (static)", `${fmt(r.strains.aSt)}, ${fmt(r.strains.rSt)}, ${fmt(r.strains.sSt)}`],
                               ["Shear strains γa, γr, γs (cyclic)", `${fmt(r.strains.aCy)}, ${fmt(r.strains.rCy)}, ${fmt(r.strains.sCy)}`],
                             ]
                           : []),
                         ...(inputs.sliding
                           ? [
-                              ["Pad's deformation at the first slip", `${fmt(r.ptfe.slip, 4)} in`],
-                              ["Taken by the PTFE sliding", `${fmt(r.ptfe.slide, 4)} in`],
-                              ["PTFE edge stress, permanent / all", `${fmt(r.ptfe.edgeDead, 4)} / ${fmt(r.ptfe.edgeTotal, 4)} ksi`],
+                              ["Pad's deformation at the first slip", `${fmt(r.ptfe.slip)} in`],
+                              ["Taken by the PTFE sliding", `${fmt(r.ptfe.slide)} in`],
+                              ["PTFE edge stress, permanent / all", `${fmt(r.ptfe.edgeDead)} / ${fmt(r.ptfe.edgeTotal)} ksi`],
                             ]
-                          : [["Allowed movement before slip", `${fmt(r.anchorage.dsAllow, 4)} in`]]),
+                          : [["Allowed movement before slip", `${fmt(r.anchorage.dsAllow)} in`]]),
                       ] as [string, string][]
                     }
                   />

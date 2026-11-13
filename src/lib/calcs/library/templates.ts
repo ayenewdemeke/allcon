@@ -2,6 +2,7 @@ import { newId } from "../document";
 import type { UnitSystem } from "../evaluate";
 import { textLook } from "../text-format";
 import { contentSize, GRID, type ImageRegion, type Paper, type PlotRegion, type Region, type SolveRegion, type TableRegion, type TextRegion } from "../types";
+import { fitsBeside } from "./fit";
 import type { Snippet } from "./materials";
 
 // Worksheet templates: complete calcs to start from (AISC 360-22 and ACI 318-19, LRFD), laid out
@@ -14,7 +15,8 @@ export type Body<T> = T extends unknown ? Omit<T, "id" | "x" | "y"> : never;
 /** A line of a template: text, math (with the code reference beside it, or above it for math too
  * wide to share the line), a steel section, or a table, plot, solve block or picture. */
 export type Line =
-  | { text: string; style?: TextRegion["style"]; color?: string }
+  // keepWithNext: a heading or note kept on the same page as the line after it (a table, a figure).
+  | { text: string; style?: TextRegion["style"]; color?: string; newPage?: boolean; keepWithNext?: boolean }
   | { math: string; ref?: string; unit?: string; wide?: boolean; color?: string }
   | { shape: string; suffix?: string; compact?: boolean }
   | { region: Body<TableRegion> | Body<PlotRegion> | Body<SolveRegion> | Body<ImageRegion> };
@@ -32,7 +34,7 @@ function mathHeight(latex: string) {
 }
 
 const textHeight = (text: string, style: TextRegion["style"] = "normal", width = 600) =>
-  style === "heading" ? 40 : style === "subheading" ? 36 : 8 + text.split("\n").reduce((n, line) => n + Math.max(1, Math.ceil((line.length * (style === "note" ? 6 : 7)) / width)), 0) * 20;
+  style === "heading" ? 40 : style === "subheading" ? 36 : 8 + text.split("\n").reduce((n, line) => n + Math.max(1, Math.ceil((line.length * (style === "note" ? 6 : 7.4)) / width)), 0) * 20;
 /** The same, for text in its own size (scaled from its style's). */
 const sizedTextHeight = (r: { text: string; style: TextRegion["style"]; width?: number; size?: number }) => {
   const h = textHeight(r.text, r.style, r.width || 600);
@@ -66,12 +68,43 @@ const snap = (v: number) => Math.ceil(v / GRID) * GRID;
 export function layout(lines: Line[], at: { x: number; y: number }, paper: Paper = "letter"): Region[] {
   const page = contentSize(paper).height;
   const out: Region[] = [];
+  // Math too wide to sit beside its note goes across the page with the note above it (fit.ts), and a
+  // note taller than its math pushes the next line down: so math and notes never overlap.
+  const wideOf = (line: Line) => "math" in line && (!!line.wide || (!!line.ref && !fitsBeside(line.math)));
+  const refHeight = (ref: string, width: number) => textHeight(ref, "note", width);
+  const heightOf = (line: Line) => {
+    if ("text" in line) return textHeight(line.text, line.style);
+    if ("math" in line) {
+      const h = mathHeight(line.math);
+      return line.ref && !wideOf(line) ? Math.max(h, Math.max(0, (h - 32) / 2) + refHeight(line.ref, 230)) : h;
+    }
+    return "shape" in line ? (line.compact ? 64 : 176) : regionHeight(line.region);
+  };
+  const aboveOf = (line: Line) => ("math" in line && wideOf(line) && line.ref ? refHeight(line.ref, 600) : 0);
   let y = at.y;
-  for (const line of lines) {
-    const h = "text" in line ? textHeight(line.text, line.style) : "math" in line ? mathHeight(line.math) : "shape" in line ? (line.compact ? 64 : 176) : regionHeight(line.region);
-    const above = "math" in line && line.wide && line.ref ? 24 : 0;
-    if (Math.floor(y / page) !== Math.floor((y + above + h - 8) / page)) y = Math.ceil(y / page) * page;
-    if ("math" in line && line.wide && line.ref) {
+  for (let k = 0; k < lines.length; k++) {
+    const line = lines[k];
+    const h = heightOf(line);
+    const above = aboveOf(line);
+    // The lines kept together with this one: it and those after it marked keepWithNext, and the line they lead to.
+    let group = above + h;
+    // Headings always stay with what follows them.
+    const keeps = (l: Line) => "text" in l && (l.keepWithNext || l.style === "heading" || l.style === "subheading");
+    if (keeps(line)) {
+      let gy = snap(y + h + GRID);
+      for (let j = k + 1; j < lines.length; j++) {
+        const lj = lines[j];
+        gy = snap(gy + aboveOf(lj) + heightOf(lj) + GRID);
+        if (!keeps(lj)) break;
+      }
+      group = gy - y - GRID;
+    }
+    const fits = (span: number) => Math.floor(y / page) === Math.floor((y + span - 8) / page);
+    // A line that starts a new page (a part of the package: the calculations, an input sheet, an appendix).
+    if ("text" in line && line.newPage && y > at.y && y % page !== 0) y = Math.ceil(y / page) * page;
+    else if (!fits(group) && group <= page) y = Math.ceil(y / page) * page;
+    else if (!fits(above + h)) y = Math.ceil(y / page) * page;
+    if ("math" in line && wideOf(line) && line.ref) {
       out.push({ id: newId(), kind: "text", x: at.x, y, text: line.ref, style: "note", width: 600 });
       y += above;
     }
@@ -80,7 +113,7 @@ export function layout(lines: Line[], at: { x: number; y: number }, paper: Paper
       out.push({ id: newId(), kind: "text", x: at.x, y, text: line.text, style, width: style === "normal" || style === "note" ? 600 : 640, ...(line.color ? { color: line.color } : {}) });
     } else if ("math" in line) {
       out.push({ id: newId(), kind: "math", x: at.x, y, latex: line.math, ...(line.unit ? { displayUnit: line.unit } : {}), ...(line.color ? { color: line.color } : {}) });
-      if (line.ref && !line.wide) out.push({ id: newId(), kind: "text", x: at.x + REF_X, y: y + Math.max(0, (h - 32) / 2), text: line.ref, style: "note", width: 230 });
+      if (line.ref && !wideOf(line)) out.push({ id: newId(), kind: "text", x: at.x + REF_X, y: y + Math.max(0, (h - 32) / 2), text: line.ref, style: "note", width: 230 });
     } else if ("shape" in line) out.push({ id: newId(), kind: "section", x: at.x, y, shape: line.shape, ...(line.suffix ? { suffix: line.suffix } : {}), ...(line.compact ? { compact: true } : {}) });
     else out.push({ ...line.region, id: newId(), x: at.x, y } as Region);
     y = snap(y + h + GRID);

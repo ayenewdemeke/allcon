@@ -1,19 +1,21 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { AlertCircle, Check, CheckCircle2, Cloud, FileText, Loader2, XCircle } from "lucide-react";
 import { toast } from "sonner";
 import { createCalcFromDesign, renameDesign, saveDesignInputs, setDesignProject } from "@/app/actions/design";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { MAX_DECIMALS, showNum } from "@/lib/design/calc-style";
 import { BARS, type Bars, type Check as DesignCheck } from "@/lib/design/walls/cip";
 import { cn } from "@/lib/utils";
 
 // What every design editor shares: input fields, the header (name, project, saved-as-you-go, calc
 // package) and the checks.
 
-export const fmt = (v: number, d = 3) => (Math.abs(v) >= 1000 ? v.toFixed(0) : Number(v.toFixed(d)).toString());
+/** A design output: at most three decimals, small values in powers of ten (calc-style's rule). */
+export const fmt = (v: number, d = MAX_DECIMALS) => showNum(v, d);
 
 export function Field({ label, unit, value, onChange, step = 1, hint, scale = 1 }: { label: string; unit?: string; value: number; onChange: (v: number) => void; step?: number; hint?: string; scale?: number }) {
   const [text, setText] = useState(String(+(value * scale).toFixed(6)));
@@ -182,11 +184,12 @@ export function DesignHeader<T>({ design, projects, inputs, label, canMakeCalc }
   );
 }
 
-export function DesignErrorCard({ message }: { message: string }) {
+export function DesignErrorCard({ message, action }: { message: string; action?: ReactNode }) {
   return (
     <Card>
       <CardContent className="flex items-center gap-2 py-4 text-sm text-destructive">
-        <AlertCircle className="size-4" /> {message}
+        <AlertCircle className="size-4 shrink-0" /> <span className="flex-1">{message}</span>
+        {action}
       </CardContent>
     </Card>
   );
@@ -194,12 +197,16 @@ export function DesignErrorCard({ message }: { message: string }) {
 
 /** All checks pass, or which fail. */
 export function ChecksBanner({ checks, extra }: { checks: DesignCheck[]; extra?: React.ReactNode }) {
-  const failing = checks.filter((c) => !c.ok);
+  const required = checks.filter((c) => !c.advisory);
+  const failing = required.filter((c) => !c.ok);
+  const info = checks.length - required.length;
+  const exceeded = checks.filter((c) => c.advisory && !c.ok).length;
   const ok = failing.length === 0;
+  const infoText = info ? ` ${info} for information${exceeded ? `, ${exceeded} over its limit` : ""}.` : "";
   return (
     <div className={cn("flex items-center gap-2 rounded-lg border px-4 py-3 text-sm", ok ? "border-emerald-300 bg-emerald-50 text-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-200" : "border-red-300 bg-red-50 text-red-900 dark:bg-red-950/40 dark:text-red-200")}>
       {ok ? <CheckCircle2 className="size-4" /> : <XCircle className="size-4" />}
-      {ok ? `All ${checks.length} checks pass.` : `${failing.length} of ${checks.length} checks fail: ${failing.map((c) => c.name).join("; ")}.`}
+      {ok ? `All ${required.length} checks pass.${infoText}` : `${failing.length} of ${required.length} checks fail: ${failing.map((c) => c.name).join("; ")}.${infoText}`}
       {extra}
     </div>
   );
@@ -242,12 +249,14 @@ export function ChecksTable({ checks, groupOf }: { checks: DesignCheck[]; groupO
                   <td className="pl-3">
                     <span className="flex items-center gap-1.5">
                       <span className="h-1.5 w-16 overflow-hidden rounded bg-muted">
-                        <span className={cn("block h-full", c.ok ? "bg-emerald-500" : "bg-red-500")} style={{ width: `${Math.min(100, ratio * 100)}%` }} />
+                        <span className={cn("block h-full", c.ok ? "bg-emerald-500" : c.advisory ? "bg-amber-500" : "bg-red-500")} style={{ width: `${Math.min(100, ratio * 100)}%` }} />
                       </span>
                       <span className="tabular-nums">{Number.isFinite(ratio) ? ratio.toFixed(2) : "—"}</span>
                     </span>
                   </td>
-                  <td className={cn("px-2 font-medium", c.ok ? "text-emerald-600" : "text-red-600")}>{c.ok ? "OK" : "NG"}</td>
+                  <td className={cn("px-2 font-medium", c.ok ? "text-emerald-600" : c.advisory ? "text-amber-600" : "text-red-600")} title={c.advisory ? "For information: someone else's design (see the note)" : undefined}>
+                    {c.advisory ? (c.ok ? "Info" : "Info ↑") : c.ok ? "OK" : "NG"}
+                  </td>
                   <td className="pl-3 whitespace-nowrap text-muted-foreground">{c.ref}</td>
                 </tr>,
               ];

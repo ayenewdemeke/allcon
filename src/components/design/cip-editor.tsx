@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { COMBOS, DesignError, designCipWall, type CipInputs, type Combo, type Factors } from "@/lib/design/walls/cip";
 import { BarsField, ChecksBanner, ChecksTable, DesignErrorCard, DesignHeader, Field, fmt, KeyValues, Section, Toggle } from "./design-kit";
+import { TakeoffPanel } from "./takeoff-panel";
 import { CipSketch } from "./wall-sketch";
 
 // Designing a CIP cantilever wall: the inputs on the left, worked out as they change (sketch,
@@ -158,6 +159,7 @@ export function CipEditor({ design, projects }: { design: { id: string; name: st
                   </CardContent>
                 </Card>
                 <ChecksTable checks={r.checks} groupOf={groupOf} />
+                <TakeoffPanel kind="cip-cantilever-wall" design={design} inputs={inputs} ok={r.checks.every((c) => c.advisory || c.ok)} onSettings={(t) => setInputs((s) => ({ ...s, takeoff: t }))} />
                 <Working r={r} collision={inputs.collision} />
               </>
             )
@@ -176,7 +178,7 @@ function Working({ r, collision }: { r: NonNullable<ReturnType<typeof designCipW
       <KeyValues
         title="Soil and geometry"
         rows={[
-          ["Ka (Coulomb, Eq. 3.11.5.3-1)", fmt(r.soil.Ka, 4)],
+          ["Ka (Coulomb, Eq. 3.11.5.3-1)", fmt(r.soil.Ka)],
           ["Kp", `${fmt(r.soil.Kp, 3)}${r.soil.Kp !== r.soil.KpCoulomb ? ` (Coulomb ${fmt(r.soil.KpCoulomb, 3)})` : ""}`],
           ["δ", `${fmt(r.soil.delta, 2)}°`],
           ["Active EFW", `${fmt(r.soil.efwA * 1000, 1)} pcf`],

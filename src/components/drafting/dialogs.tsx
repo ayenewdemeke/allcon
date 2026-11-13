@@ -9,8 +9,11 @@ import { Label } from "@/components/ui/label";
 import { LinkButton } from "@/components/ui/link-button";
 import type { Unused } from "@/lib/drafting/document";
 import { MODEL } from "@/lib/drafting/document";
-import type { DialogRequest, Editor } from "@/lib/drafting/editor";
+import type { DialogRequest, Editor, SaveAsRequest } from "@/lib/drafting/editor";
 import { layoutSheet, modelSheet, sheetFacts, VIEWPORT_SCALES } from "@/lib/drafting/layouts";
+import { FIELD_CODES, hasFields } from "@/lib/drafting/fields";
+import { shownText } from "@/lib/drafting/graphics";
+import { DEFAULT_PDF_IMPORT, type PdfImportSettings } from "@/lib/drafting/pdf-import";
 import { plotPdf } from "@/lib/drafting/plot";
 import { PAPER_SIZES, type Paper } from "@/lib/drafting/types";
 import { downloadPdf, pictureLoader, publishToSheets } from "./plotting";
@@ -26,7 +29,7 @@ export type PlotContext = { drawingId: string; drawingName: string; projects: { 
 
 export function DraftingDialog({ editor, request, context }: { editor: Editor; request: DialogRequest; context: PlotContext }) {
   const close = <T,>(result: T | null) => editor.closeDialog(result);
-  const wide = request.kind === "plot" || request.kind === "publish" || request.kind === "page-setup";
+  const wide = request.kind === "plot" || request.kind === "publish" || request.kind === "page-setup" || request.kind === "pdf-import";
   return (
     <Dialog open onOpenChange={(open) => !open && close(null)}>
       <DialogContent className={wide ? "sm:max-w-lg" : "sm:max-w-md"} onKeyDown={(e) => e.stopPropagation()}>
@@ -37,8 +40,154 @@ export function DraftingDialog({ editor, request, context }: { editor: Editor; r
         {request.kind === "page-setup" && <PageSetup editor={editor} request={request} />}
         {request.kind === "plot" && <Plot editor={editor} context={context} />}
         {request.kind === "publish" && <Publish editor={editor} context={context} />}
+        {request.kind === "pdf-import" && <ImportPdf editor={editor} request={request} />}
+        {request.kind === "save-as" && <SaveAs editor={editor} request={request} />}
       </DialogContent>
     </Dialog>
+  );
+}
+
+/** Save Drawing As: a name and a type (drawing, drawing template, DXF); a template also gets
+ * the description AutoCAD's Template Options asks for. */
+function SaveAs({ editor, request }: { editor: Editor; request: Of<"save-as"> }) {
+  const [name, setName] = useState(`${request.name} copy`);
+  const [type, setType] = useState<SaveAsRequest["type"]>("drawing");
+  const [description, setDescription] = useState("");
+  const trimmed = name.trim();
+  return (
+    <form
+      onSubmit={(e) => {
+        e.preventDefault();
+        if (trimmed || type === "dxf") editor.closeDialog({ name: trimmed, type, description: description.trim() });
+      }}
+      className="grid gap-4"
+    >
+      <DialogHeader>
+        <DialogTitle>Save Drawing As</DialogTitle>
+        <DialogDescription>
+          {type === "template"
+            ? "New drawings can start from a template: its layers, styles, layouts, title block, notes and details come along."
+            : type === "dxf"
+              ? "Downloads the drawing as a DXF for AutoCAD and other CAD programs."
+              : "A copy under a new name, which opens for you to go on working in."}
+        </DialogDescription>
+      </DialogHeader>
+      <div className="grid gap-1.5">
+        <Label htmlFor="save-as-type">Files of type</Label>
+        <select id="save-as-type" value={type} onChange={(e) => setType(e.target.value as SaveAsRequest["type"])} className="h-8 rounded-lg border border-input bg-transparent px-2.5 text-sm">
+          <option value="drawing">Drawing</option>
+          <option value="template">Drawing Template</option>
+          <option value="dxf">DXF (download)</option>
+        </select>
+      </div>
+      {type !== "dxf" && (
+        <div className="grid gap-1.5">
+          <Label htmlFor="save-as-name">{type === "template" ? "Template name" : "Name"}</Label>
+          <Input id="save-as-name" value={name} onChange={(e) => setName(e.target.value)} autoFocus maxLength={200} />
+        </div>
+      )}
+      {type === "template" && (
+        <div className="grid gap-1.5">
+          <Label htmlFor="save-as-description">Description</Label>
+          <Input id="save-as-description" value={description} onChange={(e) => setDescription(e.target.value)} maxLength={500} placeholder="e.g. 11x17 sheet with title block and general notes" />
+        </div>
+      )}
+      <DialogFooter>
+        <Button type="button" variant="outline" onClick={() => editor.closeDialog(null)}>
+          Cancel
+        </Button>
+        <Button type="submit" disabled={!trimmed && type !== "dxf"}>
+          Save
+        </Button>
+      </DialogFooter>
+    </form>
+  );
+}
+
+/** AutoCAD's Import PDF dialog: the page, what to bring in, the layers, and where it goes. */
+function ImportPdf({ editor, request }: { editor: Editor; request: Of<"pdf-import"> }) {
+  const [s, setS] = useState<PdfImportSettings>({ ...DEFAULT_PDF_IMPORT, page: 1, onScreen: true, scale: 1, rotation: 0 });
+  const set = <K extends keyof PdfImportSettings>(key: K, value: PdfImportSettings[K]) => setS((v) => ({ ...v, [key]: value }));
+  const check = (key: "geometry" | "fills" | "text" | "images" | "recognizeText" | "join" | "lineweights", label: string, disabled = false) => (
+    <label className="flex items-center gap-2">
+      <input type="checkbox" checked={s[key]} disabled={disabled} onChange={(e) => set(key, e.target.checked)} />
+      {label}
+    </label>
+  );
+  const valid = s.page >= 1 && s.page <= request.pages && s.scale > 0 && Number.isFinite(s.rotation);
+  return (
+    <form
+      onSubmit={(e) => {
+        e.preventDefault();
+        if (valid) editor.closeDialog(s);
+      }}
+      className="grid gap-4"
+    >
+      <DialogHeader>
+        <DialogTitle>Import PDF</DialogTitle>
+        <DialogDescription>
+          {request.file}: its lines, text, fills and pictures become objects you can edit. A scale of 1 keeps the page&apos;s paper size.
+        </DialogDescription>
+      </DialogHeader>
+      <div className="grid grid-cols-3 gap-3">
+        <div className="grid gap-1.5">
+          <Label htmlFor="pdf-page">Page (of {request.pages})</Label>
+          <Input id="pdf-page" type="number" min={1} max={request.pages} value={s.page} onChange={(e) => set("page", Math.round(Number(e.target.value)))} />
+        </div>
+        <div className="grid gap-1.5">
+          <Label htmlFor="pdf-scale">Scale</Label>
+          <Input id="pdf-scale" type="number" min={0} step="any" value={s.scale} onChange={(e) => set("scale", Number(e.target.value))} />
+        </div>
+        <div className="grid gap-1.5">
+          <Label htmlFor="pdf-rotation">Rotation (°)</Label>
+          <Input id="pdf-rotation" type="number" step="any" value={s.rotation} onChange={(e) => set("rotation", Number(e.target.value))} />
+        </div>
+      </div>
+      <label className="flex items-center gap-2 text-sm">
+        <input type="checkbox" checked={s.onScreen} onChange={(e) => set("onScreen", e.target.checked)} />
+        Specify insertion point on-screen (otherwise at 0,0)
+      </label>
+      <div className="grid grid-cols-2 gap-4 text-sm">
+        <fieldset className="grid gap-1">
+          <legend className="mb-1 font-medium">PDF data to import</legend>
+          {check("geometry", "Vector geometry")}
+          {check("fills", "Solid fills")}
+          {check("text", "Text")}
+          {check("recognizeText", "Text drawn as lines (searchable PDFs)", !s.text)}
+          {check("images", "Raster images")}
+        </fieldset>
+        <div className="grid content-start gap-4">
+          <fieldset className="grid gap-1">
+            <legend className="mb-1 font-medium">Layers</legend>
+            {(
+              [
+                ["pdf", "Use PDF layers"],
+                ["object", "Create object layers"],
+                ["current", "Current layer"],
+              ] as const
+            ).map(([value, label]) => (
+              <label key={value} className="flex items-center gap-2">
+                <input type="radio" name="pdf-layers" checked={s.layers === value} onChange={() => set("layers", value)} />
+                {label}
+              </label>
+            ))}
+          </fieldset>
+          <fieldset className="grid gap-1">
+            <legend className="mb-1 font-medium">Import options</legend>
+            {check("join", "Join line and arc segments")}
+            {check("lineweights", "Apply lineweight properties")}
+          </fieldset>
+        </div>
+      </div>
+      <DialogFooter>
+        <Button type="button" variant="outline" onClick={() => editor.closeDialog(null)}>
+          Cancel
+        </Button>
+        <Button type="submit" disabled={!valid}>
+          OK
+        </Button>
+      </DialogFooter>
+    </form>
   );
 }
 
@@ -117,13 +266,33 @@ function EditAttributes({ editor, request }: { editor: Editor; request: Of<"attr
         <DialogTitle>Edit Attributes</DialogTitle>
         <DialogDescription>Block: {request.block}</DialogDescription>
       </DialogHeader>
-      <div className="grid gap-3">
+      <div className="-mx-1 grid max-h-[60vh] gap-3 overflow-y-auto px-1">
         {request.rows.map((r, i) => (
           <div key={r.tag} className="grid gap-1.5">
             <Label htmlFor={`attr-${r.tag}`}>
               {r.prompt} <span className="font-mono text-xs text-muted-foreground">{r.tag}</span>
             </Label>
-            <Input id={`attr-${r.tag}`} value={values[r.tag]} autoFocus={i === 0} onChange={(e) => setValues((v) => ({ ...v, [r.tag]: e.target.value }))} />
+            <div className="flex gap-1.5">
+              <Input id={`attr-${r.tag}`} value={values[r.tag]} autoFocus={i === 0} onChange={(e) => setValues((v) => ({ ...v, [r.tag]: e.target.value }))} />
+              {/* AutoCAD's Insert Field: a value that fills itself in. */}
+              <select
+                aria-label={`Insert a field into ${r.prompt}`}
+                title="Insert field"
+                value=""
+                onChange={(e) => {
+                  const code = FIELD_CODES[e.target.value as keyof typeof FIELD_CODES];
+                  if (code) setValues((v) => ({ ...v, [r.tag]: code }));
+                }}
+                className="h-8 w-24 shrink-0 rounded-lg border border-input bg-transparent px-1.5 text-xs text-muted-foreground"
+              >
+                <option value="">Field…</option>
+                <option value="Filename">File name</option>
+                <option value="PlotDate">Plot date</option>
+                <option value="Date">Date</option>
+                <option value="Layout">Layout name</option>
+              </select>
+            </div>
+            {hasFields(values[r.tag] ?? "") && <p className="text-xs text-muted-foreground">Shows: {shownText(values[r.tag])}</p>}
           </div>
         ))}
       </div>

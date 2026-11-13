@@ -4,8 +4,12 @@ import { db } from "@/lib/db";
 import { isUuid, requireProject } from "@/lib/auth/session";
 
 /** Full-bleed takeoff workspace for one sheet. */
-export default async function SheetPage({ params }: PageProps<"/projects/[projectId]/sheets/[sheetId]">) {
+export default async function SheetPage({ params, searchParams }: PageProps<"/projects/[projectId]/sheets/[sheetId]">) {
   const { projectId, sheetId } = await params;
+  // ?focus=x0,y0,x1,y1 (sheet points from the top-left): zoom to and outline that box.
+  const f = (await searchParams).focus;
+  const nums = typeof f === "string" ? f.split(",").map(Number) : [];
+  const focus = nums.length === 4 && nums.every(Number.isFinite) ? (nums as [number, number, number, number]) : null;
   const { user, project } = await requireProject(projectId);
   const sheet = isUuid(sheetId)
     ? await db.sheet.findFirst({
@@ -59,6 +63,7 @@ export default async function SheetPage({ params }: PageProps<"/projects/[projec
       lineItems={lineItems}
       initialUnitSystem={project.unitSystem}
       author={user.name || user.email}
+      focus={focus}
     />
   );
 }

@@ -51,6 +51,32 @@ describe("layouts", () => {
     expect(ed.doc.layouts.size).toBe(0);
   });
 
+  it("TITLEBLOCK Bottom replaces the layout's title block with the bottom strip and keeps the viewport above it", () => {
+    const { ed, id } = withLayout();
+    const before = ofType<ViewportEntity>(ed.doc.entities.values(), "viewport")[0];
+    const onPaper = (vp: ViewportEntity, x: number, y: number) => ({ x: vp.center.x + (x - vp.view.x) * vp.scale, y: vp.center.y + (y - vp.view.y) * vp.scale });
+    type(ed, "TITLEBLOCK");
+    type(ed, "B");
+    const inserts = ofType<InsertEntity>(ed.doc.entities.values(), "insert");
+    expect(inserts).toHaveLength(1);
+    expect(inserts[0].block).toMatch(/^Title Block Bottom/);
+    expect(inserts[0].attribs.PROJECT).toBe(ed.drawingName);
+    expect(inserts[0].attribs.SHEET_TITLE).toBe("A-101");
+    expect(inserts[0].attribs.FILE_NAME).toBe("%<\\AcVar Filename>%");
+    const vp = ofType<ViewportEntity>(ed.doc.entities.values(), "viewport")[0];
+    // It fills the drawing area the new title block leaves: above the strip, across the whole sheet.
+    expect(vp.center.y - vp.height / 2).toBeCloseTo(0.5 + 2.2 + 0.25);
+    expect(vp.center.x + vp.width / 2).toBeCloseTo(36 - 0.5 - 0.25);
+    // The model doesn't move on the paper.
+    expect(onPaper(vp, 100, 100).x).toBeCloseTo(onPaper(before, 100, 100).x);
+    expect(onPaper(vp, 100, 100).y).toBeCloseTo(onPaper(before, 100, 100).y);
+    // Its fields show the drawing's name and the layout when plotted.
+    const parts = layoutSheet(ed.doc, id);
+    expect(parts.name).toBe("A-101");
+    ed.undo();
+    expect(ofType<InsertEntity>(ed.doc.entities.values(), "insert")[0].block).not.toMatch(/Bottom/);
+  });
+
   it("a new viewport scale shows in the title block", () => {
     const { ed } = withLayout();
     const vp = ofType<ViewportEntity>(ed.doc.entities.values(), "viewport")[0];

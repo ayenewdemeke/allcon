@@ -185,7 +185,9 @@ const sin = (d: number) => Math.sin(rad(d));
 const cos = (d: number) => Math.cos(rad(d));
 
 /** A check: what's asked of the wall against what it can give. */
-export type Check = { id: string; name: string; demand: number; capacity: number; unit: string; ok: boolean; ref: string; note?: string; lowerIsBetter?: boolean };
+/** A design check. An advisory one is worked out and shown, but is someone else's to satisfy (the
+ * fabricator's, say): it neither fails the design nor decides what governs. */
+export type Check = { id: string; name: string; demand: number; capacity: number; unit: string; ok: boolean; ref: string; note?: string; lowerIsBetter?: boolean; advisory?: boolean };
 export type Load = { id: string; desc: string; force: number; arm: number; moment: number };
 export type Group = { combo: Combo; V: number; MV: number; H: number; MH: number };
 

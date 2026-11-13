@@ -3,17 +3,22 @@ import { notFound } from "next/navigation";
 import { BearingEditor } from "@/components/design/bearing-editor";
 import { CbcEditor } from "@/components/design/cbc-editor";
 import { CipEditor } from "@/components/design/cip-editor";
-import { CollisionEditor } from "@/components/design/collision-editor";
+import { ColumnEditor } from "@/components/design/column-editor";
+import { columnInputs } from "@/lib/design/piers/column";
 import { DeckEditor } from "@/components/design/deck-editor";
+import { GirderEditor } from "@/components/design/girder-editor";
 import { HaunchEditor } from "@/components/design/haunch-editor";
 import { MseEditor } from "@/components/design/mse-editor";
 import { SignEditor } from "@/components/design/sign-editor";
+import { StmEditor } from "@/components/design/stm-editor";
+import { stmInputs } from "@/lib/design/stm/strut-tie";
 import { StripSealEditor } from "@/components/design/strip-seal-editor";
 import { WingwallEditor } from "@/components/design/wingwall-editor";
 import { Zone1Editor } from "@/components/design/zone1-editor";
 import { PageBody } from "@/components/shell/page-header";
 import { isUuid, requireUser } from "@/lib/auth/session";
-import { bearingInputs, cbcInputs, cipInputs, collisionInputs, deckInputs, haunchInputs, mseInputs, ptfeInputs, signInputs, stripSealInputs, wingwallInputs, zone1Inputs } from "@/lib/design/kinds";
+import { CollisionEditor } from "@/components/design/collision-editor";
+import { bearingInputs, cbcInputs, cipInputs, collisionInputs, deckInputs, girderInputs, haunchInputs, mseInputs, ptfeInputs, signInputs, stripSealInputs, wingwallInputs, zone1Inputs } from "@/lib/design/kinds";
 import { db } from "@/lib/db";
 
 export async function generateMetadata({ params }: PageProps<"/design/[designId]">): Promise<Metadata> {
@@ -31,6 +36,24 @@ export default async function DesignEditorPage({ params }: PageProps<"/design/[d
   if (!design) notFound();
   const projects = await db.project.findMany({ where: { orgId: user.orgId }, orderBy: { name: "asc" }, select: { id: true, name: true } });
   const base = { id: design.id, name: design.name, projectId: design.projectId };
+  if (design.kind === "lrfd-girder-check")
+    return (
+      <PageBody>
+        <GirderEditor design={{ ...base, inputs: girderInputs(design.inputs) }} projects={projects} />
+      </PageBody>
+    );
+  if (design.kind === "stm-d-region")
+    return (
+      <PageBody>
+        <StmEditor design={{ ...base, inputs: stmInputs(design.inputs) }} projects={projects} />
+      </PageBody>
+    );
+  if (design.kind === "pier-collision")
+    return (
+      <PageBody>
+        <CollisionEditor design={{ ...base, inputs: collisionInputs(design.inputs) }} projects={projects} />
+      </PageBody>
+    );
   if (design.kind === "cip-cantilever-wall")
     return (
       <PageBody>
@@ -61,10 +84,10 @@ export default async function DesignEditorPage({ params }: PageProps<"/design/[d
         <HaunchEditor design={{ ...base, inputs: haunchInputs(design.inputs) }} projects={projects} />
       </PageBody>
     );
-  if (design.kind === "pier-collision")
+  if (design.kind === "pier-column")
     return (
       <PageBody>
-        <CollisionEditor design={{ ...base, inputs: collisionInputs(design.inputs) }} projects={projects} />
+        <ColumnEditor design={{ ...base, inputs: columnInputs(design.inputs) }} projects={projects} />
       </PageBody>
     );
   if (design.kind === "seismic-zone1")

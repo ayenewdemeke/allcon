@@ -32,6 +32,7 @@ import {
   type PDFPage,
 } from "@cantoo/pdf-lib";
 import { displayColor } from "./aci";
+import { applyFields } from "./graphics";
 import { blockParts } from "./blocks";
 import type { DraftDocument } from "./document";
 import { graphicsOf, imageCorners, type TextRun } from "./geometry";
@@ -45,7 +46,8 @@ import { LW_BYBLOCK, LW_BYLAYER, LW_DEFAULT, type Entity, type ImageEntity, type
 export type PlotView = { center: Vec; width: number; height: number; view: Vec; scale: number };
 
 /** One sheet: its paper (in the drawing's paper units), what's drawn on it 1:1, and its views. */
-export type PlotSheet = { paper: { width: number; height: number }; plot: PlotSettings; paperEntities: Entity[]; views: PlotView[] };
+/** `name`: the layout's (or "Model"), what a CTAB field shows on this sheet. */
+export type PlotSheet = { paper: { width: number; height: number }; plot: PlotSettings; paperEntities: Entity[]; views: PlotView[]; name?: string };
 
 /** PDF points per paper unit (inches, or millimetres for metric drawings). */
 export const pointsPerUnit = (units: Units) => (units === "mm" ? 72 / 25.4 : 72);
@@ -89,6 +91,8 @@ export async function plotPdf(doc: DraftDocument, sheets: PlotSheet[], options: 
 
   doc.activate();
   for (const sheet of sheets) {
+    // Fields on the sheet: the drawing's name, this sheet's layout, today as the plot date.
+    applyFields({ fileName: options.title, layout: sheet.name ?? "Model" });
     const page = pdf.addPage([sheet.paper.width * k, sheet.paper.height * k]);
     const ops: PDFOperator[] = [setLineCap(LineCapStyle.Round), setLineJoin(LineJoinStyle.Round)];
     const ctx = { doc, page, ops, sheet, font, picture, k, pdf };

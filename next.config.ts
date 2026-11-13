@@ -13,7 +13,8 @@ const SERVER_PDF_FILES = [
 const nextConfig: NextConfig = {
   // Keep the dev badge clear of the sidebar's user menu (bottom-left).
   devIndicators: { position: "bottom-right" },
-  serverExternalPackages: ["pdfjs-dist", "@napi-rs/canvas"],
+  // highs loads its wasm from beside its own script, so it's required from node_modules as is.
+  serverExternalPackages: ["pdfjs-dist", "@napi-rs/canvas", "highs"],
   outputFileTracingIncludes: {
     "/api/mcp": SERVER_PDF_FILES,
     "/projects/\\[projectId\\]/sheets": SERVER_PDF_FILES,

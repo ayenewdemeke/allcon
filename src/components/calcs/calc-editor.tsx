@@ -349,7 +349,7 @@ function Workspace({ doc, calc, projects, backHref }: { doc: CalcDocument; calc:
     <div className="calc-root flex h-svh flex-col bg-background text-foreground">
       {/* Printing gives the pages alone, at the paper's size. */}
       <style>{`
-        .calc-field math-field { font-size: 16px; border: none; background: transparent; outline: none; padding: 0; min-width: 2rem; --caret-color: #2563eb; --selection-background-color: #dbeafe; }
+        .calc-field math-field { font-size: inherit; border: none; background: transparent; outline: none; padding: 0; min-width: 2rem; --caret-color: #2563eb; --selection-background-color: #dbeafe; }
         .calc-field math-field::part(menu-toggle), .calc-field math-field::part(virtual-keyboard-toggle) { display: none; }
         .calc-field math-field::part(content) { padding: 0; }
         @media print {

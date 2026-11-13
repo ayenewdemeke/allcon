@@ -1,5 +1,6 @@
 import type { Line } from "@/lib/calcs/library/templates";
-import { COLOR_NOTE, INPUT_COLOR, isInput } from "../calc-style";
+import { checksSummary } from "../checks-summary";
+import { COLOR_NOTE, INPUT_COLOR, isInput, num } from "../calc-style";
 import type { Figure } from "../figures";
 import { BARS, type Bars } from "../walls/cip";
 import { designDeck, type DeckInputs } from "./deck";
@@ -8,7 +9,6 @@ import { designDeck, type DeckInputs } from "./deck";
 // continuous beam and the trucks placed across the deck), then every design step as live math with
 // its AASHTO reference, worked out by Calcs.
 
-const num = (v: number, d = 6) => String(+v.toFixed(d));
 const ok = (demand: string, capacity: string) => `\\operatorname{if}\\left(${demand}\\le ${capacity},\\text{OK},\\text{NG}\\right)=`;
 
 export function deckCalcLines(i: DeckInputs, title: string, figures?: { section?: Figure }): Line[] {
@@ -93,10 +93,37 @@ export function deckCalcLines(i: DeckInputs, title: string, figures?: { section?
   m(`A_{bl}\\coloneq ${area(i.botLong)}=`, `Bottom, #${i.botLong.bar} at ${num(i.botLong.spacing)} in`, "in^2/ft");
   m(ok("\\frac{p}{100}\\cdot A_{sb}", "A_{bl}"), "Distribution reinforcement");
 
+  const a = r.applied;
+  const p = r.rail?.resistance ?? null;
+  if (r.rail) {
+    const rl = r.rail;
+    text(`Bridge rail: ${rl.rail.name}`, "subheading");
+    text(
+      `Rail:- CDOT ${rl.rail.name}, worksheet ${rl.rail.sheet}, ${num(rl.rail.height)} in high and ${num(rl.rail.width)} in wide at its base${rl.rail.steel ? `, with ${rl.rail.steel.label}` : ""}; Concrete Class DF (f'c = 4.5 ksi) and ${rl.fy === 100 ? "ASTM A1035CS (Grade 100)" : "stainless (ASTM A955)"} bars. Its section, weight and c.g. are the deck's barrier. It is paid by the foot under item ${rl.rail.payItem}, its concrete, bars${rl.rail.steel ? " and steel" : ""} included.`,
+    );
+    given(`w_{rail}\\coloneq ${num(rl.weight * 1000)}\\mathrm{plf}`, `${num(rl.area)} in² of concrete${rl.rail.steel ? ` and ${num(rl.rail.steel.lbPerFt)} plf of steel` : ""}`);
+    m(`F_t\\coloneq ${num(rl.forces.Ft)}\\mathrm{kip}`, `${rl.choice.testLevel}, AASHTO Table A13.2-1`);
+    m(`L_t\\coloneq ${num(rl.forces.Lt)}\\mathrm{ft}`, "Its length of distribution");
+    if (p) {
+      text("Yield line analysis of the parapet (AASHTO A13.3.1), Mb = 0 (no separate beam at the top), Mc averaged over the wall's height as its bars and thickness vary:", "note");
+      m(`H_w\\coloneq ${num(rl.rail.height)}\\mathrm{in}`, "Height of the wall");
+      given(`M_w\\coloneq ${num(p.Mw)}\\mathrm{kip}\\cdot\\mathrm{ft}`, "About the vertical axis, the longitudinal bars, each face averaged");
+      given(`M_{cw}\\coloneq ${num(p.interior.Mc)}${kft}`, "About the longitudinal axis, averaged over the height");
+      m("L_c\\coloneq\\frac{L_t}{2}+\\sqrt{\\left(\\frac{L_t}{2}\\right)^{2}+\\frac{8\\cdot H_w\\cdot M_w}{M_{cw}}}=", "AASHTO Eq. A13.3.1-2", "ft");
+      m("R_w\\coloneq\\frac{2}{2\\cdot L_c-L_t}\\cdot\\left(8\\cdot M_w+\\frac{M_{cw}\\cdot L_c^{2}}{H_w}\\right)=", "AASHTO Eq. A13.3.1-1, within a segment", "kip");
+      m("\\operatorname{if}\\left(R_w\\ge F_t,\\text{OK},\\text{NG}\\right)=", "For information: the standard is crash tested or designed by Staff Bridge");
+    }
+  }
+
   text("Overhang (AASHTO A13.4.1)", "subheading");
   const { case1, case3 } = r.overhang;
-  m(`M_c\\coloneq ${num(i.Mc)}${kft}`, "The barrier's flexural resistance at its base");
-  m(`T\\coloneq ${num(i.T)}\\frac{\\mathrm{kip}}{\\mathrm{ft}}`, "Axial tension, Rw / (Lc + 2H), AASHTO Eq. A13.4.2-1");
+  if (p) {
+    m("M_c\\coloneq M_{cw}=", "The parapet's Mc as its yield lines take it, averaged over its height (AASHTO A13.4.2, CA13.3.1)", "kip*ft/ft");
+    m("T\\coloneq\\frac{R_w}{L_c+2\\cdot H_w}=", "Axial tension, AASHTO Eq. A13.4.2-1", "kip/ft");
+  } else {
+    m(`M_c\\coloneq ${num(a.Mc)}${kft}`, "The barrier's flexural resistance at its base");
+    m(`T\\coloneq ${num(a.T)}\\frac{\\mathrm{kip}}{\\mathrm{ft}}`, "Axial tension, Rw / (Lc + 2H), AASHTO Eq. A13.4.2-1");
+  }
   given(`h_1\\coloneq ${num(case1.h, 8)}\\mathrm{in}`, "Overhang depth at the barrier face");
   given(`M_{DC1}\\coloneq ${num(case1.MDC, 8)}${kft}`, "Barrier and slab, about the barrier face");
   given(`M_{DW1}\\coloneq ${num(case1.MDW, 8)}${kft}`);
@@ -105,9 +132,10 @@ export function deckCalcLines(i: DeckInputs, title: string, figures?: { section?
   m("d_1\\coloneq h_1-c_t-\\frac{d_{bt}}{2}=", undefined, "in");
   m("M_{r1}\\coloneq1.0\\cdot A_{s1}\\cdot f_y\\cdot\\left(d_1-\\frac{A_{s1}\\cdot f_y}{2\\cdot0.85\\cdot f'_{c}}\\right)=", "φ = 1.0", "kip*ft/ft");
   m(ok("M_{u1}", "M_{r1}"), "Case 1: transverse collision");
-  m(`F_v\\coloneq ${num(i.Fv)}\\mathrm{kip}`, "Vertical design force, T. A13.2-1");
-  m(`L_v\\coloneq ${num(i.Lv)}\\mathrm{ft}`);
-  m(`l_a\\coloneq ${num(i.la)}\\mathrm{ft}`, "Its lever arm");
+  if (r.endCase1) text(`At the rail's ends and joints:- its end zones' closer bars give Mc = ${num(r.endCase1.Mc)} kip·ft/ft and T = ${num(r.endCase1.T)} kip/ft (Eqs. A13.3.1-3, -4), Mu = ${num(r.endCase1.Mu)} against Mr = ${num(r.endCase1.MR)} kip·ft/ft (${r.endCase1.Mu <= r.endCase1.MR ? "OK" : "more top bars or the end diaphragm there"}).`, "note");
+  m(`F_v\\coloneq ${num(a.Fv)}\\mathrm{kip}`, "Vertical design force, T. A13.2-1");
+  m(`L_v\\coloneq ${num(a.Lv)}\\mathrm{ft}`);
+  m(`l_a\\coloneq ${num(a.la)}\\mathrm{ft}`, "Its lever arm, the rail's top to its traffic face");
   m("M_{u2}\\coloneq M_{DC1}+\\frac{F_v\\cdot l_a}{L_v}=", "Case 2, Extreme Event II", "kip*ft/ft");
   m("M_{r2}\\coloneq1.0\\cdot A_{st}\\cdot f_y\\cdot\\left(d_1-\\frac{A_{st}\\cdot f_y}{2\\cdot0.85\\cdot f'_{c}}\\right)=", undefined, "kip*ft/ft");
   m(ok("M_{u2}", "M_{r2}"), "Case 2: vertical collision");
@@ -119,5 +147,6 @@ export function deckCalcLines(i: DeckInputs, title: string, figures?: { section?
   m("d_3\\coloneq h_3-c_t-\\frac{d_{bt}}{2}=", undefined, "in");
   m("M_{r3}\\coloneq0.9\\cdot A_{st}\\cdot f_y\\cdot\\left(d_3-\\frac{A_{st}\\cdot f_y}{2\\cdot0.85\\cdot f'_{c}}\\right)=", undefined, "kip*ft/ft");
   m(ok("M_{u3}", "M_{r3}"), "Case 3: dead and live load");
+  lines.push(...checksSummary([{ checks: r.checks }]));
   return lines;
 }

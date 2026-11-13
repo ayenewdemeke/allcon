@@ -6,6 +6,7 @@ import { DEFAULT_SNAPS, findSnap, type Snap, type SnapKind } from "./snaps";
 import { formatLength, parseAngle, parseLength, parsePointInput } from "./units";
 import { attributeDefs } from "./blocks";
 import { drawingArea, standardScaleBelow, titleBlock, VIEWPORT_LAYER, viewportScaleName } from "./layouts";
+import type { PdfImportReady, PdfImportSettings } from "./pdf-import";
 import { defaultPaper, LW_BYLAYER, type ColorValue, type DrawingData, type Entity, type InsertEntity, type Vec, type ViewportEntity } from "./types";
 
 // The drafting editor without its screen: the view, the cursor with object snaps and polar
@@ -40,7 +41,12 @@ export type DialogRequest =
   | { kind: "purge"; done: (r: null) => void }
   | { kind: "page-setup"; layout: string; done: (r: null) => void }
   | { kind: "plot"; done: (r: null) => void }
-  | { kind: "publish"; done: (r: null) => void };
+  | { kind: "publish"; done: (r: null) => void }
+  | { kind: "pdf-import"; file: string; pages: number; done: (r: PdfImportSettings | null) => void }
+  | { kind: "save-as"; name: string; done: (r: SaveAsRequest | null) => void };
+
+/** Save As: a copy under a new name, as a drawing or a drawing template (DWT), or a DXF download. */
+export type SaveAsRequest = { name: string; type: "drawing" | "template" | "dxf"; description: string };
 
 /** Text being typed in place over the drawing (TEXT, MTEXT, MLEADER, TEXTEDIT). */
 export type TextEditRequest = {
@@ -104,7 +110,11 @@ export class Editor {
     attach: (source: "image" | "pdf") => Promise<Attachment | null>;
     /** Downloads the drawing as DXF. */
     exportDxf: () => void;
-  } = { openPalette: () => {}, attach: async () => null, exportDxf: () => {} };
+    /** Asks for a PDF and how to import it, reads the page and stores its pictures (null: cancelled). */
+    importPdf: () => Promise<PdfImportReady | null>;
+    /** Saves a copy as asked and opens it (or downloads the DXF). */
+    saveAs: (request: SaveAsRequest) => void;
+  } = { openPalette: () => {}, attach: async () => null, exportDxf: () => {}, importPdf: async () => null, saveAs: () => {} };
 
   /** Remembers (or forgets, with undefined) a value commands use, such as the hatch pattern. */
   remember(key: string, value: number | string | boolean | undefined) {

@@ -1,9 +1,17 @@
 import { Fragment, isValidElement, type ReactElement, type ReactNode } from "react";
 import { BearingSketch } from "@/components/design/bearing-sketch";
-import { CollisionSketch } from "@/components/design/collision-sketch";
 import { DeckSketch } from "@/components/design/deck-sketch";
+import { CollisionSketch } from "@/components/design/collision-sketch";
+import { GirderElevation, GirderSketch, HandlingSketch } from "@/components/design/girder-sketch";
 import { HaunchSketch } from "@/components/design/haunch-sketch";
+import { BridgeSectionSketch } from "@/components/design/bridge-section-sketch";
+import { GirderScheduleSketch } from "@/components/design/girder-schedule-sketch";
+import { girderSchedule } from "./girders/schedule";
 import { SignSketch } from "@/components/design/sign-sketch";
+import { StmSketch } from "@/components/design/stm-sketch";
+import { CapDetailSketch } from "@/components/design/cap-detail-sketch";
+import { DetailSketch } from "@/components/design/detail-sketch";
+import type { Takeoff } from "./takeoff/types";
 import { StripSealSketch } from "@/components/design/strip-seal-sketch";
 import { CbcSketch, CipSketch, MseSketch } from "@/components/design/wall-sketch";
 import { WingwallSketch } from "@/components/design/wingwall-sketch";
@@ -14,8 +22,13 @@ import { designCbc, type CbcInputs } from "./culverts/cbc";
 import { designDeck, type DeckInputs } from "./decks/deck";
 import { designStripSeal, type StripSealInputs } from "./joints/strip-seal";
 import { designHaunch, type HaunchInputs } from "./girders/haunch";
+import { designGirder, spanInputs, type GirderInputs } from "./girders/prestressed";
+import { designColumn, type ColumnInputs } from "./piers/column";
+import { ColumnSketch } from "@/components/design/column-sketch";
 import { designCollision, type CollisionInputs } from "./piers/collision";
 import { designSign, type SignInputs } from "./signs/cantilever";
+import type { StmResult } from "./stm/strut-tie";
+import type { CapDetail } from "./stm/detail";
 import { designCipWall, type CipInputs } from "./walls/cip";
 import { designMseWall, type MseInputs } from "./walls/mse";
 import { designWingwall, type WingwallInputs } from "./walls/wingwall";
@@ -84,10 +97,31 @@ export const wingwallFigures = (i: WingwallInputs) => ({ section: figure(<Wingwa
 
 export const deckFigures = (i: DeckInputs) => ({ section: figure(<DeckSketch inputs={i} result={designDeck(i)} />) });
 
+export const columnFigures = (i: ColumnInputs) => ({ section: figure(<ColumnSketch inputs={i} result={designColumn(i)} />) });
+
 export const collisionFigures = (i: CollisionInputs) => ({ section: figure(<CollisionSketch inputs={i} result={designCollision(i)} />) });
 
 export const haunchFigures = (i: HaunchInputs) => ({ section: figure(<HaunchSketch inputs={i} result={designHaunch(i)} />) });
 
+export function girderFigures(i: GirderInputs) {
+  const d = designGirder(i);
+  const si = spanInputs(i, d.controllingSpan); // the worked-out span (its own strands)
+  // The schedule's elevation: the controlling span's girder as the schedule lists it.
+  const sch = girderSchedule(i, d);
+  const row = sch.rows.find((x) => x.span === d.controllingSpan + 1 && x.side === d.controlling) ?? sch.rows[0];
+  const schedule = figure(<GirderScheduleSketch inputs={spanInputs(i, row.span - 1)} shape={d.spans[row.span - 1][row.side].shape} span={row.span} />);
+  return { schedule, bridge: figure(<BridgeSectionSketch inputs={i} />), section: figure(<GirderSketch inputs={si} result={d[d.controlling]} />), elevation: figure(<GirderElevation inputs={si} result={d[d.controlling]} />), ...(d[d.controlling].handling ? { handling: figure(<HandlingSketch inputs={si} result={d[d.controlling]} />) } : {}) };
+}
+
 export const signFigures = (i: SignInputs) => ({ section: figure(<SignSketch inputs={i} result={designSign(i)} />) });
 
 export const stripSealFigures = (i: StripSealInputs) => ({ section: figure(<StripSealSketch inputs={i} result={designStripSeal(i)} />) });
+
+/** The strut-and-tie model, from its solved result (the solve is asynchronous, so it's done first). */
+export const stmFigures = (r: StmResult) => ({ model: figure(<StmSketch result={r} />) });
+
+/** A take-off's views, each a picture. */
+export const takeoffFigures = (t: Takeoff) => t.views.map((v) => figure(<DetailSketch view={v} schedule={t.schedule} />));
+
+/** A standard cap's reinforcement: elevation and sections. */
+export const capDetailFigures = (d: CapDetail) => ({ details: figure(<CapDetailSketch detail={d} />) });

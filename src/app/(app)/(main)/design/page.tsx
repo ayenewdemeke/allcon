@@ -15,6 +15,8 @@ export default async function DesignPage() {
   const designs = await db.design.findMany({ where: { orgId: user.orgId }, orderBy: { updatedAt: "desc" }, include: { project: { select: { id: true, name: true } } } });
   const categories = CATEGORIES.map((c) => ({ id: c.id, name: c.name, kinds: c.kinds.map((k) => ({ id: k.id, name: k.name, short: k.short, available: k.available })) }));
   const categoryOf = (kind: string) => CATEGORIES.find((c) => c.kinds.some((k) => k.id === kind))?.id ?? "other";
+  const order = CATEGORIES.flatMap((c) => c.kinds.map((k) => k.id as string));
+  const kindOrder = (kind: string) => (order.includes(kind) ? order.indexOf(kind) : order.length); // unknown kinds last
 
   return (
     <PageBody>
@@ -29,7 +31,7 @@ export default async function DesignPage() {
       ) : (
         <>
           <DesignList
-            designs={designs.map((d) => ({ id: d.id, name: d.name, kindName: kindInfo(d.kind)?.name ?? d.kind, category: categoryOf(d.kind), project: d.project, updatedAt: d.updatedAt.toISOString() }))}
+            designs={designs.map((d) => ({ id: d.id, name: d.name, kind: d.kind, kindName: kindInfo(d.kind)?.name ?? d.kind, kindOrder: kindOrder(d.kind), category: categoryOf(d.kind), project: d.project, updatedAt: d.updatedAt.toISOString() }))}
             categories={categories}
           />
           <details className="group rounded-lg border bg-card px-4 py-2">

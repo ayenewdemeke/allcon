@@ -12,7 +12,8 @@ import { uprightUnits, type Result } from "./evaluate";
 import { SHAPES_SOURCE } from "./library/shapes";
 import { regionHeight } from "./library/templates";
 import { textLook } from "./text-format";
-import { contentSize, DEFAULT_GRID, gridStep, PAGES, type CalcData, type Region, type TextFont } from "./types";
+import { boldVerdict, GRID_MAJOR, GRID_MINOR, majorEvery, MATH_SIZE, mathColor, showMajor, styleUnits } from "./look";
+import { contentSize, DEFAULT_GRID, gridStep, PAGES, type CalcData, type Grid, type Region, type TextFont } from "./types";
 
 // A worksheet as a PDF, laid out as it prints from the editor: the calc paper's header on each
 // page and the regions where they're placed. Math is set by MathJax and drawn as vector outlines,
@@ -179,7 +180,7 @@ const forPdf = (svg: string) =>
     .replace(/^<svg([^>]*?) font-family="[^"]*"/, "<svg$1")
     .replace("<svg ", '<svg font-family="Helvetica" ');
 
-function drawRegion(s: Sheet, r: Region, result: Result | undefined, x: number, y: number, maxWidth: number) {
+function drawRegion(s: Sheet, r: Region, result: Result | undefined, x: number, y: number, maxWidth: number, grid: Grid) {
   const err = (message: string, at: number) => s.text(message, x + 4, at, 10, { color: "#dc2626" });
   switch (r.kind) {
     case "text": {
@@ -197,9 +198,10 @@ function drawRegion(s: Sheet, r: Region, result: Result | undefined, x: number, 
       const ok = result?.kind === "ok" ? result : null;
       // A check's verdict in its color (OK green, NG red).
       const verdict = verdictColor(ok?.result);
-      const value = ok?.result && verdict ? `\\textcolor{${verdict}}{${ok.result}}` : ok?.result;
-      const shown = (value ? `${uprightUnits(r.latex, ok?.units ?? [])}${value}` : uprightUnits(r.latex, ok?.units ?? [])) || "\\square";
-      const m = setMath(shown, 16, result?.kind === "error" && !result.incomplete ? "#b91c1c" : (r.color ?? undefined));
+      const value = ok?.result && verdict ? `\\textcolor{${verdict}}{${boldVerdict(ok.result)}}` : ok?.result && styleUnits(ok.result);
+      const body = styleUnits(uprightUnits(r.latex, ok?.units ?? []));
+      const shown = (value ? `${body}${value}` : body) || "\\square";
+      const m = setMath(shown, MATH_SIZE, result?.kind === "error" && !result.incomplete ? "#b91c1c" : mathColor(r, grid));
       if (m) s.math(m, x + 4, y + 2);
       else s.text(r.latex, x + 4, y + 2, 12, { color: "#b91c1c" });
       if (result?.kind === "error" && !result.incomplete) err(result.message, y + 4 + (m?.height ?? 16));
@@ -342,23 +344,28 @@ export async function calcPdf(data: CalcData, results: Map<string, Result>, opti
   }
   const p = PAGES[data.paper];
   const content = contentSize(data.paper);
+  const grid = data.grid ?? DEFAULT_GRID;
   const bottom = Math.max(0, ...data.regions.map((r) => r.y + regionHeight(r) - 8));
   const pages = Math.max(1, Math.floor(bottom / content.height) + 1);
   const sheets = Array.from({ length: pages }, (_, i) => {
     const sheet = new Sheet(pdf.addPage([p.width * K, p.height * K]), fonts, p.height);
     drawHeader(sheet, data, i + 1, pages);
-    const grid = data.grid ?? DEFAULT_GRID;
     if (grid.show) {
-      // Mathcad's gridlines print when they're shown.
+      // Mathcad's gridlines print when they're shown: light blue, the major ones darker, drawn over.
       const step = gridStep(data.paper, grid);
-      for (let x = 0; x <= content.width + 0.01; x += step) sheet.line(p.left + x, p.top, p.left + x, p.top + content.height, "#dbe2ea", 0.5);
-      for (let y = 0; y <= content.height + 0.01; y += step) sheet.line(p.left, p.top + y, p.left + content.width, p.top + y, "#dbe2ea", 0.5);
+      const every = showMajor(grid) ? majorEvery(data.paper, grid) : 0;
+      for (const major of every ? [false, true] : [false]) {
+        for (let i = 0, x = 0; x <= content.width + 0.01; i++, x += step)
+          if (!major || i % every === 0) sheet.line(p.left + x, p.top, p.left + x, p.top + content.height, major ? GRID_MAJOR : GRID_MINOR, major ? 0.75 : 0.5);
+        for (let i = 0, y = 0; y <= content.height + 0.01; i++, y += step)
+          if (!major || i % every === 0) sheet.line(p.left, p.top + y, p.left + content.width, p.top + y, major ? GRID_MAJOR : GRID_MINOR, major ? 0.75 : 0.5);
+      }
     }
     return sheet;
   });
   for (const r of data.regions) {
     const page = Math.min(pages - 1, Math.floor(r.y / content.height));
-    drawRegion(sheets[page], r, results.get(r.id), p.left + r.x, p.top + r.y - page * content.height, content.width - r.x);
+    drawRegion(sheets[page], r, results.get(r.id), p.left + r.x, p.top + r.y - page * content.height, content.width - r.x, grid);
   }
   return { bytes: await pdf.save(), pages, width: p.width * K, height: p.height * K };
 }

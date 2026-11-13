@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useImperativeHandle, useRef, useState } from "react";
 import { newId, type CalcDocument } from "@/lib/calcs/document";
 import type { Result } from "@/lib/calcs/evaluate";
+import { GRID_MAJOR, GRID_MINOR, majorEvery, showMajor } from "@/lib/calcs/look";
 import { greekify } from "@/lib/calcs/parse";
 import { stepSize, textLook, textMiddle, type TextFormat, type TextLook } from "@/lib/calcs/text-format";
 import { contentSize, gridStep, PAGES, type Header, type MathRegion, type PlotRegion, type Region, type SectionRegion, type SolveRegion, type TableRegion, type TextRegion } from "@/lib/calcs/types";
@@ -124,6 +125,7 @@ export function Worksheet({
   const content = contentSize(doc.paper);
   // Regions snap to the worksheet's grid, shown or not (as in Mathcad).
   const step = gridStep(doc.paper, doc.grid);
+  const major = majorEvery(doc.paper, doc.grid);
   const snap = (v: number) => Math.max(0, Math.round(v / step) * step);
   const below = (v: number) => Math.ceil(v / step) * step;
   const regions = [...doc.regions.values()];
@@ -631,10 +633,14 @@ export function Worksheet({
                   <svg className="pointer-events-none absolute inset-0" width={content.width} height={content.height} aria-hidden>
                     <defs>
                       <pattern id={`calc-grid-${p}`} width={step} height={step} patternUnits="userSpaceOnUse">
-                        <path d={`M ${step} 0 L 0 0 0 ${step}`} fill="none" stroke="#dbe2ea" strokeWidth="0.75" />
+                        <path d={`M ${step} 0 L 0 0 0 ${step}`} fill="none" stroke={GRID_MINOR} strokeWidth="0.75" />
+                      </pattern>
+                      <pattern id={`calc-major-${p}`} width={step * major} height={step * major} patternUnits="userSpaceOnUse">
+                        <path d={`M ${step * major} 0 L 0 0 0 ${step * major}`} fill="none" stroke={GRID_MAJOR} strokeWidth="1" />
                       </pattern>
                     </defs>
                     <rect width="100%" height="100%" fill={`url(#calc-grid-${p})`} />
+                    {showMajor(doc.grid) && <rect width="100%" height="100%" fill={`url(#calc-major-${p})`} />}
                   </svg>
                 )}
                 {regions
@@ -660,6 +666,7 @@ export function Worksheet({
                             ml={ml}
                             region={drafts.has(r.id) ? { ...r, latex: drafts.get(r.id)! } : r}
                             result={results.get(r.id)}
+                            grid={doc.grid}
                             editing={editing === r.id}
                             selected={selection.has(r.id)}
                             fieldRef={fieldRef}

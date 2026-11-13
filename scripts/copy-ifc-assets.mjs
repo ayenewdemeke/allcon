@@ -13,6 +13,10 @@ const copies = [
   ["node_modules/three/examples/jsm/libs/draco/gltf/draco_decoder.js", "public/draco/draco_decoder.js"],
   ["node_modules/three/examples/jsm/libs/draco/gltf/draco_decoder.wasm", "public/draco/draco_decoder.wasm"],
   ["node_modules/three/examples/jsm/libs/draco/gltf/draco_wasm_wrapper.js", "public/draco/draco_wasm_wrapper.js"],
+  // The HiGHS linear-programming solver the strut-and-tie design runs in the browser.
+  // Its script is served as is (not bundled): it reaches for Node's fs only when run in Node.
+  ["node_modules/highs/build/highs.js", "public/wasm/highs.js"],
+  ["node_modules/highs/build/highs.wasm", "public/wasm/highs.wasm"],
 ];
 
 for (const [from, to] of copies) {

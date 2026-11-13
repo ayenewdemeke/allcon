@@ -1,15 +1,18 @@
 import type { Line } from "@/lib/calcs/library/templates";
-import { COLOR_NOTE, INPUT_COLOR, isInput } from "../calc-style";
+import { checksSummary } from "../checks-summary";
+import { COLOR_NOTE, INPUT_COLOR, isInput, num } from "../calc-style";
 import type { Figure } from "../figures";
 import { BARS } from "../walls/cip";
-import { CASES, combos, designCbc, type CaseId, type CbcInputs, type Face } from "./cbc";
+import { sumLines } from "@/lib/calcs/library/fit";
+import { textTable, wrap } from "../svg-table";
+import { CASES, CHECK_GROUPS, checkGroup, combos, designCbc, type CaseId, type CbcInputs, type Face } from "./cbc";
+import { m60120Wingwall } from "./m601-20";
 
 // A box culvert design as a Calcs worksheet: the loads as live math, the frame analysis's
 // unfactored moments at each governing section (the one step Calcs can't do), then the load
 // combinations and every check worked out live (AASHTO LRFD 12.11).
 // Moments per foot strip in kip·in, steel in in² per foot (b = 12 in).
 
-const num = (v: number, d = 6) => String(+v.toFixed(d));
 const ok = (demand: string, capacity: string) => `\\operatorname{if}\\left(${demand}\\le ${capacity},\\text{OK},\\text{NG}\\right)=`;
 /** A load factor with its η: 1.30·η, 0.90/η, or a number. */
 function factorTex(f: number, eta: number) {
@@ -21,7 +24,7 @@ const CASE_TEX: Record<CaseId | "LL", string> = { DC: "DC", EV: "EV", EHmax: "EH
 
 export function cbcCalcLines(i: CbcInputs, title: string, figures?: { section?: Figure; moments?: Figure }): Line[] {
   const lines: Line[] = [];
-  const text = (t: string, style?: "heading" | "subheading" | "note") => lines.push({ text: t, ...(style ? { style } : {}) });
+  const text = (t: string, style?: "heading" | "subheading" | "note", keepWithNext?: boolean) => lines.push({ text: t, ...(style ? { style } : {}), ...(keepWithNext ? { keepWithNext } : {}) });
   const m = (math: string, ref?: string, unit?: string) => lines.push({ math, ...(ref ? { ref } : {}), ...(unit ? { unit } : {}), ...(math.length > 110 && ref ? { wide: true } : {}), ...(isInput(math) ? { color: INPUT_COLOR } : {}) });
   /** A value from the analysis (not entered): not in the inputs' color. */
   const given = (math: string, ref?: string) => lines.push({ math, ...(ref ? { ref } : {}) });
@@ -151,7 +154,9 @@ export function cbcCalcLines(i: CbcInputs, title: string, figures?: { section?: 
   const combination = (target: string, key: string, comboId: string, effect: "M" | "N") => {
     const c = C.find((x) => x.id === comboId)!;
     const terms = (["DC", "EV", "LL", "EHmax", "EHmin", "LS", "WA"] as const).filter((k) => c.f[k]).map((k) => `${factorTex(c.f[k], i.eta)}\\cdot ${effect}_{${CASE_TEX[k]}${key}}`);
-    m(`${target}\\coloneq ${terms.join("+")}=`, c.name, effect === "M" ? "kip*in" : "kip");
+    // On as many lines as it takes to stay on the page (its parts, then their sum).
+    const [, base, sub] = target.match(/^(\w+)_\{(.+)\}$/)!;
+    lines.push(...sumLines(base, sub, terms, { ref: c.name, unit: effect === "M" ? "kip*in" : "kip" }));
   };
 
   const keyOf = (g: { kind: string; key: string }) => `${g.kind[0]}${g.key[0]}`; // ti, to, bi, bo, wi, wo, ie
@@ -171,7 +176,18 @@ export function cbcCalcLines(i: CbcInputs, title: string, figures?: { section?: 
     sectionValues(k, f.index, "M", f.u.ll);
     combination(`M_{u${k}}`, k, f.combo, "M");
     m(`h_{${k}}\\coloneq ${num(g.h)}\\mathrm{in}`, "Member thickness");
-    if (g.steel.bars) {
+    if (g.steel.bars && g.steel.corner) {
+      // At the slab's end: t1 (or b1) and the corner bar c1 (or c2) lapped with it (M-601-1).
+      const bar = BARS[g.steel.bars.bar];
+      const cb = BARS[g.steel.corner.bar];
+      const big = bar.dia >= cb.dia ? g.steel.bars : g.steel.corner;
+      text(`Outside face at the slab's end: ${g.kind === "top" ? "t1" : "b1"} #${g.steel.bars.bar} @ ${g.steel.bars.spacing}" and the corner bar ${g.kind === "top" ? "c1" : "c2"} #${g.steel.corner.bar} @ ${g.steel.corner.spacing}" bent into the slab from the wall's outside face (M-601-1 Section B-B).`, "note");
+      m(`${db}\\coloneq ${num(BARS[big.bar].dia)}\\mathrm{in}`, `#${big.bar} bars, the larger`);
+      m(`${sp}\\coloneq ${num(Math.max(g.steel.bars.spacing, g.steel.corner.spacing))}\\mathrm{in}`, "Bar spacing, each set");
+      m(ok(sp, `\\min\\left(1.5\\cdot h_{${k}},18\\mathrm{in}\\right)`), "Maximum spacing, AASHTO 5.10.3.2");
+      m(`d_{${k}}\\coloneq h_{${k}}-c_{c}-\\frac{${db}}{2}=`, "Effective depth", "in");
+      m(`A_{s${k}}\\coloneq\\frac{${num(bar.area)}\\mathrm{in}^{2}\\cdot b}{${num(g.steel.bars.spacing)}\\mathrm{in}}+\\frac{${num(cb.area)}\\mathrm{in}^{2}\\cdot b}{${num(g.steel.corner.spacing)}\\mathrm{in}}=`, "Provided, per foot: both sets", "in^2");
+    } else if (g.steel.bars) {
       const bar = BARS[g.steel.bars.bar];
       m(`${db}\\coloneq ${num(bar.dia)}\\mathrm{in}`, `#${g.steel.bars.bar} bars`);
       m(`${sp}\\coloneq ${num(g.steel.bars.spacing)}\\mathrm{in}`, "Bar spacing");
@@ -185,7 +201,10 @@ export function cbcCalcLines(i: CbcInputs, title: string, figures?: { section?: 
     m(`a_{${k}}\\coloneq\\frac{A_{s${k}}\\cdot f_y}{0.85\\cdot f'_{c}\\cdot b}=`, undefined, "in");
     m(`M_{r${k}}\\coloneq\\phi_f\\cdot A_{s${k}}\\cdot f_y\\cdot\\left(d_{${k}}-\\frac{a_{${k}}}{2}\\right)=`, "AASHTO 5.6.3.2", "kip*in");
     m(ok(`\\left|M_{u${k}}\\right|`, `M_{r${k}}`), "Flexure");
-    m(`A_{q${k}}\\coloneq\\frac{\\phi_f\\cdot f_y\\cdot d_{${k}}-\\sqrt{\\left(\\phi_f\\cdot f_y\\cdot d_{${k}}\\right)^{2}-4\\cdot\\frac{\\phi_f\\cdot f_y^{2}}{1.7\\cdot f'_{c}\\cdot b}\\cdot\\left|M_{u${k}}\\right|}}{2\\cdot\\frac{\\phi_f\\cdot f_y^{2}}{1.7\\cdot f'_{c}\\cdot b}}=`, "Steel needed for flexure", "in^2");
+    // φ As fy (d − As fy / (1.7 f'c b)) = Mu, solved for As: its two coefficients first.
+    m(`P_{q${k}}\\coloneq\\phi_f\\cdot f_y\\cdot d_{${k}}=`, undefined, "kip/in");
+    m(`K_{q${k}}\\coloneq\\frac{\\phi_f\\cdot f_y^{2}}{1.7\\cdot f'_{c}\\cdot b}=`);
+    m(`A_{q${k}}\\coloneq\\frac{P_{q${k}}-\\sqrt{P_{q${k}}^{2}-4\\cdot K_{q${k}}\\cdot\\left|M_{u${k}}\\right|}}{2\\cdot K_{q${k}}}=`, "Steel needed for flexure", "in^2");
     m(ok(`0.002\\cdot b\\cdot h_{${k}}`, `A_{s${k}}`), "Minimum, AASHTO 12.11.4.3.2");
     m(`c_{n${k}}\\coloneq\\frac{A_{s${k}}\\cdot f_y}{0.85\\cdot f'_{c}\\cdot\\beta_1\\cdot b}=`, undefined, "in");
     m(ok(`\\frac{c_{n${k}}}{d_{${k}}}`, num(r.cdMax)), "Tension controlled, AASHTO 5.6.2.1");
@@ -198,17 +217,29 @@ export function cbcCalcLines(i: CbcInputs, title: string, figures?: { section?: 
       sectionValues(ks, cr.index, "N", cr.s!.ll);
       combination(`M_{s${k}}`, ks, cr.serCombo!, "M");
       combination(`N_{s${k}}`, ks, cr.serCombo!, "N");
-      m(`d_{c${k}}\\coloneq c_{c}+\\frac{${db}}{2}=`, undefined, "in");
+      // Crack control at a section with other steel than flexure's (a slab's end with its corner bar, or not): its own.
+      const other = Math.abs(cr.steel.As - f.steel.As) > 1e-9;
+      const As = other ? `A_{s${k}c}` : `A_{s${k}}`;
+      const dd = other ? `d_{${k}c}` : `d_{${k}}`;
+      const ss = other ? `s_{${k}c}` : sp;
+      const dbb = other ? `d_{b${k}c}` : db;
+      if (other) {
+        given(`${dbb}\\coloneq ${num(cr.steel.db)}\\mathrm{in}`, cr.steel.corner ? "With the corner bar: the larger" : "The face's bars");
+        given(`${ss}\\coloneq ${num(cr.steel.s)}\\mathrm{in}`, "Bar spacing");
+        m(`${dd}\\coloneq h_{${k}}-c_{c}-\\frac{${dbb}}{2}=`, "Effective depth", "in");
+        given(`${As}\\coloneq ${num(cr.steel.As, 8)}\\mathrm{in}^{2}`, cr.steel.corner ? "Provided here, with the corner bar" : "Provided here");
+      }
+      m(`d_{c${k}}\\coloneq c_{c}+\\frac{${dbb}}{2}=`, undefined, "in");
       m(`\\beta_{s${k}}\\coloneq1+\\frac{d_{c${k}}}{0.7\\cdot\\left(h_{${k}}-d_{c${k}}\\right)}=`, "AASHTO 5.6.7");
-      m(`f_{ss${k}}\\coloneq\\min\\left(\\frac{700\\cdot${num(i.gammaE)}\\cdot\\frac{\\mathrm{kip}}{\\mathrm{in}}}{\\beta_{s${k}}\\cdot\\left(${sp}+2\\cdot d_{c${k}}\\right)},0.6\\cdot f_y\\right)=`, `Allowable stress, AASHTO Eq. 5.6.7-1 (γe = ${num(i.gammaE)})`, "ksi");
+      m(`f_{ss${k}}\\coloneq\\min\\left(\\frac{700\\cdot${num(i.gammaE)}\\cdot\\frac{\\mathrm{kip}}{\\mathrm{in}}}{\\beta_{s${k}}\\cdot\\left(${ss}+2\\cdot d_{c${k}}\\right)},0.6\\cdot f_y\\right)=`, `Allowable stress, AASHTO Eq. 5.6.7-1 (γe = ${num(i.gammaE)})`, "ksi");
       if (cr.crack!.thrust) {
-        m(`e_{${k}}\\coloneq\\frac{\\left|M_{s${k}}\\right|}{N_{s${k}}}+d_{${k}}-\\frac{h_{${k}}}{2}=`, "AASHTO C12.11.3", "in");
-        m(`j_{${k}}\\coloneq\\min\\left(0.9,0.74+0.1\\cdot\\frac{e_{${k}}}{d_{${k}}}\\right)=`);
-        m(`i_{${k}}\\coloneq\\frac{1}{1-\\frac{j_{${k}}\\cdot d_{${k}}}{e_{${k}}}}=`);
-        m(`f_{s${k}}\\coloneq\\frac{\\left|M_{s${k}}\\right|+N_{s${k}}\\cdot\\left(d_{${k}}-\\frac{h_{${k}}}{2}\\right)}{A_{s${k}}\\cdot j_{${k}}\\cdot i_{${k}}\\cdot d_{${k}}}=`, "AASHTO Eq. C12.11.3-1", "ksi");
-      } else m(`f_{s${k}}\\coloneq\\frac{\\left|M_{s${k}}\\right|}{A_{s${k}}\\cdot0.9\\cdot d_{${k}}}=`, cr.Ns > 1e-9 ? "e/d under 1.15: the thrust's benefit left out" : "No thrust", "ksi");
+        m(`e_{${k}}\\coloneq\\frac{\\left|M_{s${k}}\\right|}{N_{s${k}}}+${dd}-\\frac{h_{${k}}}{2}=`, "AASHTO C12.11.3", "in");
+        m(`j_{${k}}\\coloneq\\min\\left(0.9,0.74+0.1\\cdot\\frac{e_{${k}}}{${dd}}\\right)=`);
+        m(`i_{${k}}\\coloneq\\frac{1}{1-\\frac{j_{${k}}\\cdot ${dd}}{e_{${k}}}}=`);
+        m(`f_{s${k}}\\coloneq\\frac{\\left|M_{s${k}}\\right|+N_{s${k}}\\cdot\\left(${dd}-\\frac{h_{${k}}}{2}\\right)}{${As}\\cdot j_{${k}}\\cdot i_{${k}}\\cdot ${dd}}=`, "AASHTO Eq. C12.11.3-1", "ksi");
+      } else m(`f_{s${k}}\\coloneq\\frac{\\left|M_{s${k}}\\right|}{${As}\\cdot0.9\\cdot ${dd}}=`, cr.Ns > 1e-9 ? "e/d under 1.15: the thrust's benefit left out" : "No thrust", "ksi");
       m(ok(`f_{s${k}}`, `f_{ss${k}}`), "Crack control");
-      m(`A_{c${k}}\\coloneq A_{s${k}}\\cdot\\frac{f_{s${k}}}{f_{ss${k}}}=`, "Steel needed for crack control, about (at this spacing)", "in^2");
+      m(`A_{c${k}}\\coloneq ${As}\\cdot\\frac{f_{s${k}}}{f_{ss${k}}}=`, "Steel needed for crack control, about (at this spacing)", "in^2");
     }
 
     // Shear and thrust, after the member's last face.
@@ -234,14 +265,18 @@ export function cbcCalcLines(i: CbcInputs, title: string, figures?: { section?: 
       if (s.rule === "slab") {
         m(`r_{${kv}}\\coloneq\\min\\left(1,\\frac{V_{u${kv}}\\cdot d_{${kv}}}{M_{u${kv}}}\\right)=`);
         m(`V_{c${kv}}\\coloneq\\phi_v\\cdot\\left(0.0676\\cdot\\sqrt{\\frac{f'_{c}}{\\mathrm{ksi}}}\\cdot\\mathrm{ksi}+4.6\\cdot\\frac{A_{s${kv}}}{b\\cdot d_{${kv}}}\\cdot r_{${kv}}\\cdot\\mathrm{ksi}\\right)\\cdot b\\cdot d_{${kv}}=`, "AASHTO Eq. 5.12.7.3-1", "kip");
-        m(`V_{r${kv}}\\coloneq\\min\\left(\\max\\left(V_{c${kv}},\\phi_v\\cdot0.0948\\cdot\\sqrt{\\frac{f'_{c}}{\\mathrm{ksi}}}\\cdot\\mathrm{ksi}\\cdot b\\cdot d_{${kv}}\\right),\\phi_v\\cdot0.126\\cdot\\sqrt{\\frac{f'_{c}}{\\mathrm{ksi}}}\\cdot\\mathrm{ksi}\\cdot b\\cdot d_{${kv}}\\right)=`, "Monolithic with the walls: 0.0948√f'c min., 0.126√f'c max.", "kip");
+        m(`V_{l${kv}}\\coloneq\\phi_v\\cdot0.0948\\cdot\\sqrt{\\frac{f'_{c}}{\\mathrm{ksi}}}\\cdot\\mathrm{ksi}\\cdot b\\cdot d_{${kv}}=`, "Monolithic with the walls: the least, 0.0948√f'c", "kip");
+        m(`V_{h${kv}}\\coloneq\\phi_v\\cdot0.126\\cdot\\sqrt{\\frac{f'_{c}}{\\mathrm{ksi}}}\\cdot\\mathrm{ksi}\\cdot b\\cdot d_{${kv}}=`, "The most, 0.126√f'c", "kip");
+        m(`V_{r${kv}}\\coloneq\\min\\left(\\max\\left(V_{c${kv}},V_{l${kv}}\\right),V_{h${kv}}\\right)=`, "AASHTO 5.12.7.3", "kip");
       } else {
         m(`a_{${kv}}\\coloneq\\frac{A_{s${kv}}\\cdot f_y}{0.85\\cdot f'_{c}\\cdot b}=`, undefined, "in");
         m(`d_{v${kv}}\\coloneq\\max\\left(0.72\\cdot h_{${kv}},0.9\\cdot d_{${kv}},d_{${kv}}-\\frac{a_{${kv}}}{2}\\right)=`, "AASHTO 5.7.2.8", "in");
         m(`\\varepsilon_{s${kv}}\\coloneq\\frac{\\frac{\\max\\left(M_{u${kv}},V_{u${kv}}\\cdot d_{v${kv}}\\right)}{d_{v${kv}}}+V_{u${kv}}}{E_s\\cdot A_{s${kv}}}=`, "AASHTO Eq. 5.7.3.4.2-4 (no benefit from thrust)");
         m(`s_{xe${kv}}\\coloneq\\max\\left(12\\mathrm{in},\\min\\left(80\\mathrm{in},d_{v${kv}}\\cdot\\frac{1.38}{${num(i.agg)}+0.63}\\right)\\right)=`, undefined, "in");
         m(`\\beta_{${kv}}\\coloneq\\max\\left(\\frac{4.8}{1+750\\cdot\\varepsilon_{s${kv}}}\\cdot\\frac{51}{39+\\frac{s_{xe${kv}}}{\\mathrm{in}}},${s.h <= 16 ? 2 : 0}\\right)=`, "General procedure (5.7.3.4.2), or 2.0 (simplified, h ≤ 16 in, 5.7.3.4.1): the greater");
-        m(`V_{r${kv}}\\coloneq\\min\\left(\\phi_v\\cdot0.0316\\cdot\\beta_{${kv}}\\cdot\\sqrt{\\frac{f'_{c}}{\\mathrm{ksi}}}\\cdot\\mathrm{ksi}\\cdot b\\cdot d_{v${kv}},\\phi_v\\cdot0.25\\cdot f'_{c}\\cdot b\\cdot d_{v${kv}}\\right)=`, "AASHTO 5.7.3.3", "kip");
+        m(`V_{c${kv}}\\coloneq\\phi_v\\cdot0.0316\\cdot\\beta_{${kv}}\\cdot\\sqrt{\\frac{f'_{c}}{\\mathrm{ksi}}}\\cdot\\mathrm{ksi}\\cdot b\\cdot d_{v${kv}}=`, "AASHTO Eq. 5.7.3.3-3", "kip");
+        m(`V_{m${kv}}\\coloneq\\phi_v\\cdot0.25\\cdot f'_{c}\\cdot b\\cdot d_{v${kv}}=`, "The most, AASHTO Eq. 5.7.3.3-2", "kip");
+        m(`V_{r${kv}}\\coloneq\\min\\left(V_{c${kv}},V_{m${kv}}\\right)=`, "AASHTO 5.7.3.3", "kip");
       }
       m(ok(`V_{u${kv}}`, `V_{r${kv}}`), "Shear");
     }
@@ -253,5 +288,74 @@ export function cbcCalcLines(i: CbcInputs, title: string, figures?: { section?: 
       m(ok(`P_{u${kt}}`, `${num(i.phiC)}\\cdot0.10\\cdot f'_{c}\\cdot b\\cdot${num(t.h)}\\mathrm{in}`), "Axial load below 0.10 φ f'c Ag: designed for flexure (AASHTO 5.6.4.5)");
     }
   });
+
+  // --- wingwalls by M-601-20 -------------------------------------------------------------------
+  const walls = i.wingwalls ?? [];
+  if (walls.length) {
+    text("Wingwalls, CDOT Standard Plan M-601-20", "subheading");
+    text("Standard wingwalls for pipe or box culverts: not designed here. Sheet 2's table gives the c-bars and the reinforcing steel per foot (stem and footing, not the toe wall) by m and k rounded to the nearest foot and L as a multiple of m, rounded up to the next column; Sheet 1 gives the footing and concrete per foot by h, stepped along the wall.", "note");
+    const ws = walls.map((w) => ({ w, r: m60120Wingwall(w) }));
+    const f3 = (x: number) => (+x.toFixed(3)).toString();
+    text("Lookup, Sheet 2 (steel) and Sheet 1 (concrete, footing, toe wall):", "note", true);
+    lines.push({
+      region: textTable(
+        [
+          { title: "Wall", x: 4 },
+          { title: ["m", "ft"], x: 70, anchor: "end" },
+          { title: ["k", "ft"], x: 112, anchor: "end" },
+          { title: ["m / k", "used"], x: 160, anchor: "end" },
+          { title: ["L", "ft"], x: 206, anchor: "end" },
+          { title: "L / m", x: 248, anchor: "end" },
+          { title: "Column", x: 258 },
+          { title: "c-bars", x: 330 },
+          { title: ["Steel", "lb/LF"], x: 440, anchor: "end" },
+          { title: ["Steel", "lb"], x: 494, anchor: "end" },
+          { title: ["Concrete", "CY"], x: 556, anchor: "end" },
+          { title: "Toe wall", x: 566 },
+        ],
+        ws.map(({ w, r: x }) => [
+          w.name,
+          f3(w.m),
+          f3(w.k),
+          `${x.mR} / ${x.kR}`,
+          f3(w.L),
+          x.ratio.toFixed(3),
+          x.colLabel.replace("L ", ""),
+          x.cell ? `#${x.cell.cBars.bar} @ ${x.cell.cBars.spacing}"` : "Special design",
+          x.cell ? x.cell.lbPerLf.toFixed(2) : "—",
+          x.cell ? x.rebar.toFixed(1) : "—",
+          x.concrete.toFixed(3),
+          x.toe ? `${x.toe.cy.toFixed(3)} CY, ${x.toe.lb.toFixed(1)} lb` : "None",
+        ]),
+        720,
+        undefined,
+        ws.map(({ r: x }) => (x.inTable ? undefined : "#b91c1c")),
+      ),
+    });
+    lines.push({
+      region: textTable(
+        [
+          { title: "Wall", x: 4 },
+          { title: "Concrete by h along the wall (Sheet 1: length × CY/LF)", x: 70 },
+          { title: "Footing at the barrel", x: 470 },
+        ],
+        ws.map(({ w, r: x }) => [
+          w.name,
+          wrap(x.segments.map((s) => `${f3(s.length)} ft at h ${s.h} (${s.cyPerLf})`).join(", "), 64),
+          x.footing ? wrap(`h ${x.footing.h}: a ${x.footing.a}, b ${x.footing.b}, w ${x.footing.w}, d-bars #${x.footing.d.replace("@", " @ ")}"${x.drain ? "; drain required (note 6)" : ""}`, 40) : "—",
+        ]),
+        720,
+      ),
+    });
+    text("Steel of each wall, Sheet 2 step 4: its length × the table's lb per foot.", "note", true);
+    ws.forEach(({ w, r: x }, n) => {
+      if (!x.cell) return;
+      m(`W_{w${n + 1}}\\coloneq ${num(w.L)}\\mathrm{ft}\\cdot ${num(x.cell.lbPerLf)}\\frac{\\mathrm{lb}}{\\mathrm{ft}}=`, `${w.name}: m = ${x.mR}, k = ${x.kR}, ${x.colLabel}`, "lb");
+    });
+    for (const { w, r: x } of ws) if (!x.inTable) text(`${w.name}: ${x.issues.join(" ")}`, "note");
+  }
+  // The summary in groups, as the design tool lists them: each member, then the wingwalls.
+  const groups = CHECK_GROUPS.map((title) => ({ title, checks: r.checks.filter((c) => checkGroup(c.id) === title) })).filter((g) => g.checks.length);
+  lines.push(...checksSummary(groups));
   return lines;
 }

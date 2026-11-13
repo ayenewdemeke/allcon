@@ -130,6 +130,7 @@ export function SheetWorkspace({
   initialUnitSystem,
   lineItems,
   author,
+  focus,
 }: {
   projectId: string;
   sheet: SheetInfo;
@@ -138,6 +139,8 @@ export function SheetWorkspace({
   initialUnitSystem: UnitSystem;
   lineItems: SheetLineItem[];
   author: string;
+  /** A box to zoom to and outline (from a link, e.g. a design value's source on the plans). */
+  focus?: [number, number, number, number] | null;
 }) {
   const router = useRouter();
   const [panelOpen, togglePanel] = usePanelOpen("conkit.sheetPanel");
@@ -307,6 +310,7 @@ export function SheetWorkspace({
     const c = new SheetController(el, pdfUrl, initialSheet.pageIndex + 1, initialSheet.height, {
       onReady: () => {
         c.loadShapes(initialMarkups);
+        if (focus) c.focusBox(focus);
         setReady(true);
       },
       onError: setLoadError,
@@ -575,6 +579,12 @@ export function SheetWorkspace({
               }}
               onMove={moveMarkup}
               onMoveEnd={(id, points) => void patchMarkup(id, { points })}
+            />
+          )}
+          {ready && focus && view.zoom > 0 && (
+            <div
+              className="pointer-events-none absolute z-10 rounded-sm border-2 border-amber-500 bg-amber-300/25"
+              style={{ left: view.tx + (focus[0] - 3) * view.zoom, top: view.ty + (focus[1] - 3) * view.zoom, width: (focus[2] - focus[0] + 6) * view.zoom, height: (focus[3] - focus[1] + 6) * view.zoom }}
             />
           )}
           {!ready && !loadError && (

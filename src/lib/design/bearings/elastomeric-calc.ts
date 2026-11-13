@@ -1,12 +1,12 @@
 import type { Line } from "@/lib/calcs/library/templates";
-import { COLOR_NOTE, INPUT_COLOR, isInput } from "../calc-style";
+import { checksSummary } from "../checks-summary";
+import { COLOR_NOTE, INPUT_COLOR, isInput, num } from "../calc-style";
 import type { Figure } from "../figures";
 import { designBearing, HARDNESS, type BearingInputs } from "./elastomeric";
 
 // An elastomeric bearing design as a Calcs worksheet: inputs as definitions and every step as live
 // math with its AASHTO reference, worked out by Calcs independently of the design engine.
 
-const num = (v: number) => String(+v.toFixed(6));
 const ok = (demand: string, capacity: string) => `\\operatorname{if}\\left(${demand}\\le ${capacity},\\text{OK},\\text{NG}\\right)=`;
 
 export function bearingCalcLines(i: BearingInputs, title: string, figures?: { section?: Figure }): Line[] {
@@ -187,5 +187,6 @@ export function bearingCalcLines(i: BearingInputs, title: string, figures?: { se
     m("\\Delta_{allow}\\coloneq\\frac{\\mu\\cdot DL\\cdot h_{rt}}{G_{max}\\cdot A_b}=", "Shear force under friction on the dead load, AASHTO Eqs. 14.6.3.1-1, -2", "in");
     m(ok("\\Delta_s", "\\Delta_{allow}"), "The pad doesn't slip (NG: anchor it), AASHTO 14.8.3");
   } else text("The bearing slides on its PTFE surface; size the stainless steel plate, sole plate and anchor bolt slots for the sliding movement.", "note");
+  lines.push(...checksSummary([{ checks: r.checks }]));
   return lines;
 }

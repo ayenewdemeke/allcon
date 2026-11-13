@@ -121,9 +121,9 @@ def dxf_module():
     return _dxf
 
 
-def dxf_export(payload):
+def dxf_export(payload, params):
     drawing = json.loads(fetch(payload["drawing_url"]))
-    data, skipped = dxf_module().export_dxf(drawing)
+    data, skipped = dxf_module().export_dxf(drawing, params.get("fileName") or "")
     return {"size": store(payload, data), "skipped": skipped}
 
 
@@ -759,7 +759,7 @@ def handle(payload):
     if action == "help":
         return {"result": help_for(params)}
     if action == "dxf_export":
-        return dxf_export(payload)
+        return dxf_export(payload, params)
     if action == "dxf_import":
         return dxf_import(payload, params)
     if action == "create":

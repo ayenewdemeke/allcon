@@ -7,6 +7,7 @@ import { blockParts } from "@/lib/drafting/blocks";
 import { MODEL, type DraftDocument } from "@/lib/drafting/document";
 import type { Editor } from "@/lib/drafting/editor";
 import { bounds, graphicsOf, grips, tessellate, type TextRun } from "@/lib/drafting/geometry";
+import { applyFields } from "@/lib/drafting/graphics";
 import { capRatio } from "@/lib/drafting/graphics";
 import type { SnapKind } from "@/lib/drafting/snaps";
 import { LW_BYBLOCK, LW_BYLAYER, LW_DEFAULT, type Entity, type ImageEntity, type Vec, type ViewportEntity } from "@/lib/drafting/types";
@@ -133,6 +134,8 @@ export function DraftingCanvas({ editor, dark, onReady, pictureUrl }: { editor: 
     let frame = 0;
     const draw = () => {
       frame = 0;
+      // Fields show the drawing's name and the layout on screen (plotting sets its own).
+      applyFields({ fileName: editor.drawingName, layout: editor.layoutId ? (editor.doc.layouts.get(editor.layoutId)?.name ?? "") : "Model" });
       const { w, h } = editor.size;
       if (editor.doc.version !== builtVersion || `${darkRef.current},${editor.layoutId},${editor.settings.lineweights}` !== builtKey) rebuild();
       resolution.set(w, h);

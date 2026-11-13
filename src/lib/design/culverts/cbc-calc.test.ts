@@ -1,5 +1,6 @@
 import type { Unit } from "mathjs";
 import { describe, expect, it } from "vitest";
+import { WORKSHEET_TOLERANCE } from "../calc-style";
 import { DEFAULT_SETTINGS, evaluateSheet, type SheetItem, type Value } from "@/lib/calcs/evaluate";
 import { layout } from "@/lib/calcs/library/templates";
 import { readingOrder } from "@/lib/calcs/types";
@@ -10,7 +11,7 @@ import { cbcCalcLines } from "./cbc-calc";
 
 function workOut(inputs: CbcInputs) {
   const regions = readingOrder(layout(cbcCalcLines(inputs, "Test culvert"), { x: 0, y: 0 }));
-  const items = regions.flatMap((r): SheetItem[] => (r.kind === "text" ? [] : [r as SheetItem]));
+  const items = regions.flatMap((r): SheetItem[] => (r.kind === "text" || r.kind === "image" ? [] : [r as SheetItem]));
   const values = new Map<string, Value>();
   const results = evaluateSheet(items, DEFAULT_SETTINGS, values);
   const errors = regions.flatMap((r) => (results.get(r.id)?.kind === "error" ? [`${r.kind === "math" ? r.latex : r.kind}: ${(results.get(r.id) as { message: string }).message}`] : []));
@@ -24,7 +25,7 @@ function workOut(inputs: CbcInputs) {
   return { errors, checks, value };
 }
 
-const close = (a: number, b: number) => expect(Math.abs(a - b)).toBeLessThanOrEqual(1e-6 * Math.max(1, Math.abs(b)));
+const close = (a: number, b: number) => expect(Math.abs(a - b)).toBeLessThanOrEqual(WORKSHEET_TOLERANCE * Math.max(1, Math.abs(b)));
 
 describe("Box culvert calc package", () => {
   for (const [name, inputs] of [

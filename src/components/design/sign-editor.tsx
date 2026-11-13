@@ -5,6 +5,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { designSign, type SignInputs } from "@/lib/design/signs/cantilever";
 import { DesignError } from "@/lib/design/walls/cip";
 import { ChecksBanner, ChecksTable, Choice, DesignErrorCard, DesignHeader, Field, fmt, KeyValues, Section } from "./design-kit";
+import { TakeoffPanel } from "./takeoff-panel";
 import { SignSketch } from "./sign-sketch";
 
 // Designing a cantilever sign structure's shaft foundation: the inputs on the left, worked out as
@@ -97,12 +98,13 @@ export function SignEditor({ design, projects }: { design: { id: string; name: s
                   </CardContent>
                 </Card>
                 <ChecksTable checks={r.checks} groupOf={(id) => (id === "axial" ? "Geotechnical" : "Shaft")} />
+                <TakeoffPanel kind="sign-cantilever" design={design} inputs={inputs} ok={r.checks.every((c) => c.advisory || c.ok)} onSettings={(t) => setInputs((s) => ({ ...s, takeoff: t }))} />
                 <div className="grid gap-4 xl:grid-cols-2">
                   <KeyValues
                     title="Loads"
                     rows={[
                       ["Dead load (pole, arm, panel, supports)", `${fmt(r.dead.DC)} kip`],
-                      ["Kz, Cd members", `${fmt(r.wind.kz, 4)}, ${fmt(r.wind.CdMember, 3)} (Cv V d ${fmt(r.wind.CvVd, 1)})`],
+                      ["Kz, Cd members", `${fmt(r.wind.kz)}, ${fmt(r.wind.CdMember, 3)} (Cv V d ${fmt(r.wind.CvVd, 1)})`],
                       ["Wind pressure, members / panel", `${fmt(r.wind.qMember, 2)} / ${fmt(r.wind.qSign, 2)} psf`],
                       ["Wind on panel / arm / pole", `${fmt(r.wind.Wsign)} / ${fmt(r.wind.Warm)} / ${fmt(r.wind.Wpole)} kip`],
                       ["Overturning / torsion at the shaft top", `${fmt(r.wind.Mx, 2)} / ${fmt(r.wind.T, 2)} kip·ft`],
@@ -116,7 +118,7 @@ export function SignEditor({ design, projects }: { design: { id: string; name: s
                       ["Mn at the smallest axial load", `${fmt(r.shaft.Mn, 1)} kip·ft`],
                       ["dv", `${fmt(r.shaft.dv, 2)} in`],
                       ["Torsional cracking Tcr", `${fmt(r.shaft.Tcr, 0)} kip·in`],
-                      ["Top deflection (p–y)", `${fmt(inputs.pyDeflection, 4)} in`],
+                      ["Top deflection (p–y)", `${fmt(inputs.pyDeflection)} in`],
                     ]}
                   />
                 </div>

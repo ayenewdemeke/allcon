@@ -414,6 +414,17 @@ export class SheetController {
     nav.fitBounds(true, new T.Box3(new T.Vector3(a.x, a.y, 0), new T.Vector3(b.x, b.y, 0)));
   }
 
+  /** Zooms to a box on the sheet (in sheet points) with some room around it: a source a link points to. */
+  focusBox([x0, y0, x1, y1]: [number, number, number, number]) {
+    const viewer = this.viewer;
+    if (!viewer) return;
+    const room = Math.max(120, 2 * Math.max(x1 - x0, y1 - y0));
+    const a = this.toWorld([x0 - room, y1 + room]);
+    const b = this.toWorld([x1 + room, y0 - room]);
+    const T = (window as unknown as { THREE: typeof THREE }).THREE;
+    viewer.navigation.fitBounds(true, new T.Box3(new T.Vector3(a.x, a.y, 0), new T.Vector3(b.x, b.y, 0)));
+  }
+
   fit() {
     this.viewer?.fitToView?.();
   }

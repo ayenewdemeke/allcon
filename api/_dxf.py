@@ -11,8 +11,10 @@ are left out (DXF can only point at image files).
 Used by the worker (api/ifc.py): export_dxf(drawing) -> bytes, import_dxf(bytes, units) -> drawing.
 """
 
+import datetime
 import io
 import math
+import re
 import secrets
 from collections import Counter
 
@@ -351,8 +353,64 @@ class Writer:
         attdef.set_placement(self.xy(e["at"]), align=ALIGN.get((e.get("halign"), e.get("valign")), TextEntityAlignment.LEFT))
 
 
-def export_dxf(drawing):
+FIELD = re.compile(r'%<\\AcVar\s+([A-Za-z]+)(?:\s+\\f\s+"([^"]*)")?>%')
+MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"]
+
+
+def format_date(d, fmt):
+    """A date in AutoCAD's field format codes (as src/lib/drafting/fields.ts)."""
+    def code(m):
+        t = m.group(0)
+        return {
+            "MMMM": MONTHS[d.month - 1], "MMM": MONTHS[d.month - 1][:3], "MM": f"{d.month:02d}", "M": str(d.month),
+            "dd": f"{d.day:02d}", "d": str(d.day), "yyyy": str(d.year), "yy": str(d.year)[-2:],
+        }[t]
+    return re.sub(r"MMMM|MMM|MM|M|dd|d|yyyy|yy", code, fmt)
+
+
+def evaluate_fields(drawing, file_name):
+    """Fields (%<\\AcVar Filename>% and the like) written out as their values, as AutoCAD's DXF
+    shows a field's last value: the file name, today's date, the layout's name."""
+    today = datetime.date.today()
+
+    def value(text, layout):
+        if "%<\\AcVar" not in text:
+            return text
+
+        def one(m):
+            name, fmt = m.group(1).lower(), m.group(2) or "M/d/yyyy"
+            if name == "filename":
+                return file_name
+            if name in ("date", "savedate", "plotdate"):
+                return format_date(today, fmt)
+            if name == "ctab":
+                return layout
+            return "####"
+
+        return FIELD.sub(one, text)
+
+    def visit(entities, layout):
+        for e in entities:
+            if isinstance(e.get("text"), str):
+                e["text"] = value(e["text"], layout)
+            if isinstance(e.get("attribs"), dict):
+                e["attribs"] = {k: value(v, layout) if isinstance(v, str) else v for k, v in e["attribs"].items()}
+
+    visit(drawing.get("entities") or [], "Model")
+    for layout in drawing.get("layouts") or []:
+        visit(layout.get("entities") or [], layout.get("name", ""))
+    # Attribute defaults in blocks show where a reference has no value of its own.
+    for block in drawing.get("blocks") or []:
+        for e in block.get("entities") or []:
+            if e.get("type") == "attdef" and isinstance(e.get("value"), str):
+                e["value"] = value(e["value"], "")
+            elif isinstance(e.get("text"), str):
+                e["text"] = value(e["text"], "")
+
+
+def export_dxf(drawing, file_name=""):
     """A drawing as DXF (AutoCAD 2013 format) and the objects that couldn't go in, by type."""
+    evaluate_fields(drawing, file_name)
     return Writer(drawing).write()
 
 

@@ -14,8 +14,8 @@ export async function GET(_request: NextRequest, ctx: RouteContext<"/api/draftin
   if (!drawing.fileKey) return Response.json({ error: "Draw something first: the drawing is empty." }, { status: 409 });
   const key = dxfExportKey(drawing.id);
   try {
-    const { skipped } = await workerDxfExport(drawing.fileKey, key);
     const { name } = await db.drawing.findUniqueOrThrow({ where: { id: drawing.id }, select: { name: true } });
+    const { skipped } = await workerDxfExport(drawing.fileKey, key, name);
     const filename = `${name.replace(/[\\/:*?"<>|]+/g, "-").trim() || "drawing"}.dxf`;
     return Response.json({ url: await signedReadUrl(key, { downloadAs: filename }), skipped });
   } catch (err) {

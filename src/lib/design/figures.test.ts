@@ -11,7 +11,8 @@ import { CIP_DEFAULTS } from "./walls/cip";
 import { mseCalcLines } from "./walls/mse-calc";
 import { MSE_DEFAULTS } from "./walls/mse";
 
-const pictures = (lines: ReturnType<typeof cbcCalcLines>) => lines.filter((l) => "region" in l && l.region.kind === "image");
+// The sketches only (not the summary of the checks' tables).
+const pictures = (lines: ReturnType<typeof cbcCalcLines>) => lines.filter((l) => "region" in l && l.region.kind === "image" && !l.region.svg.includes(">Result<"));
 
 describe("design figures", () => {
   it("draws the sketches as standalone SVG", () => {
@@ -63,4 +64,5 @@ describe("design figures", () => {
     expect(pictures(mseCalcLines(MSE_DEFAULTS, "MSE", mseFigures(MSE_DEFAULTS)))).toHaveLength(1);
     expect(pictures(cbcCalcLines(CBC_DEFAULTS, "Box"))).toHaveLength(0);
   });
+
 });

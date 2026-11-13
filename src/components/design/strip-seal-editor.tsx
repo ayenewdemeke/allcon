@@ -6,6 +6,7 @@ import { designStripSeal, type StripSealInputs } from "@/lib/design/joints/strip
 import { DesignError } from "@/lib/design/walls/cip";
 import { cn } from "@/lib/utils";
 import { ChecksBanner, ChecksTable, DesignErrorCard, DesignHeader, Field, fmt, Section } from "./design-kit";
+import { TakeoffPanel } from "./takeoff-panel";
 import { StripSealSketch } from "./strip-seal-sketch";
 
 // A strip seal joint: the inputs on the left, worked out as they change (section, checks and the
@@ -70,6 +71,7 @@ export function StripSealEditor({ design, projects }: { design: { id: string; na
                   </CardContent>
                 </Card>
                 <ChecksTable checks={r.checks} groupOf={(id) => (id === "range" ? "Movement" : "Setting")} />
+                <TakeoffPanel kind="strip-seal-joint" design={design} inputs={inputs} ok={r.checks.every((c) => c.advisory || c.ok)} onSettings={(t) => setInputs((s) => ({ ...s, takeoff: t }))} />
                 <Card>
                   <CardContent className="overflow-x-auto py-3 text-xs">
                     <p className="pb-1 font-semibold">Settings by installation temperature</p>

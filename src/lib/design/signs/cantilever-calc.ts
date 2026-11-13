@@ -1,5 +1,6 @@
 import type { Line } from "@/lib/calcs/library/templates";
-import { COLOR_NOTE, INPUT_COLOR, isInput } from "../calc-style";
+import { checksSummary } from "../checks-summary";
+import { COLOR_NOTE, INPUT_COLOR, isInput, num } from "../calc-style";
 import type { Figure } from "../figures";
 import { BARS } from "../walls/cip";
 import { designSign, type SignInputs } from "./cantilever";
@@ -8,7 +9,6 @@ import { designSign, type SignInputs } from "./cantilever";
 // math, the members' weights and areas, and the shaft's moment resistance (strain compatibility),
 // as given values.
 
-const num = (v: number, d = 6) => String(+v.toFixed(d));
 const ok = (demand: string, capacity: string) => `\\operatorname{if}\\left(${demand}\\le ${capacity},\\text{OK},\\text{NG}\\right)=`;
 
 export function signCalcLines(i: SignInputs, title: string, figures?: { section?: Figure }): Line[] {
@@ -85,7 +85,9 @@ export function signCalcLines(i: SignInputs, title: string, figures?: { section?
   m("V_u\\coloneq\\max\\left(H_W,V_{py}\\right)=", undefined, "kip");
   m(`s\\coloneq ${num(i.tieSpacing)}\\mathrm{in}`, `#${i.tieBar} ties`);
   m(`A_v\\coloneq2\\cdot ${num(tie.area)}\\mathrm{in}^{2}=`, undefined, "in^2");
-  m("V_n\\coloneq\\min\\left(0.0316\\cdot2\\cdot\\sqrt{\\frac{f'_{c}}{\\mathrm{ksi}}}\\cdot\\mathrm{ksi}\\cdot D\\cdot d_v+\\frac{A_v\\cdot f_y\\cdot d_v}{s},0.25\\cdot f'_{c}\\cdot D\\cdot d_v\\right)=", "AASHTO 5.7.3.3, β = 2, θ = 45°", "kip");
+  m("V_{cs}\\coloneq0.0316\\cdot2\\cdot\\sqrt{\\frac{f'_{c}}{\\mathrm{ksi}}}\\cdot\\mathrm{ksi}\\cdot D\\cdot d_v=", "Concrete, β = 2 (AASHTO Eq. 5.7.3.3-3)", "kip");
+  m("V_{ss}\\coloneq\\frac{A_v\\cdot f_y\\cdot d_v}{s}=", "Hoops, θ = 45° (AASHTO Eq. 5.7.3.3-4)", "kip");
+  m("V_n\\coloneq\\min\\left(V_{cs}+V_{ss},0.25\\cdot f'_{c}\\cdot D\\cdot d_v\\right)=", "AASHTO 5.7.3.3", "kip");
   m(ok("V_u", "0.9\\cdot V_n"), "Shear");
   m(ok("0.0316\\cdot\\sqrt{\\frac{f'_{c}}{\\mathrm{ksi}}}\\cdot\\mathrm{ksi}\\cdot\\frac{D\\cdot s}{f_y}", "A_v"), "Minimum transverse reinforcement, AASHTO Eq. 5.7.2.5-1");
   m("v_u\\coloneq\\frac{V_u}{0.9\\cdot D\\cdot d_v}=", "AASHTO Eq. 5.7.2.8-1", "ksi");
@@ -94,5 +96,6 @@ export function signCalcLines(i: SignInputs, title: string, figures?: { section?
   m("T_{cr}\\coloneq0.126\\cdot\\sqrt{\\frac{f'_{c}}{\\mathrm{ksi}}}\\cdot\\mathrm{ksi}\\cdot\\frac{\\left(\\frac{\\pi\\cdot D^{2}}{4}\\right)^{2}}{\\pi\\cdot D}=", "Torsional cracking, AASHTO Eq. 5.7.2.1-4", "kip*in");
   m(ok("T_W", "0.25\\cdot0.9\\cdot T_{cr}"), "Torsion may be neglected, AASHTO 5.7.2.1");
   text(`The p–y analysis gave a top deflection of ${num(i.pyDeflection, 4)} in. The soil's resistance to torsion is checked by the geotechnical engineer.`, "note");
+  lines.push(...checksSummary([{ checks: r.checks }]));
   return lines;
 }

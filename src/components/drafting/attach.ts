@@ -24,7 +24,8 @@ export function pickFile(accept: string): Promise<File | null> {
   });
 }
 
-async function upload(drawingId: string, blob: Blob, ext: string) {
+/** Stores a file with the drawing; returns its storage key. */
+export async function uploadAttachment(drawingId: string, blob: Blob, ext: string) {
   const link = await fetch(`/api/drafting/${drawingId}/attachments?type=${ext}`, { method: "POST" });
   if (!link.ok) throw new Error("Could not store the file");
   const { key, upload: target } = (await link.json()) as { key: string; upload: { url: string; headers: Record<string, string> } };
@@ -65,7 +66,7 @@ export async function attachFile(drawingId: string, units: Units, source: "image
   if (source === "pdf") {
     const page = await pdfPage(file, choosePage);
     if (!page) return null;
-    const key = await upload(drawingId, page.blob, "png");
+    const key = await uploadAttachment(drawingId, page.blob, "png");
     const name = page.page > 1 ? `${file.name} (page ${page.page})` : file.name;
     return { key, name, source, width: page.inches.w * toUnits, height: page.inches.h * toUnits };
   }
@@ -74,6 +75,6 @@ export async function attachFile(drawingId: string, units: Units, source: "image
   const bitmap = await createImageBitmap(file);
   const size = { w: bitmap.width, h: bitmap.height };
   bitmap.close();
-  const key = await upload(drawingId, file, ext);
+  const key = await uploadAttachment(drawingId, file, ext);
   return { key, name: file.name, source, width: (size.w / 96) * toUnits, height: (size.h / 96) * toUnits };
 }

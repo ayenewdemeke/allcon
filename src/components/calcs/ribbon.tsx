@@ -252,8 +252,8 @@ export function CalcRibbon({
               <Big icon={Sigma} label="Math" title="A math region at the crosshair (or just start typing)" onClick={() => insert("")} />
               <Big icon={Type} label="Text" title='A text region (" or Ctrl+T)' onClick={() => worksheet.current?.addText("normal")} />
               <div className="flex flex-col gap-0.5 pt-0.5">
-                <SmallButton icon={Heading1} label="Heading" onClick={() => worksheet.current?.addText("heading")} />
-                <SmallButton icon={Heading2} label="Subheading" onClick={() => worksheet.current?.addText("subheading")} />
+                <SmallButton icon={Heading1} label="Heading 1" onClick={() => worksheet.current?.addText("heading")} />
+                <SmallButton icon={Heading2} label="Heading 2" onClick={() => worksheet.current?.addText("subheading")} />
                 <SmallButton icon={StickyNote} label="Note" onClick={() => worksheet.current?.addText("note")} />
               </div>
               <Big icon={SquareFunction} label="Solve block" title="A solve block: guess values, constraints and a solver (find)" onClick={() => worksheet.current?.addSolve()} />
@@ -304,8 +304,8 @@ export function CalcRibbon({
             <Panel title="Insert">
               <Big icon={Type} label="Text" title='A text region (" or Ctrl+T)' onClick={() => worksheet.current?.addText("normal")} />
               <div className="flex flex-col gap-0.5 pt-0.5">
-                <SmallButton icon={Heading1} label="Heading" onClick={() => worksheet.current?.addText("heading")} />
-                <SmallButton icon={Heading2} label="Subheading" onClick={() => worksheet.current?.addText("subheading")} />
+                <SmallButton icon={Heading1} label="Heading 1" onClick={() => worksheet.current?.addText("heading")} />
+                <SmallButton icon={Heading2} label="Heading 2" onClick={() => worksheet.current?.addText("subheading")} />
                 <SmallButton icon={StickyNote} label="Note" onClick={() => worksheet.current?.addText("note")} />
               </div>
             </Panel>
@@ -523,6 +523,14 @@ export function CalcRibbon({
                     <option value="fine">Fine</option>
                   </select>
                 </label>
+                <label className="flex items-center gap-2" title="Darker lines every inch (25 mm on A4), as Mathcad's Show Major Gridlines">
+                  <input type="checkbox" checked={doc.grid.major !== false} onChange={(e) => doc.setMeta({ grid: { ...doc.grid, major: e.target.checked } })} />
+                  Major Gridlines
+                </label>
+                <label className="flex items-center gap-2" title="Show values entered (a name := a number and unit) in blue; Mathcad shows them black">
+                  <input type="checkbox" checked={!!doc.grid.inputsBlue} onChange={(e) => doc.setMeta({ grid: { ...doc.grid, inputsBlue: e.target.checked } })} />
+                  Inputs in Blue
+                </label>
                 <span className="max-w-40 text-muted-foreground">Regions snap to the grid, shown or not.</span>
               </div>
             </Panel>
@@ -564,8 +572,8 @@ export function CalcRibbon({
 
 function SmallButton({ icon: Icon, label, title, onClick }: { icon: React.ComponentType<{ className?: string }>; label: string; title?: string; onClick: () => void }) {
   return (
-    <button type="button" title={title} onMouseDown={(e) => e.preventDefault()} onClick={onClick} className="flex h-6 items-center gap-1.5 rounded px-1.5 text-[11px] hover:bg-accent">
-      <Icon className="size-4" />
+    <button type="button" title={title} onMouseDown={(e) => e.preventDefault()} onClick={onClick} className="flex h-6 items-center gap-1.5 rounded px-1.5 text-[11px] whitespace-nowrap hover:bg-accent">
+      <Icon className="size-4 shrink-0" />
       {label}
     </button>
   );

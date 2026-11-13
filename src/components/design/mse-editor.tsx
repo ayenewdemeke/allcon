@@ -5,6 +5,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { DesignError } from "@/lib/design/walls/cip";
 import { designMseWall, REINFORCEMENTS, type MseFactors, type MseInputs, type MseResult } from "@/lib/design/walls/mse";
 import { BarsField, ChecksBanner, ChecksTable, Choice, DesignErrorCard, DesignHeader, Field, fmt, KeyValues, Section, Toggle } from "./design-kit";
+import { TakeoffPanel } from "./takeoff-panel";
 import { MseSketch } from "./wall-sketch";
 
 // Designing an MSE wall: the inputs on the left, worked out as they change (sketch, checks, the
@@ -165,6 +166,7 @@ export function MseEditor({ design, projects }: { design: { id: string; name: st
                   </CardContent>
                 </Card>
                 <ChecksTable checks={r.checks} groupOf={groupOf} />
+                <TakeoffPanel kind="mse-wall" design={design} inputs={inputs} ok={r.checks.every((c) => c.advisory || c.ok)} onSettings={(t) => setInputs((s) => ({ ...s, takeoff: t }))} />
                 <Working r={r} seismic={inputs.seismic} />
               </>
             )
@@ -196,16 +198,16 @@ function Working({ r, seismic }: { r: MseResult; seismic: boolean }) {
         rows={[
           ["Backslope β", `${fmt(r.soil.beta, 2)}°`],
           ["δ", `${fmt(r.soil.delta, 2)}°`],
-          ["Ka, retained fill (Coulomb)", fmt(r.soil.Ka, 4)],
-          ["Ka, reinforced fill (internal)", fmt(r.soil.KaInt, 4)],
+          ["Ka, retained fill (Coulomb)", fmt(r.soil.Ka)],
+          ["Ka, reinforced fill (internal)", fmt(r.soil.KaInt)],
           ["Height at the back h", `${fmt(r.soil.h, 3)} ft`],
           ...(r.soil.heq ? [["Live load surcharge heq", `${fmt(r.soil.heq, 2)} ft`] as [string, string]] : []),
           ["μ = tan(min φ)", fmt(r.soil.mu, 3)],
           ...(r.soil.kh !== undefined
             ? ([
-                ["kh", fmt(r.soil.kh, 4)],
+                ["kh", fmt(r.soil.kh)],
                 ["θMO", `${fmt(r.soil.thetaMO!, 3)}°`],
-                ["KAE (Mononobe–Okabe)", fmt(r.soil.KAE!, 4)],
+                ["KAE (Mononobe–Okabe)", fmt(r.soil.KAE!)],
               ] as [string, string][])
             : []),
         ]}
@@ -259,7 +261,7 @@ function Working({ r, seismic }: { r: MseResult; seismic: boolean }) {
         <CardContent className="overflow-x-auto py-3 text-xs">
           <p className="pb-1 font-semibold">
             Layers: {r.internal.kind.name.toLowerCase()}, Tal {fmt(r.internal.Tal * 1000, 0)} lb/ft, Rc {fmt(r.internal.Rc, 3)}
-            {r.internal.Es > 0 && `, corrosion loss ${fmt(r.internal.Es, 4)} in`}
+            {r.internal.Es > 0 && `, corrosion loss ${fmt(r.internal.Es)} in`}
           </p>
           <table className="w-full">
             <thead>
@@ -283,7 +285,7 @@ function Working({ r, seismic }: { r: MseResult; seismic: boolean }) {
                 <tr key={l.z} className="border-b border-border/40 text-right tabular-nums">
                   <td className="text-left">{fmt(l.z, 2)}</td>
                   <td>{fmt(l.Svi, 2)}</td>
-                  <td>{fmt(l.kr, 4)}</td>
+                  <td>{fmt(l.kr)}</td>
                   <td>{fmt(l.Fstar, 3)}</td>
                   <td>{fmt(l.sigmaV)}</td>
                   <td className={l.Tstr > Math.min(l.Pr, l.Tr) ? "text-red-600" : ""}>{fmt(l.Tstr)}</td>
