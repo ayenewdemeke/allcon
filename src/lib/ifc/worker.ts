@@ -108,9 +108,15 @@ export async function workerCreate(
 export type BridgeIfcElement = { kind: string; name: string; material?: string; properties?: Record<string, string | number | boolean> } & ({ a: number[]; b: number[]; outline?: [number, number][]; radius?: number } | { plan: [number, number][]; z0: number; z1: number });
 
 /** Writes a bridge (the Bridge section's model as solids) as an IFC 4.3 model at `fileKey`. */
-export async function workerBridge(fileKey: string, params: { name: string; elements: BridgeIfcElement[]; location?: { lat: number; lon: number; heading: number } }) {
-  const body = await call("bridge", params, { write: fileKey });
+export async function workerBridgeSolids(fileKey: string, params: { name: string; elements: BridgeIfcElement[]; location?: { lat: number; lon: number; heading: number } }) {
+  const body = await call("bridge_solids", params, { write: fileKey });
   return { summary: body.summary!, size: body.size ?? null };
+}
+
+/** Writes a Bridge record's IFC 4.3 model (src/lib/design/bridge/ifc.ts's description: alignment, parts, rebar) at `fileKey`. */
+export async function workerBridge(fileKey: string, params: object) {
+  const body = await call("bridge", params, { write: fileKey });
+  return { handles: body.handles, summary: body.summary!, size: body.size ?? null };
 }
 
 /** Applies operations to the file at `from`, writing the result to `to` (all or nothing). */

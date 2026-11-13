@@ -14,6 +14,13 @@ import { StmSketch } from "@/components/design/stm-sketch";
 import { CapDetailSketch } from "@/components/design/cap-detail-sketch";
 import { DetailSketch } from "@/components/design/detail-sketch";
 import type { Takeoff } from "./takeoff/types";
+import { ApproachSlabSketch } from "@/components/design/approach-slab-sketch";
+import { BridgePlan, BridgeProfile } from "@/components/design/bridge-sketch";
+import type { BridgeInputs, BridgeLayout } from "./bridge/bridge";
+import { FoundationSketch, LateralPlot } from "@/components/design/foundation-sketch";
+import type { FoundationKind } from "./foundations/kinds";
+import { runFoundation } from "./foundations/run";
+import { designApproachSlab, type ApproachSlabInputs } from "./approach/approach-slab";
 import { StripSealSketch } from "@/components/design/strip-seal-sketch";
 import { CbcSketch, CipSketch, MseSketch } from "@/components/design/wall-sketch";
 import { WingwallSketch } from "@/components/design/wingwall-sketch";
@@ -136,6 +143,13 @@ export function dtFigures(i: DtInputs) {
   return { section: figure(<DtSectionSketch inputs={i} layout={r.geo} cg={r.solve.cg} />), summary: figure(<RatingSummaryTable r={r} title={title} />), ...(comparison ? { comparison } : {}) };
 }
 
+export const approachSlabFigures = (i: ApproachSlabInputs) => ({ section: figure(<ApproachSlabSketch inputs={i} result={designApproachSlab(i)} />) });
+
+export function foundationFigures(kind: FoundationKind, i: object) {
+  const r = runFoundation(kind, i);
+  return { section: figure(<FoundationSketch kind={kind} inputs={i as Record<string, unknown>} />), ...(r.lateral ? { lateral: figure(<LateralPlot title={`Lateral analysis: ${r.lateral.title}`} r={r.lateral.r} />) } : {}) };
+}
+
 export const stripSealFigures = (i: StripSealInputs) => ({ section: figure(<StripSealSketch inputs={i} result={designStripSeal(i)} />) });
 
 /** The strut-and-tie model, from its solved result (the solve is asynchronous, so it's done first). */
@@ -146,3 +160,6 @@ export const takeoffFigures = (t: Takeoff) => t.views.map((v) => figure(<DetailS
 
 /** A standard cap's reinforcement: elevation and sections. */
 export const capDetailFigures = (d: CapDetail) => ({ details: figure(<CapDetailSketch detail={d} />) });
+
+/** The Bridge's plan and profile, as the editor draws them. */
+export const bridgeFigures = (b: BridgeInputs, lay: BridgeLayout) => ({ plan: figure(<BridgePlan b={b} lay={lay} />), profile: figure(<BridgeProfile b={b} lay={lay} />) });

@@ -692,17 +692,28 @@ export function girderTakeoff(i: GirderInputs, deckFt?: number): Takeoff {
     { label: "Deck slab", cy: (slabA * Ld) / 27, basis: `${fit(b.W)} ft out to out by ${fit(i.deckT)} in as cast, ${fit(Ld)} ft long`, math: `${ftT(b.W)}\\cdot ${inT(i.deckT)}\\cdot ${ftT(Ld)}`, ref: "Deck slab: out-to-out width × thickness as cast × length" },
     ...(haunchA > 0 ? [{ label: "Haunches", cy: (haunchA * Ld) / 27, basis: `${i.nGirders} × ${fit(flange * 12)} in flange by ${fit(i.haunch)} in, ${fit(Ld)} ft`, math: `${i.nGirders}\\cdot ${inT(flange * 12)}\\cdot ${inT(i.haunch)}\\cdot ${ftT(Ld)}`, ref: "Haunches: girders × top flange width × haunch × length" }] : []),
   ];
+  // Over each pier of continuous spans: the deck's negative moment bars (the girder design's pierBars, on top of the
+  // deck's own mats), across the deck's width, each 0.3 of the two spans beside the pier (60 ft for two 103 ft spans,
+  // as CDOT details them).
+  const { pre, run } = collector({ fy: i.fy, fc: i.fcDeck });
+  spans.slice(1).forEach((L, k) => {
+    const len = 0.3 * (spans[k] + L) * 12;
+    run({ size: i.pierBars.topBar, count: countAt(b.W * 12 - 4, i.pierBars.topSpacing), straight: len, use: `Deck over pier ${k + 2}, negative moment`, callout: `#${i.pierBars.topBar} @ ${i.pierBars.topSpacing}" over pier ${k + 2}`, spacing: i.pierBars.topSpacing, cover: i.pierBars.coverTop });
+  });
+  const { sch } = finish(pre, concrete);
   const quantities: Takeoff["quantities"] = {
-    girder: { value: lf, basis: `${i.nGirders} girders per span, ${each.map((x) => `${fit(x)} ft`).join(" + ")} end to end`, math: `${i.nGirders}\\cdot ${sumT(each.map(ftT))}`, ref: "girders per span × each span's girder length end to end" },
+    girder: i.shape.startsWith("box-")
+      ? { value: lf * (girderShape(i).topWidth / 12), basis: `${i.nGirders} boxes per span, ${fit(girderShape(i).topWidth)} in wide, ${each.map((x) => `${fit(x)} ft`).join(" + ")} end to end (square feet of box)`, math: `${i.nGirders}\\cdot ${inT(girderShape(i).topWidth)}\\cdot ${sumT(each.map(ftT))}`, ref: "boxes per span × top width × each span's box length (CDOT pays boxes by the square foot)" }
+      : { value: lf, basis: `${i.nGirders} girders per span, ${each.map((x) => `${fit(x)} ft`).join(" + ")} end to end`, math: `${i.nGirders}\\cdot ${sumT(each.map(ftT))}`, ref: "girders per span × each span's girder length end to end" },
     waterproofing: { value: (b.roadway * Ld) / 9, basis: `${fit(b.roadway)} ft between the rails by ${fit(Ld)} ft`, math: `${ftT(b.roadway)}\\cdot ${ftT(Ld)}`, ref: "the roadway between the rails × length" },
     ...(b.rail ? { rail: { value: 2 * Ld, basis: `${b.rail.name.replace(/ \(#\d option\)/, "")} on both edges, ${fit(Ld)} ft each`, math: `2\\cdot ${ftT(Ld)}`, ref: `${b.rail.name.replace(/ \(#\d option\)/, "")} on both edges` } } : {}),
   };
   const notes = [
     "Prestressed girders are paid by the linear foot, strands and bars included (618).",
-    `The deck is ${fit(Ld)} ft long, girder end to girder end over ${spans.length > 1 ? "the spans" : "the span"} (adjustable). Its area is the out-to-out width by the length along the girders, which a skew doesn't change. Approach slabs, end diaphragms and the deck's bars are not included here: the bars are the Deck Slab design's.`,
+    `The deck is ${fit(Ld)} ft long, girder end to girder end over ${spans.length > 1 ? "the spans" : "the span"} (adjustable). Its area is the out-to-out width by the length along the girders, which a skew doesn't change. Approach slabs, end diaphragms and the deck's own mats are not included here (the mats are the Deck Slab design's); the negative moment bars over the piers are.`,
     ...(b.rail ? [`${b.rail.name} (${b.rail.sheet}) is paid by the foot under item ${b.rail.payItem}, its concrete and bars included.`] : []),
   ];
-  return { what: `${i.shape.toUpperCase()} girders and deck`, schedule: schedule([], concrete), quantities, views: [], notes, length: { label: "Deck length", value: +Ld.toFixed(2), unit: "ft" } };
+  return { what: `${i.shape.toUpperCase()} girders and deck`, schedule: sch, quantities, views: [], notes, length: { label: "Deck length", value: +Ld.toFixed(2), unit: "ft" } };
 }
 
 export function bearingTakeoff(count = 1): Takeoff {

@@ -20,6 +20,9 @@ export function columnLinkFrom(stmId: string, stmName: string, i: StmInputs, gir
     return nd.x;
   };
   const cases = source.map((c) => ({ name: c.name, loads: c.loads.map((l) => ({ x: xOf(l.node), fx: l.fx, fy: l.fy })) }));
+  // Service I for the foundation's settlement and crack control (Table 3.4.1-1): each bearing's DC, DW
+  // and the most live load reaching it (with IM and the multiple presence factor), unfactored.
+  if (capLoads) cases.push({ name: "Service I (DC + DW + LL+IM, the most live load at each bearing)", loads: capLoads.bearingLoads.map((b) => ({ x: b.x, fx: 0, fy: -(b.dc + b.dw + b.ll) })) });
   return {
     stmId,
     stmName,

@@ -13,7 +13,7 @@ export type Profile = [y: number, halfWidth: number][]; // in, from the bottom u
 export type GirderShape = {
   id: string;
   name: string;
-  family: "AASHTO I-beam" | "AASHTO-PCI bulb-tee" | "CDOT Colorado Bulb Tee" | "Custom";
+  family: "AASHTO I-beam" | "AASHTO-PCI bulb-tee" | "CDOT Colorado Bulb Tee" | "Prestressed box" | "Custom";
   depth: number; // in
   topWidth: number; // in, top flange (for interface shear and the haunch)
   web: number; // in, web thickness (bv)
@@ -167,6 +167,25 @@ function cbt(H: number, A: number, I: number, yb: number): GirderShape {
   return { id: `cbt-${label}`, name: `CBT ${label}`, family: "CDOT Colorado Bulb Tee", depth: H, topWidth: 50, web: 7, profile, published: { A, I, yb, source: "CDOT sheet B-618-CBT2" } };
 }
 
+/**
+ * A prestressed box girder, side by side or spread: its outline B wide and H deep with one void, walls tw each
+ * side, slabs tt on top and tb at the bottom (the void's corner fillets left out, the published properties
+ * kept). As a profile its half-width at each height is the solid's less the void's, which gives the same area,
+ * centroid and moment of inertia about the horizontal axis; its web for shear is both walls (5.7.2.8).
+ */
+function box(H: number, B: number, tw: number, tt: number, tb: number, A: number, I: number, yb: number, source: string): GirderShape {
+  const half = B / 2;
+  const profile: Profile = [
+    [0, half],
+    [tb, half],
+    [tb, tw],
+    [H - tt, tw],
+    [H - tt, half],
+    [H, half],
+  ];
+  return { id: `box-${H}x${B}`, name: `Box ${H} x ${B}`, family: "Prestressed box", depth: H, topWidth: B, web: 2 * tw, profile, published: { A, I, yb, source } };
+}
+
 export const GIRDER_SHAPES: GirderShape[] = [
   ...AASHTO_I.map(aashto),
   aashtoV("V", 63, 1013, 521180, 31.96),
@@ -181,6 +200,8 @@ export const GIRDER_SHAPES: GirderShape[] = [
   cbt(72, 1034, 767268, 35.1),
   cbt(81, 1097, 1023130, 39.48),
   cbt(90, 1160, 1323390, 43.87),
+  // 35 x 66 in box (A 996.1 in², yb 15.95 in, I 166,615 in⁴; walls 6 in, bottom slab 6.5 in).
+  box(35, 66, 6, 4.1685, 6.5, 996.1, 166615, 15.95, "CDOT 35 in x 66 in box"), // the top slab 4.17 in: its void fillets folded in, the area exact
 ];
 
 export const shapeById = (id: string) => GIRDER_SHAPES.find((s) => s.id === id);

@@ -286,3 +286,25 @@ spectrum; drawings into Drafting; a free node-and-element editor; SI display.
   doesn't feed the bridge.
 - Not yet: a bridge started from an IFC model; quantities sets (Qto) written into the IFC (the
   mapping reads them from the geometry).
+
+## Status (2026-11-14): ported from allcon-desktop, and linked
+
+- Ported (Design, shown with CDOT agency rules on): Spread Footing, Pile Foundation, Drilled Shaft,
+  Micropile, Abutment (`design/foundations/`, p–y lateral analysis), Approach Slab
+  (`design/approach/`), and the desktop's bridge record, here "Bridge Description and Load Path"
+  (`design/bridge/`: alignment, profile, roadway section, supports; the load path to the abutments,
+  piers and foundations with a sync of the linked designs; a whole-bridge calc package; an IFC 4.3
+  model with the alignment, substructure and bars, written by `api/_bridge.py`). See
+  `docs/bridge-description.md`, `docs/foundations-and-abutments.md`, `docs/approach-slab-design.md`.
+- Girder check: a prestressed box section, lever-rule distribution, two-stage pier caps, CDOT rule
+  updates. Generic pay items cover the new quantities (piles, tips, prebore, testing, micropiles, sealant).
+- Linked: the Bridge section's Design tab starts a description record from the bridge (stations from
+  10+00, the supports by their bearings and continuity, the piers as modeled, a level profile).
+- Not merged yet: the alignment and profile aren't the Bridge section's own geometry (its model is
+  straight and level); the record's load path uses the line-girder check, not the grillage's forces;
+  two IFC writers (`bridge` for the record, `bridge_solids` for the section's export).
+- Cross-check, kept out of the repository (the owner's instruction: real CDOT designs are for
+  checking only, never committed): a real two-span skewed bridge in the grillage against the record's
+  line-girder load path. Dead load on the girders alone within 0.3 %; barriers and wearing surface at
+  the pier 3 % lower (the pier gives a little); an interior girder's live load moment 27 % lower than
+  with AASHTO's distribution factors, and the largest abutment bearing's live load 14 % higher (the skew).

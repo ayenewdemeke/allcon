@@ -849,6 +849,13 @@ def handle(payload):
         model, handles = create(params)
         return {"size": dump(model, payload), "handles": handles, "summary": summary(model)}
     if action == "bridge":
+        # The Bridge record's IFC 4.3 writer (alignment, parts, rebar), next to this file like _dxf.
+        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+        import _bridge
+
+        model, handles = _bridge.build(params)
+        return {"size": dump(model, payload), "handles": handles, "summary": summary(model)}
+    if action == "bridge_solids":
         model, handles = bridge(params)
         return {"size": dump(model, payload), "handles": handles, "summary": summary(model)}
     model = load(payload)

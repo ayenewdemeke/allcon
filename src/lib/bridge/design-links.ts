@@ -16,6 +16,7 @@ export function designTargets(d: BridgeDefinition): DesignTarget[] {
     { key: "girders", label: "Girders", tool: "LRFD Bridge Design Check", kind: "lrfd-girder-check", from: "Spans, girders, deck and loads" },
     { key: "deck", label: "Deck", tool: "Deck Slab", kind: "deck-slab", from: "Girder spacing, overhang, deck, barrier" },
   ];
+  out.push({ key: "description", label: "Whole bridge: load path and foundations", tool: "Bridge Description and Load Path (CDOT rules)", kind: "bridge", from: "Spans, skew, supports, girders, deck and piers; it then creates and updates the abutments, pier caps, columns, foundations and approach slabs, with one calc package and an IFC model with bars" });
   d.supports.forEach((_, k) => out.push({ key: `bearing-${k}`, label: `${lineName(d, k)} bearings`, tool: "Elastomeric Bearing", kind: "elastomeric-bearing", from: "The largest bearing reaction on the line, dead and live; the expansion length" }));
   if (d.piers.model) for (let k = 1; k < d.supports.length - 1; k++) out.push({ key: `column-${k}`, label: `Pier ${k} columns`, tool: "Pier Column", kind: "pier-column", from: "Strength I forces at the top of the hardest-worked column, with their concurrent forces" });
   d.supports.forEach((s, k) => {
@@ -64,6 +65,45 @@ export function designPrefill(target: DesignTarget, d: BridgeDefinition, a: Brid
         fws: d.loads.wearingSurface,
       },
     };
+  if (target.kind === "bridge") {
+    // The description record (stations from 10+00): the supports by their bearings and continuity, the piers as modeled.
+    const stations: number[] = [1000];
+    d.spans.forEach((L) => stations.push(stations[stations.length - 1] + L));
+    const half = ((d.nGirders - 1) * d.spacing) / 2 + d.overhang;
+    const last = d.supports.length - 1;
+    return {
+      name: "Description and load path",
+      inputs: {
+        alignment: { refStation: 1000, northing: 10000, easting: 10000, azimuth: 90, curves: [] },
+        profile: { station: 1000, elevation: 5280, grade: 0, curves: [] },
+        supports: d.supports.map((s, k) =>
+          k === 0 || k === last
+            ? { name: `Abutment ${k + 1}`, station: stations[k], skew: d.skew, type: s.bearing === "fixed" ? "integral-abutment" : "seat-abutment", endDistance: 1, bearingOffset: 1, bearingHeight: Math.max(d.piers.bearingHeight, 1) }
+            : {
+                name: `Pier ${k + 1}`,
+                station: stations[k],
+                skew: d.skew,
+                type: d.continuity === "continuous" ? "continuous-pier" : "simple-pier",
+                endDistance: 0.75,
+                bearingOffset: 1,
+                bearingHeight: Math.max(d.piers.bearingHeight, 1),
+                pier: { kind: "multicolumn", capLength: (d.nGirders - 1) * d.spacing + 3, capDepth: d.piers.capDepth, capWidth: d.piers.capWidth * 12, columns: d.piers.columns, columnSpacing: d.piers.columnSpacing, columnShape: "round", columnSize: d.piers.columnDiameter * 12, columnDepth: d.piers.columnDiameter * 12, foundationTop: 0, foundation: "drilled-shaft" },
+              },
+        ),
+        ...(d.girder.custom ? {} : { shape: d.girder.shape }),
+        nGirders: d.nGirders,
+        spacing: d.spacing,
+        leftEdge: half,
+        rightEdge: half,
+        barrierWidth: d.loads.barrierWidth,
+        deckT: d.deck.thickness,
+        sacrificial: d.deck.sacrificial,
+        slabOffset: d.deck.thickness + d.deck.haunch,
+        fcDeck: d.deck.fc,
+        fws: d.loads.wearingSurface,
+      },
+    };
+  }
   if (target.kind === "deck-slab")
     return { name, inputs: { nGirders: d.nGirders, S: d.spacing, overhang: d.overhang, t: d.deck.thickness - d.deck.sacrificial, fc: d.deck.fc, barrierWidth: d.loads.barrierWidth * 12, barrierWeight: d.loads.barrierWeight } };
   const line = Number(target.key.split("-")[1]);

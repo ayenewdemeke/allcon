@@ -7,6 +7,8 @@ import { designGirder } from "../design/girders/prestressed";
 import { designStripSeal } from "../design/joints/strip-seal";
 import { bearingInputs, deckInputs, designInputs, girderInputs, stripSealInputs } from "../design/kinds";
 import { columnInputs, designColumn } from "../design/piers/column";
+import { runBridge } from "../design/bridge/bridge";
+import { bridgeInputs } from "../design/bridge/kinds";
 import { analyzeBridge } from "./bridge";
 import { BRIDGE_DEFAULTS, bridgeDefinition, supportsFor } from "./definition";
 import { designPrefill, designTargets } from "./design-links";
@@ -24,7 +26,7 @@ const fill = (key: string) => designPrefill(targets.find((t) => t.key === key)!,
 
 describe("designs from the bridge model", () => {
   it("offers the girders, the deck, each line's bearings, the pier's columns and the expansion abutments' joints", () => {
-    expect(targets.map((t) => t.key)).toEqual(["girders", "deck", "bearing-0", "bearing-1", "bearing-2", "column-1", "joint-0", "joint-2"]);
+    expect(targets.map((t) => t.key)).toEqual(["girders", "deck", "description", "bearing-0", "bearing-1", "bearing-2", "column-1", "joint-0", "joint-2"]);
   });
   it("the girder check takes the spans, section and loads, and works out", () => {
     const i = girderInputs(designInputs("lrfd-girder-check", fill("girders").inputs));
@@ -54,6 +56,13 @@ describe("designs from the bridge model", () => {
     expect(i.cases[0].P).toBeGreaterThan(800);
     expect(i.T).toBe(42);
     expect(designColumn(i).checks.length).toBeGreaterThan(5);
+  });
+  it("the description record takes the supports at their stations, the piers and the deck, and runs its load path", () => {
+    const b = bridgeInputs(fill("description").inputs);
+    expect(b.supports.map((s) => [s.station, s.type, s.skew])).toEqual([[1000, "seat-abutment", 15], [1100, "continuous-pier", 15], [1220, "seat-abutment", 15]]);
+    expect([b.nGirders, b.spacing, b.leftEdge, b.slabOffset]).toEqual([6, 8, 23.5, 10.5]);
+    expect(b.supports[1].pier?.columnSize).toBe(42);
+    expect(runBridge(b).layout.supports).toHaveLength(3);
   });
   it("a joint takes the expansion length and the skew", () => {
     const i = stripSealInputs(fill("joint-0").inputs);

@@ -7,7 +7,7 @@ import { ledgeChecks, type LedgeCheck } from "./ledge";
 import { capLoadCases, type CapLoads, type GirderLink, type GirderSide } from "./cap-loads";
 import { candidates, polygon, visible, type Pt } from "./geometry";
 import { bandFits, barsFit, exitPoint, insideWithin, SINGULAR, templateZones, zoneOverlap, type Zone } from "./nodal-zones";
-import { templateOf, type StmTemplate } from "./templates";
+import { buildTemplate, templateOf, type StmTemplate } from "./templates";
 import { angleScreen, crossings } from "./model";
 import { optimize, type LpSolver } from "./optimizer";
 import { diagonalCrackScreen } from "./serviceability";
@@ -46,6 +46,14 @@ export type StmInputs = {
   service: { check: boolean; V: number; a: number; d: number };
   /** Loads from girder designs (lane placement on the cap); when enabled they replace `cases`. */
   girders: GirderLink | null;
+  /**
+   * A cap built in two stages, as CDOT pier caps under girders made continuous by a cast-in-place diaphragm
+   * are: the girders set on a first-stage cap (the template's depth), then the diaphragm cast around their ends
+   * and over the cap. Construction: the first-stage cap under the girders, deck, haunch and the wet diaphragm
+   * (DC1). Completed: cap and diaphragm as one member, the diaphragm's height deeper, its top bars the top tie,
+   * under every load. Both are designed; the checks of each are reported.
+   */
+  stages?: { enabled: boolean; diaphragmHeight: number; topBars?: { size: number; count: number } | null } | null;
   /** The standard cap the model was last built from (its dimensions, to rebuild it), if any. */
   template?: StmTemplate | null;
   /** The column's boundary below the cap: reactions from statics and the solver (default), or kept near the column's linear stress. */
@@ -201,6 +209,13 @@ export function stmInputs(saved: unknown): StmInputs {
     ...(s.columnBoundary === "linear-stress" ? { columnBoundary: "linear-stress" as const } : {}),
     ...(s.nodeGeometry === "entered" ? { nodeGeometry: "entered" as const } : {}),
     ...(s.sectional === true ? { sectional: true } : {}),
+    ...(s.stages && typeof s.stages === "object" && Number((s.stages as { diaphragmHeight?: unknown }).diaphragmHeight) > 0
+      ? (() => {
+          const g = s.stages as { enabled?: unknown; diaphragmHeight: unknown; topBars?: { size?: unknown; count?: unknown } | null };
+          const tb = g.topBars && Number(g.topBars.size) > 0 && Number(g.topBars.count) > 0 ? { size: Number(g.topBars.size), count: Number(g.topBars.count) } : null;
+          return { stages: { enabled: g.enabled !== false, diaphragmHeight: Number(g.diaphragmHeight), topBars: tb } };
+        })()
+      : {}),
     ...(s.payItems && typeof s.payItems === "object"
       ? (() => {
           const p = s.payItems as Record<string, unknown>;
@@ -284,7 +299,32 @@ export function roleOf(entry: string) {
 /** The member key as entered, read either way round. */
 const keyOf = (labels: string[], a: number, b: number) => `${labels[a]}-${labels[b]}`;
 
-export async function designStm(i: StmInputs, solve: LpSolver) {
+/**
+ * The strut-and-tie design: one model, or, for a cap built in two stages (`stages`), the first-stage cap
+ * under the construction loads and the completed member under every load, with both stages' checks. The
+ * completed member's model is returned (its members, ties and nodes), the construction stage under `stages`.
+ */
+export async function designStm(i: StmInputs, solve: LpSolver): Promise<StmResult> {
+  const st = i.stages;
+  if (!st?.enabled || !i.template || !i.girders?.enabled || !(st.diaphragmHeight > 0) || i.girders.stage) return designStmModel(i, solve);
+  const t = i.template;
+  const link = i.girders;
+  const construction = await designStmModel({ ...i, stages: null, girders: { ...link, stage: "construction", diaphragm: { height: st.diaphragmHeight, width: t.capWidth } } }, solve);
+  const h = st.diaphragmHeight;
+  const deep = buildTemplate({ ...t, depth: t.depth + h, tipDepth: t.tipDepth + h, topBars: st.topBars ?? t.topBars }, { ...i, stages: null, girders: { ...link, stage: "completed" } });
+  const completed = await designStmModel(deep, solve);
+  const tag = (prefix: string, r: StmModelResult) => r.checks.map((c) => ({ ...c, id: `${prefix.toLowerCase()}-${c.id}`, name: `${prefix}: ${c.name}` }));
+  const checks = [...tag("Construction", construction), ...tag("Completed", completed)];
+  return {
+    ...completed,
+    ok: checks.every((c) => c.ok),
+    checks,
+    warnings: [...new Set([...construction.warnings, ...completed.warnings])],
+    stages: { diaphragmHeight: h, construction, completed },
+  };
+}
+
+async function designStmModel(i: StmInputs, solve: LpSolver) {
   const labels = i.nodes.map((n) => n.label.trim());
   if (labels.some((l) => !l)) throw new DesignError("Every node needs a label.");
   if (new Set(labels).size !== labels.length) throw new DesignError("Two nodes have the same label.");
@@ -993,4 +1033,5 @@ export async function designStm(i: StmInputs, solve: LpSolver) {
   };
 }
 
-export type StmResult = Awaited<ReturnType<typeof designStm>>;
+type StmModelResult = Awaited<ReturnType<typeof designStmModel>>;
+export type StmResult = StmModelResult & { stages?: { diaphragmHeight: number; construction: StmModelResult; completed: StmModelResult } };

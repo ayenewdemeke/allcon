@@ -75,7 +75,9 @@ export type GirderInputs = {
   harped: HarpedStrands;
   losses: "refined" | "approximate"; // 5.9.3.4 or 5.9.3.3
   elasticGain: boolean; // count elastic gains from the deck and superimposed loads (refined losses)
-  humidity: number; // %, average annual ambient relative humidity
+  humidity: number; // %, average annual ambient relative humidity (CDOT criteria: 55 %, BDM 5.3.3)
+  /** CDOT criteria: f'ci and f'c above 6.5 and 8.5 ksi approved by the Unit Leader with the State Bridge Engineer (BDM 5.3.1.2): the limits shown for information. */
+  highStrengthApproved?: boolean;
   tRelease: number; // days, age at release
   tDeck: number; // days, age when the deck is cast
   tFinal: number; // days, the girder's final age (refined losses)
@@ -103,6 +105,8 @@ export type GirderInputs = {
   eta: number; // ηD·ηR·ηI (1.3.2)
   exposure: Exposure;
   rigidMethod: boolean; // exterior girder not less than the rigid cross-section (4.6.2.2.2d)
+  /** Live load distribution: AASHTO's tables (default), or the lever rule for every girder (for a girder system the tables don't cover, side-by-side boxes on a cast-in-place deck among them). */
+  distribution?: "aashto" | "lever-rule";
   skewShearInterior: boolean; // skew correction for shear on interior girders too
   ag: number; // in, maximum aggregate size (5.7.3.4.2)
   // Continuity (5.12.3.3): spans 2.. of a bridge whose girders are made continuous over the piers.
@@ -413,6 +417,53 @@ export type DistFactors = {
 };
 
 /** Lever rule (4.6.2.2.2d): the exterior girder's share of one lane, 1.2 multiple presence. */
+/**
+ * The lever rule for an interior or exterior girder (4.6.2.2.2, C4.6.2.2.1): the deck as simple spans between
+ * girders (cantilevered past the outer ones), design trucks' wheel lines 6 ft apart in 12 ft lanes side by side,
+ * each wheel 2 ft or more from its lane's edge, the lanes anywhere across the roadway; the most a girder takes
+ * per lane with the multiple presence factor (T. 3.6.1.1.2-1). One lane (with 1.2), more lanes, and the larger.
+ */
+export function leverRuleAll(nGirders: number, S: number, overhang: number, barrierWidth: number, exterior: boolean) {
+  const z = Array.from({ length: nGirders }, (_, k) => (k - (nGirders - 1) / 2) * S);
+  const target = exterior ? 0 : Math.floor((nGirders - 1) / 2);
+  const share = (x: number) => {
+    // The target girder's share of a unit load at x.
+    if (x <= z[0]) return target === 0 ? 1 + (z[0] - x) / S : target === 1 ? -(z[0] - x) / S : 0;
+    if (x >= z[nGirders - 1]) return target === nGirders - 1 ? 1 + (x - z[nGirders - 1]) / S : target === nGirders - 2 ? -(x - z[nGirders - 1]) / S : 0;
+    const j = Math.min(nGirders - 2, Math.floor((x - z[0]) / S));
+    if (target === j) return (z[j + 1] - x) / S;
+    if (target === j + 1) return (x - z[j]) / S;
+    return 0;
+  };
+  const left = z[0] - overhang + barrierWidth;
+  const width = 2 * (overhang - barrierWidth) + (nGirders - 1) * S;
+  const lanesMax = Math.max(1, Math.floor(width / 12));
+  const mpf = (k: number) => (k <= 1 ? 1.2 : k === 2 ? 1 : k === 3 ? 0.85 : 0.65);
+  let one = 0;
+  let multi = 0;
+  let lanesAt = 1;
+  for (let k = 1; k <= lanesMax; k++) {
+    let most = 0;
+    const room = width - 12 * k;
+    for (let a = 0; a <= room + 1e-9; a += 0.25)
+      for (let d = 5; d <= 7 + 1e-9; d += 0.25) {
+        let r = 0;
+        for (let j = 0; j < k; j++) {
+          const c = left + a + 12 * j + d;
+          r += 0.5 * (share(c - 3) + share(c + 3));
+        }
+        most = Math.max(most, r);
+      }
+    const g = mpf(k) * most;
+    if (k === 1) one = g;
+    else if (g > multi) {
+      multi = g;
+      if (g > one) lanesAt = k;
+    }
+  }
+  return { one, multi, best: Math.max(one, multi), lanes: multi > one ? lanesAt : 1 };
+}
+
 export function leverRule(S: number, de: number) {
   // Wheels 2 ft from the barrier face and 6 ft apart; the barrier face is de outside the exterior web.
   const w1 = 2 - de;
@@ -444,6 +495,10 @@ export function distributionFactors(i: GirderInputs, g: SectionProps, ts: number
   const Kg = n * (g.I + g.A * eg ** 2); // in⁴, 4.6.2.2.1-1
   const roadway = (nGirders - 1) * S + 2 * i.overhang - 2 * i.barrierWidth;
   const lanes = Math.max(1, Math.floor(roadway / 12)); // 3.6.1.1.1
+  if (i.distribution === "lever-rule") {
+    const lv = leverRuleAll(nGirders, S, i.overhang, i.barrierWidth, exterior);
+    return { moment: lv.best, shear: lv.best, fatigue: lv.one / 1.2, Kg, eg, n, lanes, momentOne: lv.one, momentMulti: lv.multi, shearOne: lv.one, shearMulti: lv.multi, lever: lv.best, skewMoment: 1, skewShear: 1, governs: { moment: `lever rule, ${lv.lanes} lane${lv.lanes > 1 ? "s" : ""}`, shear: `lever rule, ${lv.lanes} lane${lv.lanes > 1 ? "s" : ""}` }, outOfRange: [] };
+  }
   const stiff = (Kg / (12 * L * ts ** 3)) ** 0.1;
   const momentOne = 0.06 + (S / 14) ** 0.4 * (S / L) ** 0.3 * stiff; // T. 4.6.2.2.2b-1
   const momentMulti = 0.075 + (S / 9.5) ** 0.6 * (S / L) ** 0.2 * stiff;
@@ -1184,8 +1239,10 @@ function designGirderLine(i: GirderInputs, exterior: boolean, ctx: SpanContext |
 
   // CDOT Bridge Design Manual: concrete strengths and the hold-down force.
   if (cdot) {
-    add({ id: "cdot-fci", name: "Girder f′ci, CDOT's maximum without approval", demand: i.fci, capacity: CDOT.maxFci, unit: "ksi", ref: "CDOT BDM 5.3.1.2", note: "a higher strength needs the Unit Leader's approval" });
-    add({ id: "cdot-fc", name: "Girder f′c, CDOT's maximum without approval", demand: i.fc, capacity: CDOT.maxFc, unit: "ksi", ref: "CDOT BDM 5.3.1.2", note: "a higher strength needs the Unit Leader's approval" });
+    const approved = !!i.highStrengthApproved;
+    const why = approved ? "a higher strength approved by the Unit Leader with the State Bridge Engineer (shown for information)" : "a higher strength needs the Unit Leader's approval, with the State Bridge Engineer";
+    add({ id: "cdot-fci", name: "Girder f′ci, CDOT's maximum without approval", demand: i.fci, capacity: CDOT.maxFci, unit: "ksi", ref: "CDOT BDM 5.3.1.2", note: why, ...(approved ? { advisory: true } : {}) });
+    add({ id: "cdot-fc", name: "Girder f′c, CDOT's maximum without approval", demand: i.fc, capacity: CDOT.maxFc, unit: "ksi", ref: "CDOT BDM 5.3.1.2", note: why, ...(approved ? { advisory: true } : {}) });
     const h = i.harped;
     if (h && h.count > 0) {
       const slope = (h.yEnd - h.yHarp) / (h.harpPoint * Lg * 12);
@@ -1233,7 +1290,7 @@ function designGirderLine(i: GirderInputs, exterior: boolean, ctx: SpanContext |
       const topEnd = h.yEnd + (Math.ceil(h.count / 2) - 1);
       add({ id: "harp-height", name: "Top harped strand at the girder's end", demand: topEnd, capacity: Math.min(H - CDOT.harpBelowTop, CDOT.maxHarpHeight), unit: "in", ref: "CDOT BDM 5.5.1.5; B-618-CBT2", note: `at most ${CDOT.harpBelowTop} in below the top (${H - CDOT.harpBelowTop} in), and ${CDOT.maxHarpHeight} in (60–66 in by the precasting bed)` });
       add({ id: "harp-span", name: "Harped strands in a girder under 100 ft", demand: Lg < CDOT.harpMinLength ? h.count : 0, capacity: 0, unit: "strands", ref: "CDOT BDM 5.5.1.5", note: `girder ${Lg.toFixed(1)} ft; straight debonded strands are preferred` });
-      add({ id: "harp-point", name: "Harp point, within 0.35 L to 0.45 L", demand: Math.abs(h.harpPoint - 0.4), capacity: 0.05, unit: "", ref: "CDOT BDM 5.5.1.5", note: `at ${h.harpPoint.toFixed(3)} L` });
+      add({ id: "harp-point", name: "Harp point, 0.35 to 0.45 of the girder's length (guidance)", demand: Math.abs(h.harpPoint - 0.4), capacity: 0.05, unit: "", ref: "CDOT BDM 5.5.1.5", note: `at ${h.harpPoint.toFixed(3)} of the girder's length; the BDM says harping locations "should" be in this range, 0.4 a good default`, advisory: true });
     }
     const Pj = N * strand.area * fpj;
     add({ id: "bed-force", name: "Jacking force of all strands (precasting bed)", demand: Pj, capacity: CDOT.maxBedForce, unit: "kip", ref: "B-618-CBT2", note: `${N} strands at ${(strand.area * fpj).toFixed(1)} kip` });
@@ -2126,7 +2183,13 @@ export function governingRatio(checks: Check[], choosingGirder: boolean) {
 }
 
 /** The design check: both girders, the controlling one first in the summary. */
-export function designGirder(i: GirderInputs) {
+/** The inputs as the criteria take them: under CDOT's, the relative humidity for creep and shrinkage is 55 % (BDM 5.3.3). */
+export function criteriaInputs(i: GirderInputs): GirderInputs {
+  return i.criteria === "cdot" && i.humidity !== 55 ? { ...i, humidity: 55 } : i;
+}
+
+export function designGirder(entered: GirderInputs) {
+  const i = criteriaInputs(entered);
   if (i.L <= 0) throw new DesignError("The span needs a length.");
   if (i.S <= 0 || i.nGirders < 2) throw new DesignError("The bridge needs at least two girders and a spacing.");
   if (i.deckT - i.sacrificial <= 0) throw new DesignError("The deck needs a structural thickness.");

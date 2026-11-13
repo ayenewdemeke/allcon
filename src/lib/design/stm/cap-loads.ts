@@ -26,6 +26,8 @@ export type GirderSide = {
   L: number; // ft, bearing to bearing
   continuous: boolean; // the design makes its girders continuous (reactions here are as simple spans)
   dc: { interior: number; exterior: number }; // kip, unfactored reaction at the pier
+  /** DC1 alone: the girder, deck, haunch and diaphragms, as simple spans (on the cap before the pier diaphragm is cast). */
+  dc1?: { interior: number; exterior: number };
   dw: { interior: number; exterior: number };
   /** Which end of the span bears on this pier (its end for the back span, its start for the ahead span). */
   end?: "start" | "end";
@@ -49,6 +51,14 @@ export type GirderLink = {
   selfWeight: boolean; // add the cap's own weight
   soffit: number; // ft, only concrete above this counts as the cap (below is the column, carried by itself)
   wc: number; // kcf
+  /**
+   * A cap built in two stages (the girders set on a first-stage cap, then a diaphragm cast around their ends,
+   * making cap and diaphragm one deeper member): "construction" is the first-stage cap under the girders, deck,
+   * haunch and the wet diaphragm (DC1, no live load); "completed" (or none) is the whole member under everything.
+   */
+  stage?: "construction" | "completed";
+  /** The diaphragm above the cap, its height (ft) and width (in): its wet weight on the first-stage cap. */
+  diaphragm?: { height: number; width: number } | null;
 };
 
 export const IM = 0.33;
@@ -81,9 +91,10 @@ export function girderSide(design: GirderInputs, span: number, designId: string,
     const wDeck = ((i.deckT / 12) * trib + (i.haunch / 12) * (shape.topWidth / 12)) * i.wcDeck + i.otherDC1;
     const wBarrier = i.barriersOnExterior ? (exterior ? i.barrierWeight : 0) : (2 * i.barrierWeight) / i.nGirders;
     const Pdia = exterior ? i.diaphragmWeight / 2 : i.diaphragmWeight;
-    const dc = (wg * Lg) / 2 + (wDeck * i.L) / 2 + (i.diaphragms * Pdia) / 2 + (wBarrier + i.otherDC2) * share;
+    const dc1 = (wg * Lg) / 2 + (wDeck * i.L) / 2 + (i.diaphragms * Pdia) / 2;
+    const dc = dc1 + (wBarrier + i.otherDC2) * share;
     const dw = (((i.fws / 1000) * roadway) / i.nGirders) * share;
-    return { dc, dw };
+    return { dc, dc1, dw };
   };
   const int = at(false);
   const ext = at(true);
@@ -103,6 +114,7 @@ export function girderSide(design: GirderInputs, span: number, designId: string,
     L: i.L,
     continuous: spans > 1,
     dc: { interior: int.dc, exterior: ext.dc },
+    dc1: { interior: int.dc1, exterior: ext.dc1 },
     dw: { interior: int.dw, exterior: ext.dw },
     liveContinuous: interiorPier ? { pier, ...continuousLaneReaction(design, pier) } : null,
     wind: site.barrierHeight > 0 || site.V > 0 ? { depth: w.depth, arm: w.arm, armWL: w.armWL, deckWidth: w.deckWidth, lineIII: w.strengthIII?.line ?? null, lineV: w.strengthV.line, lineService: w.serviceI.line, V: site.V, exposure: site.exposure, Z: site.Z } : null,
@@ -228,8 +240,9 @@ export function capLoadCases(
   const width = right - left;
   if (width < 12) throw new DesignError("The roadway is narrower than one 12 ft lane.");
   const lanesMax = Math.floor(width / 12); // 3.6.1.1.1
+  const construction = link.stage === "construction";
   const arrangements: Arrangement[] = [];
-  for (let k = 1; k <= lanesMax; k++) {
+  for (let k = 1; k <= (construction ? 0 : lanesMax); k++) {
     const room = width - 12 * k;
     const steps = Math.max(1, Math.ceil(room));
     for (let s = 0; s <= steps; s++) for (const shift of [-1, 0, 1]) arrangements.push({ lanes: k, from: left + (room * s) / steps, shift, m: multiplePresence(k) });
@@ -241,7 +254,8 @@ export function capLoadCases(
   for (const s of sides) girderZ(s).forEach((z, g) => {
     const ext = g === 0 || g === s.n - 1;
     const prefix = sides.length > 1 ? (s === link.back ? "Back " : "Ahead ") : "";
-    bearings.push({ x: capX(s, z), dc: ext ? s.dc.exterior : s.dc.interior, dw: ext ? s.dw.exterior : s.dw.interior, label: `${prefix}G${g + 1}` });
+    const dc = construction ? (s.dc1 ?? s.dc) : s.dc;
+    bearings.push({ x: capX(s, z), dc: ext ? dc.exterior : dc.interior, dw: construction ? 0 : ext ? s.dw.exterior : s.dw.interior, label: `${prefix}G${g + 1}` });
   });
   // Every girder must bear on the cap's concrete: one off its end means the bridge isn't placed on this cap yet.
   const [lo, hi] = [Math.min(...outline.map((p) => p[0])), Math.max(...outline.map((p) => p[0]))];
@@ -288,6 +302,13 @@ export function capLoadCases(
       strips.push({ x, P: h * ((x1 - x0) / n) * (b / 12) * link.wc });
     }
   }
+  // The wet diaphragm on the first-stage cap: its weight along the cap between the outermost girders.
+  if (construction && link.diaphragm && link.diaphragm.height > 0) {
+    const xs = bearings.map((br) => br.x);
+    const [x0, x1] = [Math.min(...xs), Math.max(...xs)];
+    const n = 100;
+    for (let k = 0; k < n; k++) strips.push({ x: x0 + ((k + 0.5) * (x1 - x0)) / n, P: link.diaphragm.height * (link.diaphragm.width / 12) * link.wc * ((x1 - x0) / n) });
+  }
   const selfWeight = strips.reduce((s, p) => s + p.P, 0);
 
   const nodeLoads = (a: Arrangement | null, dcF: number, dwF: number, llF: number) => {
@@ -299,6 +320,23 @@ export function capLoadCases(
   };
   const moment = (m: Map<string, number>) => [...m].reduce((s, [k, P]) => s + P * (loadNodes.find((n) => n.label === k)!.x - supportX), 0);
   const total = (m: Map<string, number>) => [...m.values()].reduce((s, P) => s + P, 0);
+  // The construction stage: the first-stage cap under DC1 at 1.25 (Strength I) and 1.50 (Strength IV).
+  if (construction) {
+    const cases: StmCase[] = [];
+    const caseInfo: { name: string; arrangement: Arrangement; reason: string; dead: "max" | "min" }[] = [];
+    const none: Arrangement = { lanes: 0, from: left, shift: 0, m: 1 };
+    const toCase = (name: string, m: Map<string, number>): StmCase => ({ name, loads: loadNodes.filter((n) => m.has(n.label)).map((n) => ({ node: n.label, fx: 0, fy: -(m.get(n.label) ?? 0) })) });
+    for (const [name, f, why] of [
+      ["Construction, Strength I (girders, deck, haunch and wet diaphragm)", 1.25, "the first-stage cap before the diaphragm is cast"],
+      ["Construction, Strength IV (the same dead loads at 1.50)", 1.5, "dead loads at 1.50"],
+    ] as const) {
+      cases.push(toCase(name, nodeLoads(null, f, 0, 0)));
+      caseInfo.push({ name, arrangement: none, reason: why, dead: "max" });
+    }
+    const serviceShear = [...faces, ...spans.flatMap((sp) => [{ label: `${sp.label}, left face`, x: sp.faceA, side: 1 as const }, { label: `${sp.label}, right face`, x: sp.faceB, side: -1 as const }])].map((fc) => ({ ...fc, V: 0, a: 0, lanes: 0 }));
+    const bearingLoads = bearings.map((br) => ({ x: br.x, label: br.label, dc: br.dc, dw: 0, ll: 0, strength: 1.25 * br.dc }));
+    return { cases, caseInfo, lane, lanesMax: 0, roadway: width, bearings, bearingLoads, selfWeight, arrangements: 0, serviceShear, wind: null, braking: null, warnings: [...new Set(warnings)] };
+  }
   const evaluated = arrangements.map((a) => ({ a, m: nodeLoads(a, 1.25, 1.5, 1.75) }));
   const pick = new Map<number, string>();
   const choose = (k: number, why: string) => pick.has(k) || pick.set(k, why);

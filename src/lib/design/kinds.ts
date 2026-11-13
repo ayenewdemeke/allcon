@@ -21,6 +21,9 @@ function cleanExtension(v: unknown): CbcInputs["extension"] {
     .map((p, k) => ({ name: typeof p.name === "string" ? p.name.slice(0, 20) : `Piece ${k + 1}`, length: n(p.length, 0) }));
   return { pieces, bar: Math.round(n(o.bar, 5)), length: n(o.length, 36), spacing: n(o.spacing, 12) || 12, removalBackfill: n(o.removalBackfill, 0), waterproofJoints: o.waterproofJoints === true };
 }
+import { APPROACH_SLAB_DEFAULTS, type ApproachSlabInputs } from "./approach/approach-slab";
+import { FOUNDATION_INFO, FOUNDATION_KINDS, foundationInputs } from "./foundations/kinds";
+import { BRIDGE_INFO, bridgeInputs } from "./bridge/kinds";
 import { DECK_DEFAULTS, RAIL_DEFAULT, type DeckInputs } from "./decks/deck";
 import { STRIP_SEAL_DEFAULTS, type StripSealInputs } from "./joints/strip-seal";
 import { HAUNCH_DEFAULTS, type HaunchInputs } from "./girders/haunch";
@@ -42,9 +45,14 @@ import { WINGWALL_DEFAULTS, type WingwallInputs } from "./walls/wingwall";
 // The Design section's categories and design types: highway structures to AASHTO LRFD, grouped
 // by element. What can be designed, and what's coming next.
 
-export type DesignKind = "lrfd-girder-check" | "dt-load-rating" | "stm-d-region" | "cip-cantilever-wall" | "mse-wall" | "cantilever-wingwall" | "box-culvert" | "deck-slab" | "seismic-zone1" | "pier-column" | "pier-collision" | "camber-haunch" | "sign-cantilever" | "elastomeric-bearing" | "ptfe-bearing" | "strip-seal-joint";
+export type DesignKind = "lrfd-girder-check" | "dt-load-rating" | "stm-d-region" | "cip-cantilever-wall" | "mse-wall" | "cantilever-wingwall" | "box-culvert" | "deck-slab" | "seismic-zone1" | "pier-column" | "pier-collision" | "camber-haunch" | "sign-cantilever" | "elastomeric-bearing" | "ptfe-bearing" | "strip-seal-joint" | "approach-slab" | "spread-footing" | "pile-foundation" | "drilled-shaft" | "micropile" | "abutment" | "bridge";
 
 export const CATEGORIES: { id: string; name: string; kinds: { id: DesignKind; name: string; short: string; description: string; available: boolean; /** Shown only with this agency's rules on (Design → Agency rules). */ agency?: "cdot" }[] }[] = [
+  {
+    id: "bridges",
+    name: "Bridges",
+    kinds: [{ id: "bridge", ...BRIDGE_INFO, available: true, agency: "cdot" }],
+  },
   {
     id: "superstructures",
     name: "Superstructures",
@@ -60,7 +68,13 @@ export const CATEGORIES: { id: string; name: string; kinds: { id: DesignKind; na
       { id: "stm-d-region", name: "Strut-and-Tie Model", short: "Pier caps and abutments: struts, ties, nodes", description: "Planar strut-and-tie design of disturbed regions in reinforced concrete pier caps and abutments: the truss layout entered or found by optimization, solved in equilibrium for each load case; the 25° strut-tie angle limit, tie bars, node face strength with nonhydrostatic nodes and confinement, the crack-control grid, anchorage of the ties at the extended nodal zone, and the diagonal-cracking screen. Normalweight, nonprestressed concrete. AASHTO LRFD 5.8.2, 5.10.8.2 and C5.8.2.2.", available: true },
       { id: "pier-column", name: "Pier Column", short: "Round, rectangular or oblong: P–M, slenderness, collision", description: "A pier column under its cap: the forces from the cap's strut-and-tie design (the bent as a plane frame) with braking, wind and temperature along the bridge from the girder designs, or entered; slenderness by moment magnification, axial load with biaxial bending by strain compatibility, shear, bar and tie limits, the optional vehicle collision, and the bars detailed with their quantities. AASHTO LRFD 3.6.4, 3.6.5.1, 3.8, 3.12, 4.5.3.2.2b, 5.6.4 and 5.7.3.3.", available: true },
       { id: "pier-collision", name: "Pier Column Collision", short: "600 kip vehicle collision on a round column", description: "A round pier column for vehicle collision in Extreme Event II: the equivalent static force, the column's shear and moments, shear by the simplified procedure and axial load with bending by strain compatibility. AASHTO LRFD 3.6.5.1, 5.7.3.3 and 5.6.4.", available: true },
+      { id: "abutment", ...FOUNDATION_INFO.abutment, available: true, agency: "cdot" },
     ],
+  },
+  {
+    id: "foundations",
+    name: "Foundations",
+    kinds: (["spread-footing", "pile-foundation", "drilled-shaft", "micropile"] as const).map((id) => ({ id, ...FOUNDATION_INFO[id], available: true, agency: "cdot" as const })),
   },
   {
     id: "walls",
@@ -83,6 +97,7 @@ export const CATEGORIES: { id: string; name: string; kinds: { id: DesignKind; na
     name: "Bridge Components",
     kinds: [
       { id: "deck-slab", name: "Deck Slab", short: "Equivalent strips: bars and overhang", description: "Cast-in-place deck on parallel girders by the equivalent strip method: the strip analyzed as a continuous beam under dead loads and the design truck's axles, the top, bottom and longitudinal bars, and the overhang for vehicle collision. AASHTO LRFD 4.6.2.1, 9.7.3 and A13.4.", available: true },
+      { id: "approach-slab", name: "Approach Slab", short: "On the abutment notch and a sleeper slab: bars and quantities", description: "A cast-in-place bridge approach slab anchored to the abutment and resting on a sleeper slab, designed as CDOT does for the span over which the fill may settle away (50% of its length, BDM 11.3.7): the axles over the equivalent strip of a slab-type bridge, the main bars (flexure, minimum, crack control, fatigue), shear, distribution and temperature bars, the dowels into the abutment, the sleeper slab's bearing and bars, and a barrier on its edge; with its bars detailed and its CDOT quantities. AASHTO LRFD 3.6.1.3.3, 4.6.2.3, 5.5.3, 5.6, 5.10.6 and 9.7.3.2.", available: true, agency: "cdot" },
       { id: "camber-haunch", name: "Camber and Haunch", short: "Haunch at supports and midspan, camber tolerances", description: "A girder span's haunch (or adjacent box beams' deck thickness) at the supports and midspan, from the deck's profile over the girder (vertical curve, chorded girders on a horizontal curve, cross-slope) and the girder's camber and dead load deflection, with over- and under-camber tolerances.", available: true },
       { id: "elastomeric-bearing", name: "Elastomeric Bearing", short: "Plain or steel-reinforced pads", description: "Elastomeric bearing pads, plain or steel-reinforced, by Method A or B: compression, shear strains, deflection, stability, shims and anchorage. AASHTO LRFD 14.7.5 and 14.7.6.", available: true },
       { id: "ptfe-bearing", name: "PTFE Sliding Bearing", short: "Sliding surface on an elastomeric pad", description: "A steel-reinforced elastomeric pad with a PTFE sliding surface: contact stresses (average and edge), the pad's deformation to the first slip and the sliding beyond, with the pad's own checks. AASHTO LRFD 14.7.2 and 14.7.5.", available: true },
@@ -169,6 +184,15 @@ export function bearingInputs(saved: unknown): BearingInputs {
 export function ptfeInputs(saved: unknown): BearingInputs {
   const s = (saved && typeof saved === "object" ? saved : {}) as Partial<BearingInputs>;
   return { ...PTFE_DEFAULTS, ...s, sliding: true };
+}
+
+/** An approach slab's inputs as saved, filled in from the defaults. */
+export function approachSlabInputs(saved: unknown): ApproachSlabInputs {
+  const s = (saved && typeof saved === "object" ? saved : {}) as Partial<ApproachSlabInputs>;
+  // Saved before B-601-1EA: a strip seal is its 0–4" device; anything else B-601-1's poured joint.
+  const was = (s as { joint?: string }).joint;
+  const joint = was === "none" || was === "silicone" ? "none" : "device";
+  return { ...APPROACH_SLAB_DEFAULTS, ...s, joint, sleeper: s.sleeper !== false, barrier: s.barrier === true };
 }
 
 /** A strip seal joint's inputs as saved, filled in from the defaults. */
@@ -297,10 +321,12 @@ export function designInputs(kind: string, saved: unknown) {
 }
 
 function parseInputs(kind: string, saved: unknown) {
+  if (kind === "bridge") return bridgeInputs(saved);
+  if ((FOUNDATION_KINDS as readonly string[]).includes(kind)) return foundationInputs(kind, saved)!;
   if (kind === "lrfd-girder-check") return girderInputs(saved);
   if (kind === "dt-load-rating") return dtRatingInputs(saved);
   if (kind === "pier-collision") return collisionInputs(saved);
   if (kind === "stm-d-region") return stmInputs(saved);
   if (kind === "pier-column") return columnInputs(saved);
-  return kind === "mse-wall" ? mseInputs(saved) : kind === "box-culvert" ? cbcInputs(saved) : kind === "elastomeric-bearing" ? bearingInputs(saved) : kind === "cantilever-wingwall" ? wingwallInputs(saved) : kind === "deck-slab" ? deckInputs(saved) : kind === "seismic-zone1" ? zone1Inputs(saved) : kind === "camber-haunch" ? haunchInputs(saved) : kind === "sign-cantilever" ? signInputs(saved) : kind === "ptfe-bearing" ? ptfeInputs(saved) : kind === "strip-seal-joint" ? stripSealInputs(saved) : cipInputs(saved);
+  return kind === "mse-wall" ? mseInputs(saved) : kind === "box-culvert" ? cbcInputs(saved) : kind === "elastomeric-bearing" ? bearingInputs(saved) : kind === "cantilever-wingwall" ? wingwallInputs(saved) : kind === "deck-slab" ? deckInputs(saved) : kind === "seismic-zone1" ? zone1Inputs(saved) : kind === "camber-haunch" ? haunchInputs(saved) : kind === "sign-cantilever" ? signInputs(saved) : kind === "ptfe-bearing" ? ptfeInputs(saved) : kind === "strip-seal-joint" ? stripSealInputs(saved) : kind === "approach-slab" ? approachSlabInputs(saved) : cipInputs(saved);
 }

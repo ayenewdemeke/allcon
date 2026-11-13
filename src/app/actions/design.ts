@@ -14,18 +14,21 @@ import { deckCalcLines } from "@/lib/design/decks/deck-calc";
 import { haunchCalcLines } from "@/lib/design/girders/haunch-calc";
 import { toConfirm } from "@/lib/design/girders/from-plans";
 import { girderCalcLines } from "@/lib/design/girders/prestressed-calc";
+import { approachSlabCalcLines } from "@/lib/design/approach/approach-slab-calc";
+import { foundationCalcLines } from "@/lib/design/foundations/calc";
+import { FOUNDATION_KINDS, foundationInputs, type FoundationKind } from "@/lib/design/foundations/kinds";
 import { stripSealCalcLines } from "@/lib/design/joints/strip-seal-calc";
 import { collisionCalcLines } from "@/lib/design/piers/collision-calc";
 import { dtRatingCalcLines } from "@/lib/design/rating/double-tee-calc";
 import { missingInputs } from "@/lib/design/rating/sources";
-import { bearingInputs, cbcInputs, cipInputs, collisionInputs, deckInputs, designInputs, dtRatingInputs, girderInputs, haunchInputs, kindInfo, mseInputs, ptfeInputs, signInputs, stripSealInputs, wingwallInputs, zone1Inputs } from "@/lib/design/kinds";
+import { approachSlabInputs, bearingInputs, cbcInputs, cipInputs, collisionInputs, deckInputs, designInputs, dtRatingInputs, girderInputs, haunchInputs, kindInfo, mseInputs, ptfeInputs, signInputs, stripSealInputs, wingwallInputs, zone1Inputs } from "@/lib/design/kinds";
 import { signCalcLines } from "@/lib/design/signs/cantilever-calc";
 import { columnInputs, type ColumnLink } from "@/lib/design/piers/column";
 import { columnCalcLines } from "@/lib/design/piers/column-calc";
 import { columnLinkFrom } from "@/lib/design/piers/column-link";
 import { zone1CalcLines } from "@/lib/design/seismic/zone1-calc";
 import { cbcCalcLines } from "@/lib/design/culverts/cbc-calc";
-import { bearingFigures, capDetailFigures, takeoffFigures, cbcFigures, cipFigures, collisionFigures, columnFigures, deckFigures, dtFigures, girderFigures, haunchFigures, mseFigures, signFigures, stmFigures, stripSealFigures, wingwallFigures } from "@/lib/design/figures";
+import { approachSlabFigures, foundationFigures, bearingFigures, capDetailFigures, takeoffFigures, cbcFigures, cipFigures, collisionFigures, columnFigures, deckFigures, dtFigures, girderFigures, haunchFigures, mseFigures, signFigures, stmFigures, stripSealFigures, wingwallFigures } from "@/lib/design/figures";
 import { girderSide, type GirderSide } from "@/lib/design/stm/cap-loads";
 import { nodeLpSolver } from "@/lib/design/stm/lp-node";
 import { designStm, stmInputs, type StmInputs } from "@/lib/design/stm/strut-tie";
@@ -37,6 +40,7 @@ import { mseCalcLines } from "@/lib/design/walls/mse-calc";
 import { wingwallCalcLines } from "@/lib/design/walls/wingwall-calc";
 import { agencyRulesOf } from "@/lib/design/agency";
 import { db } from "@/lib/db";
+import { bridgePackageLines } from "@/lib/design/bridge/package";
 import { deleteFiles, putFile } from "@/lib/storage";
 
 const name = z.string().trim().min(1, "Give the design a name").max(200);
@@ -281,7 +285,11 @@ export async function createCalcFromDesign(designId: string, variant?: "quantiti
           return stmPackageLines(i, r, design.name, { ...figures(() => stmFigures(r)), ...(d ? figures(() => capDetailFigures(d)) : {}) });
         })()
       : null;
-  const lines = takeoffLines ?? stmLines ??
+  const foundationLines = (FOUNDATION_KINDS as readonly string[]).includes(design.kind) ? foundationCalcLines(design.kind as FoundationKind, foundationInputs(design.kind, design.inputs), design.name, figures(() => foundationFigures(design.kind as FoundationKind, foundationInputs(design.kind, design.inputs)!))) : null;
+  // The Bridge: its whole calc, every linked design in load-path order, and its summary of quantities.
+  if (quantities && design.kind === "bridge") throw new Error("The Bridge calc package includes its quantities");
+  const bridgeLines = design.kind === "bridge" ? await bridgePackageLines(design, user.orgId) : null;
+  const lines = bridgeLines ?? takeoffLines ?? stmLines ?? foundationLines ??
     (design.kind === "dt-load-rating"
       ? dtRatingCalcLines(dtRatingInputs(design.inputs), design.name, figures(() => dtFigures(dtRatingInputs(design.inputs))))
       : design.kind === "lrfd-girder-check"
@@ -310,7 +318,9 @@ export async function createCalcFromDesign(designId: string, variant?: "quantiti
                         ? signCalcLines(signInputs(design.inputs), design.name, figures(() => signFigures(signInputs(design.inputs))))
                         : design.kind === "ptfe-bearing"
                           ? bearingCalcLines(ptfeInputs(design.inputs), design.name, figures(() => bearingFigures(ptfeInputs(design.inputs))))
-                          : design.kind === "strip-seal-joint"
+                          : design.kind === "approach-slab"
+                            ? approachSlabCalcLines(approachSlabInputs(design.inputs), design.name, figures(() => approachSlabFigures(approachSlabInputs(design.inputs))))
+                            : design.kind === "strip-seal-joint"
                             ? stripSealCalcLines(stripSealInputs(design.inputs), design.name, figures(() => stripSealFigures(stripSealInputs(design.inputs))))
                             : null);
   if (!lines) throw new Error("Calc packages for this design type are coming");

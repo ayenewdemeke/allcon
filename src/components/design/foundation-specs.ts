@@ -1,0 +1,355 @@
+import type { FoundationKind } from "@/lib/design/foundations/kinds";
+import { BOND_TABLE, GROUT_TYPES } from "@/lib/design/foundations/micropile";
+import { HP_SECTIONS } from "@/lib/design/foundations/hpile";
+
+// The inputs of each foundation tool as the editor lays them out: sections of fields, each a number,
+// a choice, a toggle, bars, or a list (load cases, soil layers) edited as a small table. A field's key
+// is a path into the inputs ("capTop.count"); `show` hides it when it doesn't apply.
+
+type Inputs = Record<string, unknown>;
+export type Column = { key: string; label: string; kind?: "number" | "text" | "choice"; options?: { value: string; label: string }[]; width?: string };
+export type FieldSpec =
+  | { type: "number"; key: string; label: string; unit?: string; step?: number; hint?: string; show?: (i: Inputs) => boolean }
+  | { type: "choice"; key: string; label: string; options: { value: string | number; label: string }[]; show?: (i: Inputs) => boolean }
+  | { type: "toggle"; key: string; label: string; show?: (i: Inputs) => boolean }
+  | { type: "bars"; key: string; label: string; show?: (i: Inputs) => boolean }
+  | { type: "list"; key: string; label: string; columns: Column[]; blank: Record<string, unknown>; note?: string; show?: (i: Inputs) => boolean };
+export type SectionSpec = { title: string; open?: boolean; fields: FieldSpec[] };
+
+const limit: Column = { key: "limit", label: "Limit", kind: "choice", options: [{ value: "strength", label: "Strength" }, { value: "service", label: "Service" }, { value: "extreme", label: "Extreme" }], width: "5.5rem" };
+const name: Column = { key: "name", label: "Case", kind: "text", width: "7rem" };
+const soilKinds = [
+  { value: "sand", label: "Sand (API)" },
+  { value: "soft-clay", label: "Soft clay (Matlock)" },
+  { value: "stiff-clay", label: "Stiff clay, no free water" },
+  { value: "weak-rock", label: "Weak rock (Reese)" },
+  { value: "none", label: "None (no support)" },
+];
+const soilColumns: Column[] = [
+  { key: "name", label: "Layer", kind: "text", width: "7rem" },
+  { key: "thickness", label: "ft" },
+  { key: "kind", label: "p–y", kind: "choice", options: soilKinds, width: "8rem" },
+  { key: "gamma", label: "γ′ pcf" },
+  { key: "phi", label: "φ°" },
+  { key: "k", label: "k pci" },
+  { key: "su", label: "Su psf" },
+  { key: "e50", label: "ε50" },
+  { key: "qu", label: "qu psi" },
+  { key: "Em", label: "Em psi" },
+  { key: "rqd", label: "RQD %" },
+];
+const soilBlank = { name: "Layer", thickness: 10, kind: "sand", gamma: 120, phi: 32, k: 90, su: 1000, e50: 0.007, qu: 300, Em: 30000, rqd: 50 };
+const hpOptions = Object.keys(HP_SECTIONS).map((k) => ({ value: k, label: k.replace("x", " x ") }));
+const soilNote = "Layers from the cap (or the shaft's top) down; γ′ effective (buoyant below water). Sand by φ and k; clays by Su and ε50; weak rock by qu, Em and RQD (GEC 9 Appendix A).";
+
+export const FOUNDATION_SPECS: Record<FoundationKind, SectionSpec[]> = {
+  "spread-footing": [
+    {
+      title: "Footing and column",
+      open: true,
+      fields: [
+        { type: "number", key: "B", label: "Width B", unit: "ft", step: 0.5 },
+        { type: "number", key: "L", label: "Length L", unit: "ft", step: 0.5 },
+        { type: "number", key: "t", label: "Thickness", unit: "in" },
+        { type: "number", key: "Df", label: "Ground to the footing's base", unit: "ft", step: 0.5 },
+        { type: "choice", key: "colShape", label: "Column", options: [{ value: "round", label: "Round" }, { value: "rectangular", label: "Rectangular" }] },
+        { type: "number", key: "colB", label: "Column along B (diameter)", unit: "in" },
+        { type: "number", key: "colL", label: "Column along L", unit: "in", show: (i) => i.colShape === "rectangular" },
+        { type: "number", key: "fc", label: "f'c", unit: "ksi", step: 0.5 },
+        { type: "number", key: "fcCol", label: "Column's f'c", unit: "ksi", step: 0.5 },
+        { type: "number", key: "fy", label: "fy", unit: "ksi" },
+        { type: "number", key: "cover", label: "Bottom cover", unit: "in" },
+        { type: "bars", key: "barsB", label: "Bottom bars along B (lower)" },
+        { type: "bars", key: "barsL", label: "Bottom bars along L" },
+      ],
+    },
+    {
+      title: "Soil and bearing",
+      open: true,
+      fields: [
+        { type: "number", key: "gammaAbove", label: "Backfill over the footing, γ", unit: "pcf" },
+        { type: "toggle", key: "onRock", label: "On rock (eccentricity to 0.45 B)" },
+        { type: "choice", key: "bearing", label: "Bearing resistance", options: [{ value: "computed", label: "AASHTO 10.6.3.1.2a (soil)" }, { value: "entered", label: "Nominal qn from the report" }] },
+        { type: "number", key: "c", label: "Cohesion (undrained) c", unit: "psf", show: (i) => i.bearing === "computed" },
+        { type: "number", key: "phi", label: "Friction angle φ", unit: "deg", show: (i) => i.bearing === "computed" },
+        { type: "number", key: "gammaBelow", label: "Soil below, γ", unit: "pcf", show: (i) => i.bearing === "computed" },
+        { type: "number", key: "Dw", label: "Ground to the water table", unit: "ft", show: (i) => i.bearing === "computed" },
+        { type: "toggle", key: "depthFactor", label: "Depth factor dq (competent soil above the base)", show: (i) => i.bearing === "computed" },
+        { type: "number", key: "qn", label: "Nominal bearing resistance qn", unit: "ksf", show: (i) => i.bearing === "entered" },
+        { type: "number", key: "phiB", label: "Bearing φb (Table 10.5.5.2.2-1)", step: 0.05 },
+        { type: "choice", key: "interface", label: "Sliding on", options: [{ value: "sand", label: "Sand (tan δ)" }, { value: "clay", label: "Clay (Su)" }] },
+        { type: "number", key: "delta", label: "Interface friction δ (cast in place: φ)", unit: "deg", show: (i) => i.interface === "sand" },
+        { type: "number", key: "su", label: "Clay's Su under the footing", unit: "psf", show: (i) => i.interface === "clay" },
+        { type: "number", key: "phiTau", label: "Sliding φτ (0.80 cast on sand, 0.85 clay)", step: 0.05 },
+        { type: "toggle", key: "passive", label: "Count passive resistance (φep 0.50)" },
+      ],
+    },
+    {
+      title: "Settlement (Schmertmann)",
+      fields: [
+        { type: "toggle", key: "settlement", label: "Check settlement at the Service limit" },
+        { type: "number", key: "tolerable", label: "Tolerable settlement", unit: "in", step: 0.25, show: (i) => !!i.settlement },
+        { type: "number", key: "years", label: "Creep, years after construction (C2)", step: 0.1, show: (i) => !!i.settlement },
+        {
+          type: "list",
+          key: "layers",
+          label: "Layers below the base",
+          show: (i) => !!i.settlement,
+          note: "E entered (ksf), or from N160 by NHI Table 5-16: silts 4N, fine to medium sands 7N, coarse sands 10N, gravels 12N (tsf).",
+          columns: [
+            { key: "thickness", label: "ft" },
+            { key: "gamma", label: "γ′ pcf" },
+            { key: "source", label: "E from", kind: "choice", options: [{ value: "entered", label: "Entered" }, { value: "silt", label: "Silt 4N" }, { value: "fine-sand", label: "Fine sand 7N" }, { value: "coarse-sand", label: "Coarse sand 10N" }, { value: "gravel", label: "Gravel 12N" }], width: "7rem" },
+            { key: "N160", label: "N160" },
+            { key: "E", label: "E ksf" },
+          ],
+          blank: { thickness: 10, gamma: 120, E: 400, source: "fine-sand", N160: 20 },
+        },
+      ],
+    },
+    {
+      title: "Loads at the top of the footing",
+      open: true,
+      fields: [
+        {
+          type: "list",
+          key: "cases",
+          label: "Load cases",
+          note: "Factored (Service unfactored): P (kip); moments MB tilting along B and ML along L (kip·ft); shears HB and HL (kip). The footing's and soil's weight are added.",
+          columns: [name, limit, { key: "P", label: "P" }, { key: "MB", label: "MB" }, { key: "ML", label: "ML" }, { key: "HB", label: "HB" }, { key: "HL", label: "HL" }],
+          blank: { name: "Strength I", limit: "strength", P: 0, MB: 0, ML: 0, HB: 0, HL: 0 },
+        },
+      ],
+    },
+  ],
+  "pile-foundation": [
+    {
+      title: "Piles",
+      open: true,
+      fields: [
+        { type: "choice", key: "section", label: "H-pile", options: hpOptions },
+        { type: "number", key: "Fy", label: "Fy", unit: "ksi" },
+        { type: "number", key: "nB", label: "Piles along B" },
+        { type: "number", key: "nL", label: "Piles along L" },
+        { type: "number", key: "sB", label: "Spacing along B", unit: "ft", step: 0.25 },
+        { type: "number", key: "sL", label: "Spacing along L", unit: "ft", step: 0.25 },
+        { type: "number", key: "edge", label: "Pile center to the cap's edge", unit: "ft", step: 0.25 },
+        { type: "choice", key: "weakAlong", label: "Loads bending the weak axis act along", options: [{ value: "B", label: "B" }, { value: "L", label: "L" }] },
+        { type: "number", key: "length", label: "Length below the cap", unit: "ft" },
+        { type: "number", key: "unsupported", label: "Unsupported length (scour, water)", unit: "ft" },
+        { type: "choice", key: "driving", label: "Driving conditions", options: [{ value: "good", label: "Good (φc 0.60)" }, { value: "severe", label: "Severe (φc 0.50)" }] },
+        { type: "number", key: "Rn", label: "Nominal axial resistance per pile", unit: "kip", hint: "From the geotechnical report (driven to rock: the structural limit)" },
+        { type: "number", key: "phiDyn", label: "φdyn (dynamic testing 0.65)", step: 0.05 },
+        { type: "number", key: "Rup", label: "Nominal uplift resistance per pile", unit: "kip" },
+        { type: "number", key: "phiUp", label: "φup", step: 0.05 },
+        { type: "number", key: "tolerable", label: "Tolerable lateral deflection", unit: "in", step: 0.25 },
+      ],
+    },
+    { title: "Soil (lateral)", fields: [{ type: "list", key: "soil", label: "Layers", note: soilNote, columns: soilColumns, blank: soilBlank }] },
+    {
+      title: "Cap and column",
+      fields: [
+        { type: "number", key: "capT", label: "Cap thickness", unit: "in" },
+        { type: "number", key: "embed", label: "Pile embedment", unit: "in" },
+        { type: "number", key: "Df", label: "Ground to the cap's base", unit: "ft", step: 0.5 },
+        { type: "choice", key: "colShape", label: "Column", options: [{ value: "round", label: "Round" }, { value: "rectangular", label: "Rectangular" }] },
+        { type: "number", key: "colB", label: "Column along B (diameter)", unit: "in" },
+        { type: "number", key: "colL", label: "Column along L", unit: "in", show: (i) => i.colShape === "rectangular" },
+        { type: "number", key: "fc", label: "f'c", unit: "ksi", step: 0.5 },
+        { type: "number", key: "cover", label: "Bottom cover", unit: "in" },
+        { type: "bars", key: "barsB", label: "Bottom bars along B (lower)" },
+        { type: "bars", key: "barsL", label: "Bottom bars along L" },
+      ],
+    },
+    {
+      title: "Loads at the top of the cap",
+      open: true,
+      fields: [{ type: "list", key: "cases", label: "Load cases", note: "Factored (Service unfactored): P, MB, ML (kip, kip·ft), HB, HL (kip). The cap's and soil's weight are added.", columns: [name, limit, { key: "P", label: "P" }, { key: "MB", label: "MB" }, { key: "ML", label: "ML" }, { key: "HB", label: "HB" }, { key: "HL", label: "HL" }], blank: { name: "Strength I", limit: "strength", P: 0, MB: 0, ML: 0, HB: 0, HL: 0 } }],
+    },
+  ],
+  "drilled-shaft": [
+    {
+      title: "Shaft",
+      open: true,
+      fields: [
+        { type: "number", key: "D", label: "Diameter", unit: "in", step: 6 },
+        { type: "number", key: "length", label: "Length", unit: "ft" },
+        { type: "number", key: "topDepth", label: "Ground to the shaft's top", unit: "ft", step: 0.5 },
+        { type: "number", key: "bars", label: "Longitudinal bars" },
+        { type: "choice", key: "bar", label: "Bar size", options: [6, 7, 8, 9, 10, 11, 14].map((b) => ({ value: b, label: `#${b}` })) },
+        { type: "choice", key: "transverse", label: "Transverse", options: [{ value: "spiral", label: "Spiral" }, { value: "ties", label: "Hoops" }] },
+        { type: "choice", key: "tieBar", label: "Spiral or hoop bar", options: [4, 5, 6].map((b) => ({ value: b, label: `#${b}` })) },
+        { type: "number", key: "pitch", label: "Pitch or spacing", unit: "in" },
+        { type: "number", key: "cover", label: "Cover", unit: "in" },
+        { type: "number", key: "fc", label: "f'c", unit: "ksi", step: 0.5 },
+        { type: "number", key: "EIfactor", label: "Stiffness, fraction of Ec·Ig (cracked)", step: 0.05 },
+        { type: "number", key: "tolerable", label: "Tolerable deflection", unit: "in", step: 0.25 },
+      ],
+    },
+    {
+      title: "Layers",
+      open: true,
+      fields: [
+        {
+          type: "list",
+          key: "layers",
+          label: "Layers from the ground down",
+          note: "Axial by layer: clay α (Su), sand β (N60), rock (qu ksf), or qs, qp and their φ entered from the report (CDOT claystone: φ 0.60). Lateral as the p–y column says.",
+          columns: [
+            ...soilColumns.slice(0, 3),
+            { key: "axial", label: "Axial", kind: "choice", options: [{ value: "alpha", label: "Clay α" }, { value: "beta", label: "Sand β" }, { value: "rock", label: "Rock" }, { value: "entered", label: "Entered" }, { value: "none", label: "None" }], width: "6rem" },
+            ...soilColumns.slice(3),
+            { key: "N60", label: "N60" },
+            { key: "quKsf", label: "qu ksf" },
+            { key: "qs", label: "qs ksf" },
+            { key: "qp", label: "qp ksf" },
+            { key: "phiQs", label: "φqs" },
+            { key: "phiQp", label: "φqp" },
+          ],
+          blank: { ...soilBlank, axial: "beta", N60: 20, quKsf: 40, qs: 0, qp: 0, phiQs: 0.6, phiQp: 0.6 },
+        },
+      ],
+    },
+    {
+      title: "Loads at the shaft's top",
+      open: true,
+      fields: [{ type: "list", key: "cases", label: "Load cases", note: "P (kip), M (kip·ft), H (kip), uplift (kip). The shaft's weight is added.", columns: [name, limit, { key: "P", label: "P" }, { key: "M", label: "M" }, { key: "H", label: "H" }, { key: "uplift", label: "Uplift" }], blank: { name: "Strength I", limit: "strength", P: 0, M: 0, H: 0, uplift: 0 } }],
+    },
+  ],
+  micropile: [
+    {
+      title: "Section",
+      open: true,
+      fields: [
+        { type: "number", key: "casingOD", label: "Casing outside diameter", unit: "in", step: 0.125 },
+        { type: "number", key: "casingT", label: "Casing wall", unit: "in", step: 0.005 },
+        { type: "number", key: "casingFy", label: "Casing Fy", unit: "ksi" },
+        { type: "number", key: "threadReduction", label: "Casing area lost at the threads", unit: "in²", step: 0.1 },
+        { type: "choice", key: "bar", label: "Core bar", options: [8, 9, 10, 11, 14, 18, 20].map((b) => ({ value: b, label: `#${b}` })) },
+        { type: "number", key: "barFy", label: "Bar fy", unit: "ksi" },
+        { type: "number", key: "fcGrout", label: "Grout f'c", unit: "ksi", step: 0.5 },
+        { type: "number", key: "holeD", label: "Drill hole in the bond zone", unit: "in", step: 0.5 },
+      ],
+    },
+    {
+      title: "Lengths and bond",
+      open: true,
+      fields: [
+        { type: "number", key: "cased", label: "Cased length", unit: "ft" },
+        { type: "number", key: "plunge", label: "Plunge length into the bond zone", unit: "ft" },
+        { type: "number", key: "bond", label: "Bond length below the casing", unit: "ft" },
+        { type: "number", key: "unsupported", label: "Unsupported length", unit: "ft" },
+        { type: "number", key: "embed", label: "Embedment into the cap", unit: "in" },
+        { type: "number", key: "spacing", label: "Spacing", unit: "ft", step: 0.25 },
+        { type: "choice", key: "bondGround", label: "Ground in the bond zone", options: Object.entries(BOND_TABLE).map(([k, v]) => ({ value: k, label: v.name })) },
+        { type: "choice", key: "grouting", label: "Grouting type", options: GROUT_TYPES.map((t) => ({ value: t, label: `Type ${t}` })) },
+        { type: "number", key: "alphaB", label: "Nominal bond αb (0: the table's lower bound)", unit: "ksf", step: 0.1 },
+        { type: "number", key: "phiBond", label: "Bond φ (0.55 presumptive, ≤ 0.70 load tested)", step: 0.05 },
+        { type: "toggle", key: "tipOnRock", label: "Count tip resistance on competent rock" },
+        { type: "number", key: "quKsf", label: "Rock's qu under the tip", unit: "ksf", show: (i) => !!i.tipOnRock },
+        { type: "number", key: "tolerable", label: "Tolerable lateral deflection", unit: "in", step: 0.25 },
+        { type: "number", key: "tolerableAxial", label: "Tolerable elastic shortening", unit: "in", step: 0.25 },
+      ],
+    },
+    { title: "Soil (lateral)", fields: [{ type: "list", key: "soil", label: "Layers", note: soilNote, columns: soilColumns, blank: soilBlank }] },
+    {
+      title: "Loads per micropile",
+      open: true,
+      fields: [{ type: "list", key: "cases", label: "Load cases", note: "Per micropile at the cap: compression, tension and shear H (kip).", columns: [name, limit, { key: "compression", label: "Comp." }, { key: "tension", label: "Tension" }, { key: "H", label: "H" }], blank: { name: "Strength I", limit: "strength", compression: 0, tension: 0, H: 0 } }],
+    },
+  ],
+  abutment: [
+    {
+      title: "Type and bridge",
+      open: true,
+      fields: [
+        { type: "choice", key: "type", label: "Abutment", options: [{ value: "integral-piles", label: "Integral on H-piles (BDM 11.3.1)" }, { value: "integral-shafts", label: "Integral on drilled shafts" }, { value: "semi-integral", label: "Semi-integral (BDM 11.3.2)" }, { value: "seat", label: "Seat type (BDM 11.3.3)" }] },
+        { type: "number", key: "unitLength", label: "Bridge unit length", unit: "ft" },
+        { type: "choice", key: "girderMaterial", label: "Girders", options: [{ value: "precast", label: "Precast or post-tensioned concrete" }, { value: "steel", label: "Steel" }, { value: "cip", label: "Cast-in-place concrete" }] },
+        { type: "number", key: "grade", label: "Grade between the unit's ends", unit: "%", step: 0.5 },
+        { type: "number", key: "skew", label: "Skew", unit: "deg" },
+        { type: "number", key: "curvature", label: "Degree of curvature", unit: "deg" },
+        { type: "number", key: "tMin", label: "Temperature, low", unit: "°F" },
+        { type: "number", key: "tMax", label: "Temperature, high", unit: "°F" },
+        { type: "number", key: "alpha", label: "Coefficient of thermal expansion", unit: "/°F", step: 1e-7 },
+        { type: "number", key: "csMove", label: "Creep, shrinkage, elastic shortening", unit: "in", step: 0.1 },
+        { type: "number", key: "thermalForce", label: "TU factor on force effects (AASHTO 0.50)", step: 0.05 },
+        { type: "number", key: "nGirders", label: "Girders" },
+        { type: "number", key: "girderSpacing", label: "Girder spacing", unit: "ft", step: 0.25 },
+        { type: "number", key: "RDC", label: "Reaction per girder, DC", unit: "kip" },
+        { type: "number", key: "RDW", label: "Reaction per girder, DW", unit: "kip" },
+        { type: "number", key: "RLL", label: "Reaction per girder, LL (no IM)", unit: "kip" },
+        { type: "number", key: "braking", label: "Braking at this abutment", unit: "kip", show: (i) => i.type === "seat" || i.type === "semi-integral" },
+        { type: "number", key: "bearingShear", label: "Bearings' shear", unit: "kip/ft", show: (i) => i.type === "seat" || i.type === "semi-integral" },
+        { type: "number", key: "approachDC", label: "Approach slab's end reaction (DC)", unit: "kip/ft" },
+        { type: "number", key: "length", label: "Abutment length", unit: "ft" },
+      ],
+    },
+    {
+      title: "Integral abutment",
+      open: true,
+      fields: [
+        { type: "number", key: "capWidth", label: "Cap and diaphragm width", unit: "ft", step: 0.25, show: (i) => String(i.type).startsWith("integral") },
+        { type: "number", key: "capDepth", label: "Pile cap depth", unit: "ft", step: 0.25, show: (i) => String(i.type).startsWith("integral") },
+        { type: "number", key: "totalDepth", label: "Top of deck to the cap's bottom", unit: "ft", step: 0.25, show: (i) => String(i.type).startsWith("integral") },
+        { type: "number", key: "capEmbed", label: "Cap's bottom into the embankment", unit: "ft", step: 0.25, show: (i) => String(i.type).startsWith("integral") },
+        { type: "number", key: "girderClear", label: "Embankment to the girders", unit: "ft", step: 0.25, show: (i) => String(i.type).startsWith("integral") },
+        { type: "number", key: "capTop.count", label: "Cap top bars, number", show: (i) => String(i.type).startsWith("integral") },
+        { type: "choice", key: "capTop.bar", label: "Cap top bars, size", options: [6, 7, 8, 9, 10, 11].map((b) => ({ value: b, label: `#${b}` })), show: (i) => String(i.type).startsWith("integral") },
+        { type: "number", key: "capBot.count", label: "Cap bottom bars, number", show: (i) => String(i.type).startsWith("integral") },
+        { type: "choice", key: "capBot.bar", label: "Cap bottom bars, size", options: [6, 7, 8, 9, 10, 11].map((b) => ({ value: b, label: `#${b}` })), show: (i) => String(i.type).startsWith("integral") },
+        { type: "choice", key: "stirrup.bar", label: "Cap stirrups", options: [4, 5, 6].map((b) => ({ value: b, label: `#${b}` })), show: (i) => String(i.type).startsWith("integral") },
+        { type: "number", key: "stirrup.spacing", label: "Stirrup spacing", unit: "in", show: (i) => String(i.type).startsWith("integral") },
+        { type: "bars", key: "diaphragmBars", label: "Diaphragm horizontal bars, each face", show: (i) => String(i.type).startsWith("integral") },
+        { type: "choice", key: "section", label: "H-pile (weak axis along the abutment)", options: hpOptions, show: (i) => i.type === "integral-piles" || i.foundation === "piles" },
+        { type: "number", key: "nPiles", label: "Piles (one row)", show: (i) => i.type === "integral-piles" },
+        { type: "number", key: "pileLength", label: "Pile length below the cap", unit: "ft", show: (i) => i.type === "integral-piles" || i.foundation === "piles" },
+        { type: "number", key: "prebore", label: "Prebore depth", unit: "ft", show: (i) => i.type === "integral-piles" },
+        { type: "toggle", key: "peaGravel", label: "Count the pea gravel in the prebore (k 300 pci, φ 40°, γ 95 pcf)", show: (i) => i.type === "integral-piles" },
+        { type: "number", key: "holeD", label: "Prebore diameter", unit: "in", show: (i) => i.type === "integral-piles" },
+        { type: "number", key: "embed", label: "Pile embedment into the cap", unit: "in", show: (i) => i.type === "integral-piles" },
+        { type: "number", key: "nPiles", label: "Drilled shafts", show: (i) => i.type === "integral-shafts" },
+        { type: "number", key: "shaftD", label: "Shaft diameter", unit: "in", show: (i) => i.type === "integral-shafts" },
+        { type: "number", key: "shaftBars", label: "Shaft bars", show: (i) => i.type === "integral-shafts" },
+        { type: "choice", key: "shaftBar", label: "Shaft bar size", options: [6, 7, 8, 9, 10, 11].map((b) => ({ value: b, label: `#${b}` })), show: (i) => i.type === "integral-shafts" },
+        { type: "number", key: "shaftLength", label: "Shaft length", unit: "ft", show: (i) => i.type === "integral-shafts" },
+        { type: "number", key: "Rn", label: "Nominal axial resistance per pile or shaft", unit: "kip" },
+        { type: "number", key: "phiDyn", label: "Its resistance factor", step: 0.05 },
+      ],
+    },
+    {
+      title: "Semi-integral and seat type",
+      fields: [
+        { type: "number", key: "stemH", label: "Stem, footing to the seat", unit: "ft", show: (i) => !String(i.type).startsWith("integral") },
+        { type: "number", key: "stemT", label: "Stem thickness", unit: "ft", step: 0.25, show: (i) => !String(i.type).startsWith("integral") },
+        { type: "number", key: "backwallH", label: "Backwall height", unit: "ft", step: 0.25, show: (i) => !String(i.type).startsWith("integral") },
+        { type: "number", key: "backwallT", label: "Backwall thickness", unit: "ft", step: 0.25, show: (i) => !String(i.type).startsWith("integral") },
+        { type: "number", key: "seatWidth", label: "Bearing seat width", unit: "in", show: (i) => i.type === "seat" },
+        { type: "number", key: "toe", label: "Toe", unit: "ft", step: 0.25, show: (i) => !String(i.type).startsWith("integral") },
+        { type: "number", key: "heel", label: "Heel", unit: "ft", step: 0.25, show: (i) => !String(i.type).startsWith("integral") },
+        { type: "number", key: "footT", label: "Footing thickness", unit: "ft", step: 0.25, show: (i) => !String(i.type).startsWith("integral") },
+        { type: "choice", key: "pressure", label: "Earth pressure", options: [{ value: "at-rest", label: "At rest (restrained)" }, { value: "active", label: "Active" }], show: (i) => !String(i.type).startsWith("integral") },
+        { type: "choice", key: "foundation", label: "Foundation", options: [{ value: "footing", label: "Spread footing" }, { value: "piles", label: "Two rows of H-piles" }], show: (i) => !String(i.type).startsWith("integral") },
+        { type: "number", key: "c", label: "Cohesion c under the footing", unit: "psf", show: (i) => !String(i.type).startsWith("integral") && i.foundation === "footing" },
+        { type: "number", key: "phi", label: "Friction angle φ under it", unit: "deg", show: (i) => !String(i.type).startsWith("integral") && i.foundation === "footing" },
+        { type: "number", key: "Df", label: "Ground in front to the base", unit: "ft", step: 0.5, show: (i) => !String(i.type).startsWith("integral") && i.foundation === "footing" },
+        { type: "number", key: "phiB", label: "Bearing φb", step: 0.05, show: (i) => !String(i.type).startsWith("integral") && i.foundation === "footing" },
+        { type: "number", key: "rowFront", label: "Front row from the toe", unit: "ft", step: 0.25, show: (i) => !String(i.type).startsWith("integral") && i.foundation === "piles" },
+        { type: "number", key: "rowBack", label: "Back row from the toe", unit: "ft", step: 0.25, show: (i) => !String(i.type).startsWith("integral") && i.foundation === "piles" },
+        { type: "number", key: "pileSpacing", label: "Pile spacing along the abutment", unit: "ft", step: 0.25, show: (i) => !String(i.type).startsWith("integral") && i.foundation === "piles" },
+        { type: "bars", key: "stemBars", label: "Stem back face bars", show: (i) => !String(i.type).startsWith("integral") },
+        { type: "bars", key: "backwallBars", label: "Backwall bars", show: (i) => !String(i.type).startsWith("integral") },
+        { type: "bars", key: "toeBars", label: "Footing bottom bars", show: (i) => !String(i.type).startsWith("integral") },
+        { type: "bars", key: "heelBars", label: "Footing top bars", show: (i) => !String(i.type).startsWith("integral") },
+      ],
+    },
+    {
+      title: "Backfill and soil",
+      fields: [
+        { type: "number", key: "backfillPhi", label: "Backfill φ", unit: "deg" },
+        { type: "number", key: "backfillGamma", label: "Backfill γ", unit: "pcf" },
+        { type: "list", key: "soil", label: "Layers under the cap (lateral)", note: soilNote, columns: soilColumns, blank: soilBlank },
+      ],
+    },
+  ],
+};

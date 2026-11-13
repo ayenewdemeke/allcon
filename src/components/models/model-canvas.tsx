@@ -739,7 +739,46 @@ async function spatialTree(model: FRAGS.FragmentsModel): Promise<TreeNode[]> {
   // Under a level: its rooms and kinds of element alphabetically, after any nested levels.
   const kindsFirst = (x: TreeNode, y: TreeNode) =>
     Number(x.localId === null) - Number(y.localId === null) || (x.localId === null && y.localId === null ? byName.compare(x.name, y.name) : 0);
-  return group(root, "");
+  const tree = group(root, "");
+  await addParts(model, tree, byName).catch(() => undefined); // the tree stands without them
+  return tree;
+}
+
+/** Element parts that aren't in the spatial structure (bars in a footing, parts of an assembly): each under its host, by kind. */
+const PART_CATEGORIES = [/^IFCREINFORCINGBAR$/, /^IFCREINFORCINGMESH$/, /^IFCTENDON$/, /^IFCBUILDINGELEMENTPART$/, /^IFCELEMENTASSEMBLY$/, /^IFCMECHANICALFASTENER$/, /^IFCDISCRETEACCESSORY$/];
+async function addParts(model: FRAGS.FragmentsModel, tree: TreeNode[], byName: Intl.Collator) {
+  const byCategory = await model.getItemsOfCategories(PART_CATEGORIES);
+  const ids = Object.values(byCategory).flat();
+  if (!ids.length) return;
+  const nodes = new Map<number, TreeNode>();
+  const walk = (n: TreeNode) => {
+    if (n.localId !== null) nodes.set(n.localId, n);
+    n.children.forEach(walk);
+  };
+  tree.forEach(walk);
+  const data = await model.getItemsData(ids, { attributesDefault: false, attributes: ["Name"], relations: { Decomposes: { attributes: false, relations: false } } });
+  const kindOf = new Map<number, string>();
+  for (const [cat, list] of Object.entries(byCategory)) for (const id of list) kindOf.set(id, cat.toUpperCase());
+  const under = new Map<TreeNode, TreeNode[]>();
+  data.forEach((d, i) => {
+    const id = ids[i];
+    if (nodes.has(id)) return; // already in the tree
+    const parents = (d as Item).Decomposes;
+    const parentId = Array.isArray(parents) ? Number((parents[0] as Item | undefined)?._localId) : NaN;
+    const host = nodes.get(parentId);
+    if (!host) return;
+    const category = kindOf.get(id) ?? "ITEM";
+    const name = ((d as Item).Name as { value?: unknown } | undefined)?.value;
+    under.set(host, [...(under.get(host) ?? []), { key: String(id), localId: id, category, name: name ? String(name) : `${categoryName(category)} #${id}`, children: [] }]);
+  });
+  for (const [host, parts] of under) {
+    const kinds = new Map<string, TreeNode[]>();
+    for (const p of parts) kinds.set(p.category, [...(kinds.get(p.category) ?? []), p]);
+    for (const [category, list] of kinds) {
+      list.sort((x, y) => byName.compare(x.name, y.name));
+      host.children.push({ key: `${host.key}/${category}`, localId: null, category, name: `${categoryName(category)} (${list.length})`, children: list });
+    }
+  }
 }
 
 /** Saves the viewer's conversion to file storage: an upload link, the upload, then the confirmation. */

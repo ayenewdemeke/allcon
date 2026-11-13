@@ -144,12 +144,12 @@ export function columnInputs(saved: unknown): ColumnInputs {
 /** The limit state of a case by its name, and its load factors for what the column adds. */
 function factorsOf(name: string) {
   const n = name.toLowerCase();
-  const limit = n.startsWith("strength iii") ? "Strength III" : n.startsWith("strength iv") ? "Strength IV" : n.startsWith("strength v") ? "Strength V" : n.startsWith("strength i") ? "Strength I" : "Strength I";
+  const limit = n.startsWith("service i") ? "Service I" : n.startsWith("strength iii") ? "Strength III" : n.startsWith("strength iv") ? "Strength IV" : n.startsWith("strength v") ? "Strength V" : n.startsWith("strength i") ? "Strength I" : "Strength I";
   const minDead = n.includes("dead loads at minimum");
   return {
     limit,
-    dc: limit === "Strength IV" ? 1.5 : minDead ? 0.9 : 1.25, // the column's own weight (Table 3.4.1-2)
-    ll: limit === "Strength I" ? (n.includes("dead loads only") ? 0 : 1.75) : limit === "Strength V" ? 1.35 : 0, // BR goes with the live load
+    dc: limit === "Service I" ? 1.0 : limit === "Strength IV" ? 1.5 : minDead ? 0.9 : 1.25, // the column's own weight (Table 3.4.1-2)
+    ll: limit === "Service I" ? 1.0 : limit === "Strength I" ? (n.includes("dead loads only") ? 0 : 1.75) : limit === "Strength V" ? 1.35 : 0, // BR goes with the live load
     ws: (limit === "Strength III" || limit === "Strength V") && n.includes("wind") ? 1.0 : 0,
     wl: limit === "Strength V" && n.includes("wind") ? 1.0 : 0,
     wind: n.includes("toward larger x") ? 1 : n.includes("toward smaller x") ? -1 : 0,
