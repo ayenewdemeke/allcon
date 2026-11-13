@@ -1,4 +1,6 @@
 import { describe, expect, it } from "vitest";
+import { TELLRD } from "./rating/benchmarks";
+import { dtRatingCalcLines } from "./rating/double-tee-calc";
 import type { Line } from "@/lib/calcs/library/templates";
 import { fitsAcross, mathChars } from "@/lib/calcs/library/fit";
 import { bearingCalcLines } from "./bearings/elastomeric-calc";
@@ -8,7 +10,7 @@ import { cell, MAX_DECIMALS, num } from "./calc-style";
 import { haunchCalcLines } from "./girders/haunch-calc";
 import { girderCalcLines } from "./girders/prestressed-calc";
 import { stripSealCalcLines } from "./joints/strip-seal-calc";
-import { bearingInputs, cbcInputs, cipInputs, deckInputs, girderInputs, haunchInputs, mseInputs, ptfeInputs, signInputs, stripSealInputs, wingwallInputs, zone1Inputs } from "./kinds";
+import { bearingInputs, cbcInputs, cipInputs, deckInputs, dtRatingInputs, girderInputs, haunchInputs, mseInputs, ptfeInputs, signInputs, stripSealInputs, wingwallInputs, zone1Inputs } from "./kinds";
 import { columnCalcLines } from "./piers/column-calc";
 import { columnInputs } from "./piers/column";
 import { zone1CalcLines } from "./seismic/zone1-calc";
@@ -39,6 +41,7 @@ const PACKAGES: [string, () => Line[]][] = [
   ["Elastomeric bearing", () => bearingCalcLines(bearingInputs({}), "Test")],
   ["PTFE bearing", () => bearingCalcLines(ptfeInputs({}), "Test")],
   ["Strip seal joint", () => stripSealCalcLines(stripSealInputs({}), "Test")],
+  ["Double-tee load rating", () => dtRatingCalcLines({ ...dtRatingInputs({}), ...TELLRD }, "Test")],
   [
     "Box culvert, corner bars and M-601-20 wingwalls (25250)",
     () =>

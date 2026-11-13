@@ -1,0 +1,3968 @@
+[
+  {
+    "name": "CENT 19-2.5",
+    "bridge": {
+      "_sources": {
+        "sia": "CENT 19-2.5 SIA 2025-10-15 (NLD Engineering)",
+        "sketch": "CENT 19-2.5 SKETCH 2025-10-15"
+      },
+      "id": "CENT 19-2.5",
+      "facility": "Franklin St",
+      "feature": "Big Dry Creek",
+      "owner": "City of Centennial",
+      "year_built": 1968,
+      "nbi_super": 6,
+      "load_induced_distress": false,
+      "within_1mi_of_interstate": false,
+      "span_ft": 29.5,
+      "_span": "CL brg to CL brg, sketch elevation (structure length 30'-0\")",
+      "structure_length_ft": 30,
+      "review_items": [
+        "1'-10\" steel pipe: contents, weight and supporting girder. It governs the rating.",
+        "SIA reports longitudinal stem cracks with rust staining on exterior units (Girder A south half up to 0.08\", Girder L at abutments up to 0.06\", CS3). Consider a condition factor or strand loss for exterior units."
+      ],
+      "assumption_flag": "The 1'-10\" pipe governs girder G5; if it carries water, revise its load and rerun.",
+      "units": {
+        "count": 6,
+        "spacing_in": 62,
+        "_spacing": "(6) DTs at 5'-2\" o.c., sketch section",
+        "flange_width_in": 60,
+        "_flange_width": "SIA: 60\" wide x 17\" high with 5\" top flange",
+        "depth_in": 17,
+        "flange_thk_in": 5,
+        "stem_spacing_in": 36,
+        "_stem_spacing": "3'-0\" typ. within unit; 2'-2\" between adjacent units (sketch)",
+        "stem_top_in": 8,
+        "stem_bot_in": 6,
+        "_stem_widths": "ASSUMED. Sketch shows 6\" (typ.) at stem bottom; top width assumed 8\" (taper).",
+        "exterior_trimmed_flush": true,
+        "_exterior": "Exterior flanges trimmed flush with exterior stems (sketch)"
+      },
+      "roadway": {
+        "rail_to_rail_ft": 29.75,
+        "rail_face_offset_in": 3,
+        "_rail": "L2 1/2 x 2 1/2 x 3/16 posts & (2) rails each side; face of rail taken 3\" inside deck edge (assumed)"
+      },
+      "loads": {
+        "asphalt_in": 4,
+        "asphalt_pcf": 146.667,
+        "conc_pcf_dl": 155,
+        "rail_klf_each_side": 0.02,
+        "_rail_load": "ASSUMED light steel angle post/rail, ~20 plf per side incl. connections",
+        "rail_components": [
+          {
+            "name": "posts",
+            "eq": "9 · 3.07 plf · 3.04 ft / 30 ft",
+            "plf": 2.8,
+            "desc": "(9) L2-1/2x2-1/2x3/16 posts per side (sketch elevation), 3.04 ft high, 3.07 plf (AISC)"
+          },
+          {
+            "name": "rails",
+            "eq": "2 · 3.07 plf",
+            "plf": 6.14,
+            "desc": "(2) L2-1/2x2-1/2x3/16 rails per side"
+          },
+          {
+            "name": "base.pl.hardware",
+            "eq": "9 · 5 lbf / 30 ft",
+            "plf": 1.5,
+            "desc": "Weld plates and hardware, assumed"
+          }
+        ],
+        "utilities": [
+          {
+            "desc": "2\" dia steel pipe, west edge",
+            "klf": 0.004,
+            "unit": 1
+          },
+          {
+            "desc": "4 1/2\" dia steel pipe, east edge",
+            "klf": 0.011,
+            "unit": 6
+          },
+          {
+            "desc": "1'-10\" dia steel pipe, between stems",
+            "klf": 0.085,
+            "unit": 5,
+            "_note": "ASSUMED 22\" OD x 0.375\" wall, EMPTY (85 plf). If water-filled add ~0.150 klf. Confirm with owner."
+          }
+        ]
+      },
+      "materials": {
+        "fc_ksi": 6,
+        "fci_ksi": 4,
+        "_concrete": "Assumed, same as CDOT's double-tee ratings",
+        "strand": "1/2\" 250 ksi stress-relieved",
+        "fpu_ksi": 250,
+        "aps_in2": 0.144,
+        "gamma_star": 0.4,
+        "jacking_ratio": 0.7,
+        "_strand": "Pre-1980 era -> stress-relieved 250 ksi per the BRM era table; Aps 0.144 for 250k 1/2\" (earlier ratings used 0.153 - confirm)",
+        "strands_per_row_per_stem": 2,
+        "first_row_in": 2,
+        "row_spacing_in": 2
+      },
+      "options": {
+        "solve_with_overlay": true,
+        "_solve_with_overlay": "true = force solved with the current asphalt in place. false = solve with 0\" asphalt (the more conservative approach).",
+        "lldf_interior": "table_3.23.1",
+        "_lldf_interior": "table_3.23.1 = S/7.0 one lane, S/5.5 multi (BrR). multibeam_S_over_D = SSHB 3.23.4.3.",
+        "round_strands": true,
+        "_round_strands": "true = whole strands from iteration, jacking force floored to the kip",
+        "legal_lldf": "single",
+        "_legal_lldf": "Built <= 1985 -> single-lane LLDF for legal & permit (per AUR07 workbook rule, BRM 1.3(D))"
+      }
+    },
+    "expected": {
+      "As": 2.304,
+      "nStrands": 16,
+      "Pj": 403,
+      "gov": "G5",
+      "govRF": 1.037480505036531,
+      "crackGoverns": false,
+      "M_HS20": 137.28813559322037,
+      "girders": [
+        {
+          "name": "G1",
+          "dfMulti": 0.9193548387096774,
+          "dfSingle": 0.9193548387096774,
+          "Mnow": 74.4416775373264,
+          "Mn": 483.9364806554392
+        },
+        {
+          "name": "G2",
+          "dfMulti": 0.9393939393939394,
+          "dfSingle": 0.7380952380952381,
+          "Mnow": 81.38958734375001,
+          "Mn": 495.28058311111107
+        },
+        {
+          "name": "G3",
+          "dfMulti": 0.9393939393939394,
+          "dfSingle": 0.7380952380952381,
+          "Mnow": 81.38958734375001,
+          "Mn": 495.28058311111107
+        },
+        {
+          "name": "G4",
+          "dfMulti": 0.9393939393939394,
+          "dfSingle": 0.7380952380952381,
+          "Mnow": 81.38958734375001,
+          "Mn": 495.28058311111107
+        },
+        {
+          "name": "G5",
+          "dfMulti": 0.9393939393939394,
+          "dfSingle": 0.7380952380952381,
+          "Mnow": 90.63599359375,
+          "Mn": 495.28058311111107
+        },
+        {
+          "name": "G6",
+          "dfMulti": 0.9193548387096774,
+          "dfSingle": 0.9193548387096774,
+          "Mnow": 75.2031462873264,
+          "Mn": 483.9364806554392
+        }
+      ],
+      "ratings": [
+        {
+          "name": "HS-20",
+          "Mw": 137.28813559322037,
+          "gov": "G5",
+          "inv": 1.0374805050365312,
+          "opr": 1.7317943814840555,
+          "per": [
+            {
+              "g": "G1",
+              "inv": 1.0873611232048768,
+              "opr": 1.8150566441189098
+            },
+            {
+              "g": "G2",
+              "inv": 1.0705199296672343,
+              "opr": 1.7869448056753063
+            },
+            {
+              "g": "G3",
+              "inv": 1.0705199296672343,
+              "opr": 1.7869448056753063
+            },
+            {
+              "g": "G4",
+              "inv": 1.0705199296672343,
+              "opr": 1.7869448056753063
+            },
+            {
+              "g": "G5",
+              "inv": 1.0374805050365312,
+              "opr": 1.7317943814840555
+            },
+            {
+              "g": "G6",
+              "inv": 1.0845809223168543,
+              "opr": 1.81041584725198
+            }
+          ]
+        },
+        {
+          "name": "CO Type 3",
+          "Mw": 132.8072813559322,
+          "gov": "G6",
+          "inv": 1.1211741645835993,
+          "opr": 1.8714984131895467,
+          "per": [
+            {
+              "g": "G1",
+              "inv": 1.1240481681216152,
+              "opr": 1.8762957883260807
+            },
+            {
+              "g": "G2",
+              "inv": 1.4084493318741262,
+              "opr": 2.3510269616668107
+            },
+            {
+              "g": "G3",
+              "inv": 1.4084493318741262,
+              "opr": 2.3510269616668107
+            },
+            {
+              "g": "G4",
+              "inv": 1.4084493318741262,
+              "opr": 2.3510269616668107
+            },
+            {
+              "g": "G5",
+              "inv": 1.3649804021914398,
+              "opr": 2.2784672867349416
+            },
+            {
+              "g": "G6",
+              "inv": 1.1211741645835993,
+              "opr": 1.8714984131895467
+            }
+          ]
+        },
+        {
+          "name": "CO Type 3S2",
+          "Mw": 136.08374915254237,
+          "gov": "G6",
+          "inv": 1.094179824204781,
+          "opr": 1.8264386296341346,
+          "per": [
+            {
+              "g": "G1",
+              "inv": 1.0969846307953415,
+              "opr": 1.8311204990968393
+            },
+            {
+              "g": "G2",
+              "inv": 1.3745383108464073,
+              "opr": 2.2944216419513106
+            },
+            {
+              "g": "G3",
+              "inv": 1.3745383108464073,
+              "opr": 2.2944216419513106
+            },
+            {
+              "g": "G4",
+              "inv": 1.3745383108464073,
+              "opr": 2.2944216419513106
+            },
+            {
+              "g": "G5",
+              "inv": 1.3321159759933414,
+              "opr": 2.223608975311962
+            },
+            {
+              "g": "G6",
+              "inv": 1.094179824204781,
+              "opr": 1.8264386296341346
+            }
+          ]
+        },
+        {
+          "name": "CO Type 3-2",
+          "Mw": 130.38101694915255,
+          "gov": "G6",
+          "inv": 1.142038129545546,
+          "opr": 1.9063251854721808,
+          "per": [
+            {
+              "g": "G1",
+              "inv": 1.1449656155049481,
+              "opr": 1.911211835112106
+            },
+            {
+              "g": "G2",
+              "inv": 1.4346592093750163,
+              "opr": 2.394777295649066
+            },
+            {
+              "g": "G3",
+              "inv": 1.4346592093750163,
+              "opr": 2.394777295649066
+            },
+            {
+              "g": "G4",
+              "inv": 1.4346592093750163,
+              "opr": 2.394777295649066
+            },
+            {
+              "g": "G5",
+              "inv": 1.3903813650254728,
+              "opr": 2.320867355465597
+            },
+            {
+              "g": "G6",
+              "inv": 1.142038129545546,
+              "opr": 1.9063251854721808
+            }
+          ]
+        },
+        {
+          "name": "SU4",
+          "Mw": 133.49222711864408,
+          "gov": "G6",
+          "inv": 1.1154214439206127,
+          "opr": 1.8618957948520993,
+          "per": [
+            {
+              "g": "G1",
+              "inv": 1.1182807010079334,
+              "opr": 1.8666685547593964
+            },
+            {
+              "g": "G2",
+              "inv": 1.4012226084709416,
+              "opr": 2.3389638926014946
+            },
+            {
+              "g": "G3",
+              "inv": 1.4012226084709416,
+              "opr": 2.3389638926014946
+            },
+            {
+              "g": "G4",
+              "inv": 1.4012226084709416,
+              "opr": 2.3389638926014946
+            },
+            {
+              "g": "G5",
+              "inv": 1.3579767169369057,
+              "opr": 2.2667765198100653
+            },
+            {
+              "g": "G6",
+              "inv": 1.1154214439206127,
+              "opr": 1.8618957948520993
+            }
+          ]
+        },
+        {
+          "name": "SU5",
+          "Mw": 143.4414406779661,
+          "gov": "G6",
+          "inv": 1.0380549164947748,
+          "opr": 1.732753206764355,
+          "per": [
+            {
+              "g": "G1",
+              "inv": 1.0407158532135306,
+              "opr": 1.737194924210278
+            },
+            {
+              "g": "G2",
+              "inv": 1.3040326826730952,
+              "opr": 2.176731478000474
+            },
+            {
+              "g": "G3",
+              "inv": 1.3040326826730952,
+              "opr": 2.176731478000474
+            },
+            {
+              "g": "G4",
+              "inv": 1.3040326826730952,
+              "opr": 2.176731478000474
+            },
+            {
+              "g": "G5",
+              "inv": 1.2637863609175124,
+              "opr": 2.1095510793776935
+            },
+            {
+              "g": "G6",
+              "inv": 1.0380549164947748,
+              "opr": 1.732753206764355
+            }
+          ]
+        },
+        {
+          "name": "CO SU6",
+          "Mw": 156.96968135593224,
+          "gov": "G6",
+          "inv": 0.9485914186652521,
+          "opr": 1.5834179834643054,
+          "per": [
+            {
+              "g": "G1",
+              "inv": 0.9510230257959675,
+              "opr": 1.5874768969055766
+            },
+            {
+              "g": "G2",
+              "inv": 1.191646215230803,
+              "opr": 1.989132528500648
+            },
+            {
+              "g": "G3",
+              "inv": 1.191646215230803,
+              "opr": 1.989132528500648
+            },
+            {
+              "g": "G4",
+              "inv": 1.191646215230803,
+              "opr": 1.989132528500648
+            },
+            {
+              "g": "G5",
+              "inv": 1.1548684736647779,
+              "opr": 1.9277419906558215
+            },
+            {
+              "g": "G6",
+              "inv": 0.9485914186652521,
+              "opr": 1.5834179834643054
+            }
+          ]
+        },
+        {
+          "name": "CO SU7",
+          "Mw": 163.49364406779662,
+          "gov": "G6",
+          "inv": 0.9107393353047492,
+          "opr": 1.5202341212394657,
+          "per": [
+            {
+              "g": "G1",
+              "inv": 0.9130739128882847,
+              "opr": 1.5241310699750596
+            },
+            {
+              "g": "G2",
+              "inv": 1.144095403587775,
+              "opr": 1.909759250604209
+            },
+            {
+              "g": "G3",
+              "inv": 1.144095403587775,
+              "opr": 1.909759250604209
+            },
+            {
+              "g": "G4",
+              "inv": 1.144095403587775,
+              "opr": 1.909759250604209
+            },
+            {
+              "g": "G5",
+              "inv": 1.1087852213019374,
+              "opr": 1.8508184078655412
+            },
+            {
+              "g": "G6",
+              "inv": 0.9107393353047492,
+              "opr": 1.5202341212394657
+            }
+          ]
+        },
+        {
+          "name": "NRL",
+          "Mw": 167.9491966101695,
+          "gov": "G6",
+          "inv": 0.8865781779859986,
+          "opr": 1.4799035740227822,
+          "per": [
+            {
+              "g": "G1",
+              "inv": 0.8888508211673599,
+              "opr": 1.483697139948593
+            },
+            {
+              "g": "G2",
+              "inv": 1.1137435038046235,
+              "opr": 1.8590949255815639
+            },
+            {
+              "g": "G3",
+              "inv": 1.1137435038046235,
+              "opr": 1.8590949255815639
+            },
+            {
+              "g": "G4",
+              "inv": 1.1137435038046235,
+              "opr": 1.8590949255815639
+            },
+            {
+              "g": "G5",
+              "inv": 1.079370071295687,
+              "opr": 1.8017177343935697
+            },
+            {
+              "g": "G6",
+              "inv": 0.8865781779859986,
+              "opr": 1.4799035740227822
+            }
+          ]
+        },
+        {
+          "name": "EV2",
+          "Mw": 131.58172881355932,
+          "gov": "G6",
+          "inv": 1.131616783480902,
+          "opr": 1.8889295539642748,
+          "per": [
+            {
+              "g": "G1",
+              "inv": 1.1345175554948648,
+              "opr": 1.893771611864505
+            },
+            {
+              "g": "G2",
+              "inv": 1.4215676323786552,
+              "opr": 2.3729244325089858
+            },
+            {
+              "g": "G3",
+              "inv": 1.4215676323786552,
+              "opr": 2.3729244325089858
+            },
+            {
+              "g": "G4",
+              "inv": 1.4215676323786552,
+              "opr": 2.3729244325089858
+            },
+            {
+              "g": "G5",
+              "inv": 1.3776938329791228,
+              "opr": 2.2996889365882276
+            },
+            {
+              "g": "G6",
+              "inv": 1.131616783480902,
+              "opr": 1.8889295539642748
+            }
+          ]
+        },
+        {
+          "name": "EV3",
+          "Mw": 198.86917966101697,
+          "gov": "G6",
+          "inv": 0.7487338811306227,
+          "opr": 1.2498096323488086,
+          "per": [
+            {
+              "g": "G1",
+              "inv": 0.750653176001461,
+              "opr": 1.2530133784024386
+            },
+            {
+              "g": "G2",
+              "inv": 0.9405797671244102,
+              "opr": 1.5700446881999768
+            },
+            {
+              "g": "G3",
+              "inv": 0.9405797671244102,
+              "opr": 1.5700446881999768
+            },
+            {
+              "g": "G4",
+              "inv": 0.9405797671244102,
+              "opr": 1.5700446881999768
+            },
+            {
+              "g": "G5",
+              "inv": 0.9115506818511157,
+              "opr": 1.5215884458591697
+            },
+            {
+              "g": "G6",
+              "inv": 0.7487338811306227,
+              "opr": 1.2498096323488086
+            }
+          ]
+        },
+        {
+          "name": "CO Permit",
+          "Mw": 196.47499999999997,
+          "gov": "G6",
+          "inv": 0.7578577056870154,
+          "opr": 1.2650394010314026,
+          "per": [
+            {
+              "g": "G1",
+              "inv": 0.759800388453226,
+              "opr": 1.2682821868796155
+            },
+            {
+              "g": "G2",
+              "inv": 0.9520413624826664,
+              "opr": 1.5891767358364506
+            },
+            {
+              "g": "G3",
+              "inv": 0.9520413624826664,
+              "opr": 1.5891767358364506
+            },
+            {
+              "g": "G4",
+              "inv": 0.9520413624826664,
+              "opr": 1.5891767358364506
+            },
+            {
+              "g": "G5",
+              "inv": 0.9226585383339971,
+              "opr": 1.540130021680595
+            },
+            {
+              "g": "G6",
+              "inv": 0.7578577056870154,
+              "opr": 1.2650394010314026
+            }
+          ]
+        },
+        {
+          "name": "CO Mod Tandem",
+          "Mw": 184.00423728813564,
+          "gov": "G6",
+          "inv": 0.809220999034337,
+          "opr": 1.3507765906957776,
+          "per": [
+            {
+              "g": "G1",
+              "inv": 0.8112953458108926,
+              "opr": 1.354239154161259
+            },
+            {
+              "g": "G2",
+              "inv": 1.0165653218130684,
+              "opr": 1.6968821141033525
+            },
+            {
+              "g": "G3",
+              "inv": 1.0165653218130684,
+              "opr": 1.6968821141033525
+            },
+            {
+              "g": "G4",
+              "inv": 1.0165653218130684,
+              "opr": 1.6968821141033525
+            },
+            {
+              "g": "G5",
+              "inv": 0.985191096633842,
+              "opr": 1.644511292073413
+            },
+            {
+              "g": "G6",
+              "inv": 0.809220999034337,
+              "opr": 1.3507765906957776
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "name": "CENT 17.6-2.9",
+    "bridge": {
+      "_sources": {
+        "sia": "CENT 17.6-2.9 SIA 2025-10-14 (NLD Engineering)",
+        "sketch": "CENT 17.6-2.9 SKETCH 2025-10-14"
+      },
+      "id": "CENT 17.6-2.9",
+      "facility": "Cherrywood Circle",
+      "feature": "Big Dry Creek",
+      "owner": "City of Centennial",
+      "year_built": 1965,
+      "nbi_super": 6,
+      "load_induced_distress": false,
+      "_load_induced_distress": "SIA records transverse flexure cracking up to 0.06\" (CS3) in the DT top flange (deck element), not in the stems. Engineer to confirm it is not load-induced girder distress.",
+      "within_1mi_of_interstate": false,
+      "span_ft": 29,
+      "_span": "CL brg to CL brg 29'-0\", sketch elevation; SIA max span 29 ft",
+      "structure_length_ft": 30,
+      "review_items": [
+        "Depth: SIA gives 17.5\" overall; sketch shows a 6\" flange and 12\" stems (18\"). Model uses 17.5\" overall with the 6\" flange (11.5\" stems).",
+        "SIA deck element (DT top flange): transverse flexure cracks up to 0.06\" wide (CS3), at 9\" spacing within 3-4 ft of the ends (top surface) and at 4-6 ft spacing throughout (underside). Confirm these are not load-induced girder distress before applying the BRM 1.4(O) shear waiver and BRM 1.7.2(A).",
+        "Joint grout spalled/missing up to 1\" deep with transverse cracks, exposed rebar at the 2nd and 3rd joints from the west, and leakage at all joints (CS2/CS3). Consider whether load sharing between units is still adequate for the distribution factors used.",
+        "Girders B and I webs at Abutment 1: short, insignificant-width longitudinal cracks with rust staining (CS3).",
+        "Bridge rail: new (2) TS5x5 rails on (4) steel posts per side, with the old 3\" pipe rail still in place behind it. Both are included in the rail dead load."
+      ],
+      "assumption_flag": "Rail dead load includes both the new tube rail and the old pipe rail left in place; confirm wall thickness and post sizes.",
+      "units": {
+        "count": 6,
+        "spacing_in": 60,
+        "_spacing": "(6) DTs at 5'-0\" +/- o.c., sketch section",
+        "flange_width_in": 60,
+        "_flange_width": "SIA: 60\" wide x 17.5\" high",
+        "depth_in": 17.5,
+        "flange_thk_in": 6,
+        "_flange_thk": "Sketch: 6\" conc. flange",
+        "stem_spacing_in": 36,
+        "_stem_spacing": "3'-0\" typ. within unit (sketch)",
+        "stem_top_in": 7.5,
+        "stem_bot_in": 5.5,
+        "_stem_widths": "ASSUMED. Sketch shows 5 1/2\" (typ.) at stem bottom; top width assumed 7.5\" (taper).",
+        "exterior_trimmed_flush": false,
+        "_exterior": "Exterior flanges appear full width (sketch; 6 x 5'-0\" = 30'-0\" vs 29'-10\" O/O)"
+      },
+      "roadway": {
+        "rail_to_rail_ft": 29.833,
+        "_rail_to_rail": "Used as overall width: 29'-10\" O/O (sketch); 26'-8\" between rails",
+        "rail_face_offset_in": 19,
+        "_rail": "Face of rail 19\" inside deck edge: (29.833 - 26.667)/2 x 12"
+      },
+      "loads": {
+        "asphalt_in": 0,
+        "_asphalt": "SIA G17A asphalt/fill thickness = 0; DT top flange is the riding surface",
+        "asphalt_pcf": 146.667,
+        "conc_pcf_dl": 155,
+        "rail_klf_each_side": 0.06,
+        "_rail_load": "Sum of rail_components (55.3 plf) rounded up",
+        "rail_components": [
+          {
+            "name": "rails.new",
+            "eq": "2 · 11.97 plf",
+            "plf": 23.94,
+            "desc": "(2) TS5x5 rails per side, 3/16\" wall assumed (11.97 plf)"
+          },
+          {
+            "name": "posts.new",
+            "eq": "4 · 20 plf · 2.92 ft / 30 ft",
+            "plf": 7.79,
+            "desc": "(4) 5.5\" x 8.5\" steel posts per side, ~20 plf assumed, 2'-11\" high"
+          },
+          {
+            "name": "rails.old",
+            "eq": "2 · 7.58 plf",
+            "plf": 15.16,
+            "desc": "Old 3\" std. steel pipe rail left in place, (2) rails (7.58 plf)"
+          },
+          {
+            "name": "posts.old",
+            "eq": "4 · 7.58 plf · 3.0 ft / 30 ft",
+            "plf": 3.03,
+            "desc": "Old 3\" pipe posts, (4) assumed per side"
+          },
+          {
+            "name": "base.pl.hardware",
+            "eq": "8 · 20 lbf / 30 ft",
+            "plf": 5.33,
+            "desc": "Base plates and bolts, assumed 20 lb per post"
+          }
+        ],
+        "utilities": [
+          {
+            "desc": "2 1/2\" dia steel gas pipe, west edge",
+            "klf": 0.006,
+            "unit": 1,
+            "_note": "2-1/2\" std. pipe 5.79 plf"
+          },
+          {
+            "desc": "Small conduit, east edge",
+            "klf": 0.003,
+            "unit": 6,
+            "_note": "Sketch 1 1/2\" dia; SIA 0.75\" attached to Abutment 2 cap. Included conservatively."
+          }
+        ]
+      },
+      "materials": {
+        "fc_ksi": 6,
+        "fci_ksi": 4,
+        "_concrete": "Assumed, same as CDOT's double-tee ratings",
+        "strand": "1/2\" 250 ksi stress-relieved",
+        "fpu_ksi": 250,
+        "aps_in2": 0.144,
+        "gamma_star": 0.4,
+        "jacking_ratio": 0.7,
+        "_strand": "Built 1965, pre-1980 era -> stress-relieved 250 ksi per the BRM era table; Aps 0.144 for 250k 1/2\" (earlier ratings used 0.153 - confirm)",
+        "strands_per_row_per_stem": 2,
+        "first_row_in": 2,
+        "row_spacing_in": 2
+      },
+      "options": {
+        "solve_with_overlay": true,
+        "lldf_interior": "table_3.23.1",
+        "round_strands": true,
+        "legal_lldf": "single",
+        "_legal_lldf": "Built <= 1985 -> single-lane LLDF for legal & permit (BRM 1.3(D))"
+      }
+    },
+    "expected": {
+      "As": 1.7279999999999998,
+      "nStrands": 12,
+      "Pj": 302,
+      "gov": "G2",
+      "govRF": 1.0644834477880356,
+      "crackGoverns": false,
+      "M_HS20": 133.51724137931035,
+      "girders": [
+        {
+          "name": "G1",
+          "dfMulti": 0.7833333333333333,
+          "dfSingle": 0.7833333333333333,
+          "Mnow": 64.59091710069445,
+          "Mn": 439.43934577777765
+        },
+        {
+          "name": "G2",
+          "dfMulti": 0.9090909090909091,
+          "dfSingle": 0.7142857142857143,
+          "Mnow": 57.65266710069446,
+          "Mn": 439.43934577777765
+        },
+        {
+          "name": "G3",
+          "dfMulti": 0.9090909090909091,
+          "dfSingle": 0.7142857142857143,
+          "Mnow": 57.65266710069446,
+          "Mn": 439.43934577777765
+        },
+        {
+          "name": "G4",
+          "dfMulti": 0.9090909090909091,
+          "dfSingle": 0.7142857142857143,
+          "Mnow": 57.65266710069446,
+          "Mn": 439.43934577777765
+        },
+        {
+          "name": "G5",
+          "dfMulti": 0.9090909090909091,
+          "dfSingle": 0.7142857142857143,
+          "Mnow": 57.65266710069446,
+          "Mn": 439.43934577777765
+        },
+        {
+          "name": "G6",
+          "dfMulti": 0.7833333333333333,
+          "dfSingle": 0.7833333333333333,
+          "Mnow": 64.27554210069447,
+          "Mn": 439.43934577777765
+        }
+      ],
+      "ratings": [
+        {
+          "name": "HS-20",
+          "Mw": 133.51724137931035,
+          "gov": "G2",
+          "inv": 1.0644834477880356,
+          "opr": 1.7768685243846438,
+          "per": [
+            {
+              "g": "G1",
+              "inv": 1.2048065476740344,
+              "opr": 2.0111001603481955
+            },
+            {
+              "g": "G2",
+              "inv": 1.0644834477880356,
+              "opr": 1.7768685243846438
+            },
+            {
+              "g": "G3",
+              "inv": 1.0644834477880356,
+              "opr": 1.7768685243846438
+            },
+            {
+              "g": "G4",
+              "inv": 1.0644834477880356,
+              "opr": 1.7768685243846438
+            },
+            {
+              "g": "G5",
+              "inv": 1.0644834477880356,
+              "opr": 1.7768685243846438
+            },
+            {
+              "g": "G6",
+              "inv": 1.2061961277272564,
+              "opr": 2.013419690129343
+            }
+          ]
+        },
+        {
+          "name": "CO Type 3",
+          "Mw": 129.44835517241378,
+          "gov": "G1",
+          "inv": 1.2426766367708038,
+          "opr": 2.0743140783020335,
+          "per": [
+            {
+              "g": "G1",
+              "inv": 1.2426766367708038,
+              "opr": 2.0743140783020335
+            },
+            {
+              "g": "G2",
+              "inv": 1.397381783889541,
+              "opr": 2.332552670031003
+            },
+            {
+              "g": "G3",
+              "inv": 1.397381783889541,
+              "opr": 2.332552670031003
+            },
+            {
+              "g": "G4",
+              "inv": 1.397381783889541,
+              "opr": 2.332552670031003
+            },
+            {
+              "g": "G5",
+              "inv": 1.397381783889541,
+              "opr": 2.332552670031003
+            },
+            {
+              "g": "G6",
+              "inv": 1.2441098948074532,
+              "opr": 2.076706516717056
+            }
+          ]
+        },
+        {
+          "name": "CO Type 3S2",
+          "Mw": 132.83950344827585,
+          "gov": "G1",
+          "inv": 1.2109533870984632,
+          "opr": 2.0213606538489732,
+          "per": [
+            {
+              "g": "G1",
+              "inv": 1.2109533870984632,
+              "opr": 2.0213606538489732
+            },
+            {
+              "g": "G2",
+              "inv": 1.3617091962619972,
+              "opr": 2.2730068891450257
+            },
+            {
+              "g": "G3",
+              "inv": 1.3617091962619972,
+              "opr": 2.2730068891450257
+            },
+            {
+              "g": "G4",
+              "inv": 1.3617091962619972,
+              "opr": 2.2730068891450257
+            },
+            {
+              "g": "G5",
+              "inv": 1.3617091962619972,
+              "opr": 2.2730068891450257
+            },
+            {
+              "g": "G6",
+              "inv": 1.2123500566927166,
+              "opr": 2.0236920177101494
+            }
+          ]
+        },
+        {
+          "name": "CO Type 3-2",
+          "Mw": 127.14189655172416,
+          "gov": "G1",
+          "inv": 1.2652198134839463,
+          "opr": 2.111943842507818,
+          "per": [
+            {
+              "g": "G1",
+              "inv": 1.2652198134839463,
+              "opr": 2.111943842507818
+            },
+            {
+              "g": "G2",
+              "inv": 1.4227314392687611,
+              "opr": 2.3748670947793937
+            },
+            {
+              "g": "G3",
+              "inv": 1.4227314392687611,
+              "opr": 2.3748670947793937
+            },
+            {
+              "g": "G4",
+              "inv": 1.4227314392687611,
+              "opr": 2.3748670947793937
+            },
+            {
+              "g": "G5",
+              "inv": 1.4227314392687611,
+              "opr": 2.3748670947793937
+            },
+            {
+              "g": "G6",
+              "inv": 1.2666790720007204,
+              "opr": 2.1143796817242793
+            }
+          ]
+        },
+        {
+          "name": "SU4",
+          "Mw": 130.1408,
+          "gov": "G1",
+          "inv": 1.2360646825681691,
+          "opr": 2.0632772009022515,
+          "per": [
+            {
+              "g": "G1",
+              "inv": 1.2360646825681691,
+              "opr": 2.0632772009022515
+            },
+            {
+              "g": "G2",
+              "inv": 1.3899466844555624,
+              "opr": 2.320141773283515
+            },
+            {
+              "g": "G3",
+              "inv": 1.3899466844555624,
+              "opr": 2.320141773283515
+            },
+            {
+              "g": "G4",
+              "inv": 1.3899466844555624,
+              "opr": 2.320141773283515
+            },
+            {
+              "g": "G5",
+              "inv": 1.3899466844555624,
+              "opr": 2.320141773283515
+            },
+            {
+              "g": "G6",
+              "inv": 1.2374903146173182,
+              "opr": 2.065656909784293
+            }
+          ]
+        },
+        {
+          "name": "SU5",
+          "Mw": 140.31758620689655,
+          "gov": "G1",
+          "inv": 1.1464168604210303,
+          "opr": 1.9136342977797198,
+          "per": [
+            {
+              "g": "G1",
+              "inv": 1.1464168604210303,
+              "opr": 1.9136342977797198
+            },
+            {
+              "g": "G2",
+              "inv": 1.2891382923711088,
+              "opr": 2.151869303419466
+            },
+            {
+              "g": "G3",
+              "inv": 1.2891382923711088,
+              "opr": 2.151869303419466
+            },
+            {
+              "g": "G4",
+              "inv": 1.2891382923711088,
+              "opr": 2.151869303419466
+            },
+            {
+              "g": "G5",
+              "inv": 1.2891382923711088,
+              "opr": 2.151869303419466
+            },
+            {
+              "g": "G6",
+              "inv": 1.14773909593261,
+              "opr": 1.9158414139798183
+            }
+          ]
+        },
+        {
+          "name": "CO SU6",
+          "Mw": 153.34631379310346,
+          "gov": "G1",
+          "inv": 1.0490141084069684,
+          "opr": 1.7510466271100935,
+          "per": [
+            {
+              "g": "G1",
+              "inv": 1.0490141084069684,
+              "opr": 1.7510466271100935
+            },
+            {
+              "g": "G2",
+              "inv": 1.179609532162942,
+              "opr": 1.9690405267642954
+            },
+            {
+              "g": "G3",
+              "inv": 1.179609532162942,
+              "opr": 1.9690405267642954
+            },
+            {
+              "g": "G4",
+              "inv": 1.179609532162942,
+              "opr": 1.9690405267642954
+            },
+            {
+              "g": "G5",
+              "inv": 1.179609532162942,
+              "opr": 1.9690405267642954
+            },
+            {
+              "g": "G6",
+              "inv": 1.0502240031269172,
+              "opr": 1.753066220604162
+            }
+          ]
+        },
+        {
+          "name": "CO SU7",
+          "Mw": 159.38793103448276,
+          "gov": "G1",
+          "inv": 1.0092511120328544,
+          "opr": 1.6846730100856109,
+          "per": [
+            {
+              "g": "G1",
+              "inv": 1.0092511120328544,
+              "opr": 1.6846730100856109
+            },
+            {
+              "g": "G2",
+              "inv": 1.134896301736046,
+              "opr": 1.8944038267440153
+            },
+            {
+              "g": "G3",
+              "inv": 1.134896301736046,
+              "opr": 1.8944038267440153
+            },
+            {
+              "g": "G4",
+              "inv": 1.134896301736046,
+              "opr": 1.8944038267440153
+            },
+            {
+              "g": "G5",
+              "inv": 1.134896301736046,
+              "opr": 1.8944038267440153
+            },
+            {
+              "g": "G6",
+              "inv": 1.0104151455589674,
+              "opr": 1.6866160506638146
+            }
+          ]
+        },
+        {
+          "name": "NRL",
+          "Mw": 163.32547586206903,
+          "gov": "G1",
+          "inv": 0.9849195037828546,
+          "opr": 1.644057940929842,
+          "per": [
+            {
+              "g": "G1",
+              "inv": 0.9849195037828546,
+              "opr": 1.644057940929842
+            },
+            {
+              "g": "G2",
+              "inv": 1.1075355667425573,
+              "opr": 1.8487324460241148
+            },
+            {
+              "g": "G3",
+              "inv": 1.1075355667425573,
+              "opr": 1.8487324460241148
+            },
+            {
+              "g": "G4",
+              "inv": 1.1075355667425573,
+              "opr": 1.8487324460241148
+            },
+            {
+              "g": "G5",
+              "inv": 1.1075355667425573,
+              "opr": 1.8487324460241148
+            },
+            {
+              "g": "G6",
+              "inv": 0.9860554741169536,
+              "opr": 1.6459541375644533
+            }
+          ]
+        },
+        {
+          "name": "EV2",
+          "Mw": 128.15264224137928,
+          "gov": "G1",
+          "inv": 1.2552409675500757,
+          "opr": 2.095286845833588,
+          "per": [
+            {
+              "g": "G1",
+              "inv": 1.2552409675500757,
+              "opr": 2.095286845833588
+            },
+            {
+              "g": "G2",
+              "inv": 1.411510292013216,
+              "opr": 2.356136410514368
+            },
+            {
+              "g": "G3",
+              "inv": 1.411510292013216,
+              "opr": 2.356136410514368
+            },
+            {
+              "g": "G4",
+              "inv": 1.411510292013216,
+              "opr": 2.356136410514368
+            },
+            {
+              "g": "G5",
+              "inv": 1.411510292013216,
+              "opr": 2.356136410514368
+            },
+            {
+              "g": "G6",
+              "inv": 1.2566887168288805,
+              "opr": 2.0977034734759004
+            }
+          ]
+        },
+        {
+          "name": "EV3",
+          "Mw": 194.8189655172414,
+          "gov": "G1",
+          "inv": 0.8257021908215162,
+          "opr": 1.3782875031405306,
+          "per": [
+            {
+              "g": "G1",
+              "inv": 0.8257021908215162,
+              "opr": 1.3782875031405306
+            },
+            {
+              "g": "G2",
+              "inv": 0.9284967353775723,
+              "opr": 1.5498753198225628
+            },
+            {
+              "g": "G3",
+              "inv": 0.9284967353775723,
+              "opr": 1.5498753198225628
+            },
+            {
+              "g": "G4",
+              "inv": 0.9284967353775723,
+              "opr": 1.5498753198225628
+            },
+            {
+              "g": "G5",
+              "inv": 0.9284967353775723,
+              "opr": 1.5498753198225628
+            },
+            {
+              "g": "G6",
+              "inv": 0.8266545256975859,
+              "opr": 1.379877169818278
+            }
+          ]
+        },
+        {
+          "name": "CO Permit",
+          "Mw": 192.40999999999997,
+          "gov": "G1",
+          "inv": 0.8360399492810542,
+          "opr": 1.3955436076460672,
+          "per": [
+            {
+              "g": "G1",
+              "inv": 0.8360399492810542,
+              "opr": 1.3955436076460672
+            },
+            {
+              "g": "G2",
+              "inv": 0.9401214774304586,
+              "opr": 1.5692796969416114
+            },
+            {
+              "g": "G3",
+              "inv": 0.9401214774304586,
+              "opr": 1.5692796969416114
+            },
+            {
+              "g": "G4",
+              "inv": 0.9401214774304586,
+              "opr": 1.5692796969416114
+            },
+            {
+              "g": "G5",
+              "inv": 0.9401214774304586,
+              "opr": 1.5692796969416114
+            },
+            {
+              "g": "G6",
+              "inv": 0.8370042073517465,
+              "opr": 1.397153176887146
+            }
+          ]
+        },
+        {
+          "name": "CO Mod Tandem",
+          "Mw": 178.01724137931035,
+          "gov": "G1",
+          "inv": 0.903634082826898,
+          "opr": 1.5083738151802835,
+          "per": [
+            {
+              "g": "G1",
+              "inv": 0.903634082826898,
+              "opr": 1.5083738151802835
+            },
+            {
+              "g": "G2",
+              "inv": 1.0161306403291892,
+              "opr": 1.6961565303956465
+            },
+            {
+              "g": "G3",
+              "inv": 1.0161306403291892,
+              "opr": 1.6961565303956465
+            },
+            {
+              "g": "G4",
+              "inv": 1.0161306403291892,
+              "opr": 1.6961565303956465
+            },
+            {
+              "g": "G5",
+              "inv": 1.0161306403291892,
+              "opr": 1.6961565303956465
+            },
+            {
+              "g": "G6",
+              "inv": 0.9046763015128206,
+              "opr": 1.5101135186790926
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "name": "AUR07.0-H.0",
+    "bridge": {
+      "_sources": {
+        "sia": "AUR07.0-H.0 SIA 2025-10-14",
+        "sketch": "AUR07.0-H.0 SKETCH 2025-10-14; 2023 full SIA and 2023 rating presentation (stem measurements)"
+      },
+      "id": "AUR07.0-H.0",
+      "facility": "Dillon Way",
+      "feature": "Local drainage",
+      "owner": "City of Aurora",
+      "year_built": 1970,
+      "nbi_super": 5,
+      "load_induced_distress": false,
+      "_load_induced_distress": "Girder A arching crack is from vehicular impact (SIA), not load-induced; superstructure = 5 meets the BRM 1.4(O) minimum.",
+      "within_1mi_of_interstate": false,
+      "span_ft": 32.75,
+      "_span": "CL brg to CL brg 32'-9\" (sketch); SIA max span 32.8 ft",
+      "structure_length_ft": 33.42,
+      "review_items": [
+        "Girder A (exterior, west face): 14 ft long x 0.035\" arching crack from vehicular impact up to the top fillet near midspan, with a 0.016\" crack below it (CS3). The 2023 engineering-judgment summary applied a flexural condition factor of 0.85 to Girder A; this back-calculated rating applies none. Decide whether to reduce Girder A's capacity in BrR.",
+        "Girders at Abutment 1: insignificant to wide longitudinal cracks up to 20\" long with rust staining and delamination (CS3); spalls with exposed rebar in top flanges and stem ends at Abutment 1. Possible strand corrosion near the bearings.",
+        "Unit layout from the sketch: 5 interior units 8'-0\" wide and 2 exterior units 5'-0\" wide. Stem spacing within units (48\" interior, 36\" exterior) is scaled from the sketch.",
+        "Sidewalks (5'-0\" each side, 10\" assumed thickness) treated as mountable per the two-model rule: rated with trucks curb-to-curb plus 60 psf pedestrian load, and with trucks on the sidewalk without pedestrian load. Two BrR models needed.",
+        "Utilities: (4) 4 1/2\" steel pipes and (1) 4 1/2\" PVC pipe on the west side, taken empty. Confirm contents.",
+        "Superstructure NBI = 5, the minimum for the BRM 1.4(O) shear waiver."
+      ],
+      "assumption_flag": "Stem spacing within units, sidewalk thickness, deck f'c and utility contents are assumed; confirm before the BrR run.",
+      "units": {
+        "count": 7,
+        "spacing_in": 96,
+        "flange_width_in": 96,
+        "stem_spacing_in": 48,
+        "layout": [
+          {
+            "flange_width_in": 60,
+            "stem_spacing_in": 36
+          },
+          {
+            "flange_width_in": 96,
+            "stem_spacing_in": 48
+          },
+          {
+            "flange_width_in": 96,
+            "stem_spacing_in": 48
+          },
+          {
+            "flange_width_in": 96,
+            "stem_spacing_in": 48
+          },
+          {
+            "flange_width_in": 96,
+            "stem_spacing_in": 48
+          },
+          {
+            "flange_width_in": 96,
+            "stem_spacing_in": 48
+          },
+          {
+            "flange_width_in": 60,
+            "stem_spacing_in": 36
+          }
+        ],
+        "_layout": "(1) 5'-0\" + (5) 8'-0\" + (1) 5'-0\" DTs (sketch); 14 girder lines (SIA)",
+        "depth_in": 24,
+        "_depth": "22\" stems (sketch) + 2\" precast flange",
+        "flange_thk_in": 2,
+        "stem_top_in": 8,
+        "stem_bot_in": 5.75,
+        "_stem_widths": "ASSUMED taper; average 6.875\" vs 6.85\" average measured (2023 rating presentation)",
+        "exterior_trimmed_flush": false
+      },
+      "deck": {
+        "thk_in": 4.5,
+        "fc_ksi": 3,
+        "pcf": 150,
+        "_deck": "4.5\" CIP topping (SIA). f'c ASSUMED 3.0 ksi for 1960-1976 construction per the BRM unknown-concrete table."
+      },
+      "roadway": {
+        "rail_to_rail_ft": 50,
+        "_rail_to_rail": "Out-to-out 50'-0\" (sketch, SIA)",
+        "rail_face_offset_in": 4,
+        "_rail_face": "Face of rail ~4\" inside the deck edge (steel posts at the edge), assumed",
+        "curb_to_curb_ft": 40,
+        "curb_face_offset_in": 60
+      },
+      "loads": {
+        "asphalt_in": 6,
+        "_asphalt": "6\" asphalt (SIA G17A and rating asphalt thickness)",
+        "asphalt_pcf": 146.667,
+        "conc_pcf_dl": 155,
+        "sidewalks": [
+          {
+            "width_ft": 5,
+            "thk_in": 10
+          },
+          {
+            "width_ft": 5,
+            "thk_in": 10
+          }
+        ],
+        "_sidewalks": "5'-0\" concrete sidewalks both sides (SIA G07/G08); 10\" thickness ASSUMED from sketch",
+        "rail_klf_each_side": 0.045,
+        "_rail_load": "Sum of rail_components (40.5 plf) rounded up",
+        "rail_components": [
+          {
+            "name": "top.rail",
+            "eq": "3.65 plf",
+            "plf": 3.65,
+            "desc": "2\" std. steel pipe top rail (3.65 plf)"
+          },
+          {
+            "name": "bottom.rails",
+            "eq": "2 · 11.5 plf",
+            "plf": 23,
+            "desc": "(2) C8x11.5 bottom rails (sketch C8\"x2 1/4\")"
+          },
+          {
+            "name": "posts",
+            "eq": "7 · 14.62 plf · 3.5 ft / 33.42 ft",
+            "plf": 10.72,
+            "desc": "(7) 5\" std. steel pipe posts per side assumed, ~3.5 ft high"
+          },
+          {
+            "name": "base.pl.hardware",
+            "eq": "7 · 15 lbf / 33.42 ft",
+            "plf": 3.14,
+            "desc": "Base plates and bolts, assumed"
+          }
+        ],
+        "utilities": [
+          {
+            "desc": "(4) 4 1/2\" dia steel pipes, west side",
+            "klf": 0.043,
+            "unit": 1,
+            "_note": "4\" std. pipe 10.79 plf each, empty. Confirm contents."
+          },
+          {
+            "desc": "(1) 4 1/2\" dia PVC pipe, west side",
+            "klf": 0.003,
+            "unit": 1
+          }
+        ]
+      },
+      "materials": {
+        "fc_ksi": 6,
+        "fci_ksi": 4,
+        "_concrete": "Precast girder concrete assumed, same as other CDOT DT ratings",
+        "strand": "1/2\" 250 ksi stress-relieved",
+        "fpu_ksi": 250,
+        "aps_in2": 0.144,
+        "gamma_star": 0.4,
+        "jacking_ratio": 0.7,
+        "_strand": "Built 1970, pre-1980 era -> stress-relieved 250 ksi per the BRM era table",
+        "strands_per_row_per_stem": 2,
+        "first_row_in": 2,
+        "row_spacing_in": 2
+      },
+      "options": {
+        "solve_with_overlay": true,
+        "lldf_interior": "table_3.23.1",
+        "round_strands": true,
+        "legal_lldf": "single",
+        "_legal_lldf": "Built <= 1985 -> single-lane LLDF for legal & permit (BRM 1.3(D))"
+      }
+    },
+    "expected": {
+      "As": 2.1599999999999997,
+      "nStrands": 14.999999999999998,
+      "Pj": 377,
+      "gov": "G3",
+      "govRF": 1.0207954417736975,
+      "crackGoverns": false,
+      "M_HS20": 161.96944122137404,
+      "girders": [
+        {
+          "name": "G1",
+          "dfMulti": 0.3076923076923077,
+          "dfSingle": 0.3076923076923077,
+          "Mnow": 181.406903452536,
+          "Mn": 933.564101160751
+        },
+        {
+          "name": "G2",
+          "dfMulti": 1.3181818181818181,
+          "dfSingle": 1.0357142857142858,
+          "Mnow": 214.42171790566096,
+          "Mn": 982.1108524475457
+        },
+        {
+          "name": "G3",
+          "dfMulti": 1.4545454545454546,
+          "dfSingle": 1.1428571428571428,
+          "Mnow": 214.42171790566096,
+          "Mn": 982.1108524475457
+        },
+        {
+          "name": "G4",
+          "dfMulti": 1.4545454545454546,
+          "dfSingle": 1.1428571428571428,
+          "Mnow": 214.42171790566096,
+          "Mn": 982.1108524475457
+        },
+        {
+          "name": "G5",
+          "dfMulti": 1.4545454545454546,
+          "dfSingle": 1.1428571428571428,
+          "Mnow": 214.42171790566096,
+          "Mn": 982.1108524475457
+        },
+        {
+          "name": "G6",
+          "dfMulti": 1.3181818181818181,
+          "dfSingle": 1.0357142857142858,
+          "Mnow": 214.42171790566096,
+          "Mn": 982.1108524475457
+        },
+        {
+          "name": "G7",
+          "dfMulti": 0.3076923076923077,
+          "dfSingle": 0.3076923076923077,
+          "Mnow": 181.406903452536,
+          "Mn": 933.564101160751
+        },
+        {
+          "name": "G1 mnt",
+          "dfMulti": 1.1282051282051282,
+          "dfSingle": 1.1282051282051282,
+          "Mnow": 181.406903452536,
+          "Mn": 933.564101160751
+        },
+        {
+          "name": "G7 mnt",
+          "dfMulti": 1.1282051282051282,
+          "dfSingle": 1.1282051282051282,
+          "Mnow": 181.406903452536,
+          "Mn": 933.564101160751
+        }
+      ],
+      "ratings": [
+        {
+          "name": "HS-20",
+          "Mw": 161.96944122137404,
+          "gov": "G3",
+          "inv": 1.0207954417736975,
+          "opr": 1.7290538130352298,
+          "per": [
+            {
+              "g": "G1",
+              "inv": 4.7855506156661765,
+              "opr": 8.10689323827896
+            },
+            {
+              "g": "G2",
+              "inv": 1.1263949702330456,
+              "opr": 1.9079214488664606
+            },
+            {
+              "g": "G3",
+              "inv": 1.0207954417736975,
+              "opr": 1.7290538130352298
+            },
+            {
+              "g": "G4",
+              "inv": 1.0207954417736975,
+              "opr": 1.7290538130352298
+            },
+            {
+              "g": "G5",
+              "inv": 1.0207954417736975,
+              "opr": 1.7290538130352298
+            },
+            {
+              "g": "G6",
+              "inv": 1.1263949702330456,
+              "opr": 1.9079214488664606
+            },
+            {
+              "g": "G7",
+              "inv": 4.7855506156661765,
+              "opr": 8.10689323827896
+            },
+            {
+              "g": "G1 mnt",
+              "inv": 1.3535252067074044,
+              "opr": 2.259345921965436
+            },
+            {
+              "g": "G7 mnt",
+              "inv": 1.3535252067074044,
+              "opr": 2.259345921965436
+            }
+          ]
+        },
+        {
+          "name": "CO Type 3",
+          "Mw": 154.6522503816794,
+          "gov": "G3",
+          "inv": 1.3606640567425825,
+          "opr": 2.3047334258104115,
+          "per": [
+            {
+              "g": "G1",
+              "inv": 5.0119733611576045,
+              "opr": 8.490461435929607
+            },
+            {
+              "g": "G2",
+              "inv": 1.5014224074400908,
+              "opr": 2.543154125032178
+            },
+            {
+              "g": "G3",
+              "inv": 1.3606640567425825,
+              "opr": 2.3047334258104115
+            },
+            {
+              "g": "G4",
+              "inv": 1.3606640567425825,
+              "opr": 2.3047334258104115
+            },
+            {
+              "g": "G5",
+              "inv": 1.3606640567425825,
+              "opr": 2.3047334258104115
+            },
+            {
+              "g": "G6",
+              "inv": 1.5014224074400908,
+              "opr": 2.543154125032178
+            },
+            {
+              "g": "G7",
+              "inv": 5.0119733611576045,
+              "opr": 8.490461435929607
+            },
+            {
+              "g": "G1 mnt",
+              "inv": 1.4175656731045778,
+              "opr": 2.3662442389514875
+            },
+            {
+              "g": "G7 mnt",
+              "inv": 1.4175656731045778,
+              "opr": 2.3662442389514875
+            }
+          ]
+        },
+        {
+          "name": "CO Type 3S2",
+          "Mw": 157.1756458015267,
+          "gov": "G3",
+          "inv": 1.338819111037249,
+          "opr": 2.2677318042105687,
+          "per": [
+            {
+              "g": "G1",
+              "inv": 4.931508028507328,
+              "opr": 8.354150295672744
+            },
+            {
+              "g": "G2",
+              "inv": 1.4773176397652399,
+              "opr": 2.502324749473731
+            },
+            {
+              "g": "G3",
+              "inv": 1.338819111037249,
+              "opr": 2.2677318042105687
+            },
+            {
+              "g": "G4",
+              "inv": 1.338819111037249,
+              "opr": 2.2677318042105687
+            },
+            {
+              "g": "G5",
+              "inv": 1.338819111037249,
+              "opr": 2.2677318042105687
+            },
+            {
+              "g": "G6",
+              "inv": 1.4773176397652399,
+              "opr": 2.502324749473731
+            },
+            {
+              "g": "G7",
+              "inv": 4.931508028507328,
+              "opr": 8.354150295672744
+            },
+            {
+              "g": "G1 mnt",
+              "inv": 1.3948071935156865,
+              "opr": 2.3282550845607997
+            },
+            {
+              "g": "G7 mnt",
+              "inv": 1.3948071935156865,
+              "opr": 2.3282550845607997
+            }
+          ]
+        },
+        {
+          "name": "CO Type 3-2",
+          "Mw": 151.44340763358778,
+          "gov": "G3",
+          "inv": 1.3894943443020857,
+          "opr": 2.3535670281127934,
+          "per": [
+            {
+              "g": "G1",
+              "inv": 5.118169032695123,
+              "opr": 8.670360686959084
+            },
+            {
+              "g": "G2",
+              "inv": 1.533235138540232,
+              "opr": 2.5970394792968747
+            },
+            {
+              "g": "G3",
+              "inv": 1.3894943443020857,
+              "opr": 2.3535670281127934
+            },
+            {
+              "g": "G4",
+              "inv": 1.3894943443020857,
+              "opr": 2.3535670281127934
+            },
+            {
+              "g": "G5",
+              "inv": 1.3894943443020857,
+              "opr": 2.3535670281127934
+            },
+            {
+              "g": "G6",
+              "inv": 1.533235138540232,
+              "opr": 2.5970394792968747
+            },
+            {
+              "g": "G7",
+              "inv": 5.118169032695123,
+              "opr": 8.670360686959084
+            },
+            {
+              "g": "G1 mnt",
+              "inv": 1.4476016145903292,
+              "opr": 2.4163811566623186
+            },
+            {
+              "g": "G7 mnt",
+              "inv": 1.4476016145903292,
+              "opr": 2.4163811566623186
+            }
+          ]
+        },
+        {
+          "name": "SU4",
+          "Mw": 155.29404580152672,
+          "gov": "G3",
+          "inv": 1.35504073773469,
+          "opr": 2.2952084800919867,
+          "per": [
+            {
+              "g": "G1",
+              "inv": 4.991260000700122,
+              "opr": 8.45537226535745
+            },
+            {
+              "g": "G2",
+              "inv": 1.4952173657762093,
+              "opr": 2.532643840101502
+            },
+            {
+              "g": "G3",
+              "inv": 1.35504073773469,
+              "opr": 2.2952084800919867
+            },
+            {
+              "g": "G4",
+              "inv": 1.35504073773469,
+              "opr": 2.2952084800919867
+            },
+            {
+              "g": "G5",
+              "inv": 1.35504073773469,
+              "opr": 2.2952084800919867
+            },
+            {
+              "g": "G6",
+              "inv": 1.4952173657762093,
+              "opr": 2.532643840101502
+            },
+            {
+              "g": "G7",
+              "inv": 4.991260000700122,
+              "opr": 8.45537226535745
+            },
+            {
+              "g": "G1 mnt",
+              "inv": 1.4117071924935822,
+              "opr": 2.3564650828546716
+            },
+            {
+              "g": "G7 mnt",
+              "inv": 1.4117071924935822,
+              "opr": 2.3564650828546716
+            }
+          ]
+        },
+        {
+          "name": "SU5",
+          "Mw": 163.74732824427485,
+          "gov": "G3",
+          "inv": 1.285088194384404,
+          "opr": 2.176720772504693,
+          "per": [
+            {
+              "g": "G1",
+              "inv": 4.733591487976864,
+              "opr": 8.018872624819682
+            },
+            {
+              "g": "G2",
+              "inv": 1.4180283524241697,
+              "opr": 2.4018987834534538
+            },
+            {
+              "g": "G3",
+              "inv": 1.285088194384404,
+              "opr": 2.176720772504693
+            },
+            {
+              "g": "G4",
+              "inv": 1.285088194384404,
+              "opr": 2.176720772504693
+            },
+            {
+              "g": "G5",
+              "inv": 1.285088194384404,
+              "opr": 2.176720772504693
+            },
+            {
+              "g": "G6",
+              "inv": 1.4180283524241697,
+              "opr": 2.4018987834534538
+            },
+            {
+              "g": "G7",
+              "inv": 4.733591487976864,
+              "opr": 8.018872624819682
+            },
+            {
+              "g": "G1 mnt",
+              "inv": 1.3388293034155692,
+              "opr": 2.2348150680090653
+            },
+            {
+              "g": "G7 mnt",
+              "inv": 1.3388293034155692,
+              "opr": 2.2348150680090653
+            }
+          ]
+        },
+        {
+          "name": "CO SU6",
+          "Mw": 180.52276641221374,
+          "gov": "G3",
+          "inv": 1.1656688104823345,
+          "opr": 1.9744446526903108,
+          "per": [
+            {
+              "g": "G1",
+              "inv": 4.293713056591021,
+              "opr": 7.273702890454595
+            },
+            {
+              "g": "G2",
+              "inv": 1.2862552391529205,
+              "opr": 2.178697547796205
+            },
+            {
+              "g": "G3",
+              "inv": 1.1656688104823345,
+              "opr": 1.9744446526903108
+            },
+            {
+              "g": "G4",
+              "inv": 1.1656688104823345,
+              "opr": 1.9744446526903108
+            },
+            {
+              "g": "G5",
+              "inv": 1.1656688104823345,
+              "opr": 1.9744446526903108
+            },
+            {
+              "g": "G6",
+              "inv": 1.2862552391529205,
+              "opr": 2.178697547796205
+            },
+            {
+              "g": "G7",
+              "inv": 4.293713056591021,
+              "opr": 7.273702890454595
+            },
+            {
+              "g": "G1 mnt",
+              "inv": 1.2144159197563156,
+              "opr": 2.027140419900927
+            },
+            {
+              "g": "G7 mnt",
+              "inv": 1.2144159197563156,
+              "opr": 2.027140419900927
+            }
+          ]
+        },
+        {
+          "name": "CO SU7",
+          "Mw": 190.19510839694658,
+          "gov": "G3",
+          "inv": 1.1063889085387424,
+          "opr": 1.8740345839366481,
+          "per": [
+            {
+              "g": "G1",
+              "inv": 4.075356962064209,
+              "opr": 6.903799886929473
+            },
+            {
+              "g": "G2",
+              "inv": 1.220842933559991,
+              "opr": 2.0679002305507836
+            },
+            {
+              "g": "G3",
+              "inv": 1.1063889085387424,
+              "opr": 1.8740345839366481
+            },
+            {
+              "g": "G4",
+              "inv": 1.1063889085387424,
+              "opr": 1.8740345839366481
+            },
+            {
+              "g": "G5",
+              "inv": 1.1063889085387424,
+              "opr": 1.8740345839366481
+            },
+            {
+              "g": "G6",
+              "inv": 1.220842933559991,
+              "opr": 2.0679002305507836
+            },
+            {
+              "g": "G7",
+              "inv": 4.075356962064209,
+              "opr": 6.903799886929473
+            },
+            {
+              "g": "G1 mnt",
+              "inv": 1.1526569913244025,
+              "opr": 1.9240505162876564
+            },
+            {
+              "g": "G7 mnt",
+              "inv": 1.1526569913244025,
+              "opr": 1.9240505162876564
+            }
+          ]
+        },
+        {
+          "name": "NRL",
+          "Mw": 198.0043419847329,
+          "gov": "G3",
+          "inv": 1.0627532521732814,
+          "opr": 1.8001232056766723,
+          "per": [
+            {
+              "g": "G1",
+              "inv": 3.9146260702496023,
+              "opr": 6.63151602981829
+            },
+            {
+              "g": "G2",
+              "inv": 1.172693243777414,
+              "opr": 1.9863428476432243
+            },
+            {
+              "g": "G3",
+              "inv": 1.0627532521732814,
+              "opr": 1.8001232056766723
+            },
+            {
+              "g": "G4",
+              "inv": 1.0627532521732814,
+              "opr": 1.8001232056766723
+            },
+            {
+              "g": "G5",
+              "inv": 1.0627532521732814,
+              "opr": 1.8001232056766723
+            },
+            {
+              "g": "G6",
+              "inv": 1.172693243777414,
+              "opr": 1.9863428476432243
+            },
+            {
+              "g": "G7",
+              "inv": 3.9146260702496023,
+              "opr": 6.63151602981829
+            },
+            {
+              "g": "G1 mnt",
+              "inv": 1.1071965352474278,
+              "opr": 1.8481665242207066
+            },
+            {
+              "g": "G7 mnt",
+              "inv": 1.1071965352474278,
+              "opr": 1.8481665242207066
+            }
+          ]
+        },
+        {
+          "name": "EV2",
+          "Mw": 153.99332824427484,
+          "gov": "G3",
+          "inv": 1.3664862029276186,
+          "opr": 2.3145951509409564,
+          "per": [
+            {
+              "g": "G1",
+              "inv": 5.0334190967449945,
+              "opr": 8.526791276064234
+            },
+            {
+              "g": "G2",
+              "inv": 1.5078468446097855,
+              "opr": 2.5540360286245023
+            },
+            {
+              "g": "G3",
+              "inv": 1.3664862029276186,
+              "opr": 2.3145951509409564
+            },
+            {
+              "g": "G4",
+              "inv": 1.3664862029276186,
+              "opr": 2.3145951509409564
+            },
+            {
+              "g": "G5",
+              "inv": 1.3664862029276186,
+              "opr": 2.3145951509409564
+            },
+            {
+              "g": "G6",
+              "inv": 1.5078468446097855,
+              "opr": 2.5540360286245023
+            },
+            {
+              "g": "G7",
+              "inv": 5.0334190967449945,
+              "opr": 8.526791276064234
+            },
+            {
+              "g": "G1 mnt",
+              "inv": 1.4236312956473398,
+              "opr": 2.3763691627344055
+            },
+            {
+              "g": "G7 mnt",
+              "inv": 1.4236312956473398,
+              "opr": 2.3763691627344055
+            }
+          ]
+        },
+        {
+          "name": "EV3",
+          "Mw": 233.53435114503816,
+          "gov": "G3",
+          "inv": 0.901065549273377,
+          "opr": 1.526251744481448,
+          "per": [
+            {
+              "g": "G1",
+              "inv": 3.319053301390611,
+              "opr": 5.622594540834328
+            },
+            {
+              "g": "G2",
+              "inv": 0.9942792267844159,
+              "opr": 1.6841398559795284
+            },
+            {
+              "g": "G3",
+              "inv": 0.901065549273377,
+              "opr": 1.526251744481448
+            },
+            {
+              "g": "G4",
+              "inv": 0.901065549273377,
+              "opr": 1.526251744481448
+            },
+            {
+              "g": "G5",
+              "inv": 0.901065549273377,
+              "opr": 1.526251744481448
+            },
+            {
+              "g": "G6",
+              "inv": 0.9942792267844159,
+              "opr": 1.6841398559795284
+            },
+            {
+              "g": "G7",
+              "inv": 3.319053301390611,
+              "opr": 5.622594540834328
+            },
+            {
+              "g": "G1 mnt",
+              "inv": 0.9387472135664053,
+              "opr": 1.5669857334146922
+            },
+            {
+              "g": "G7 mnt",
+              "inv": 0.9387472135664053,
+              "opr": 1.5669857334146922
+            }
+          ]
+        },
+        {
+          "name": "CO Permit",
+          "Mw": 223.11541984732833,
+          "gov": "G3",
+          "inv": 0.94314305363877,
+          "opr": 1.5975238783377415,
+          "per": [
+            {
+              "g": "G1",
+              "inv": 3.474044777749747,
+              "opr": 5.885155623685155
+            },
+            {
+              "g": "G2",
+              "inv": 1.0407095764289875,
+              "opr": 1.7627849692002664
+            },
+            {
+              "g": "G3",
+              "inv": 0.94314305363877,
+              "opr": 1.5975238783377415
+            },
+            {
+              "g": "G4",
+              "inv": 0.94314305363877,
+              "opr": 1.5975238783377415
+            },
+            {
+              "g": "G5",
+              "inv": 0.94314305363877,
+              "opr": 1.5975238783377415
+            },
+            {
+              "g": "G6",
+              "inv": 1.0407095764289875,
+              "opr": 1.7627849692002664
+            },
+            {
+              "g": "G7",
+              "inv": 3.474044777749747,
+              "opr": 5.885155623685155
+            },
+            {
+              "g": "G1 mnt",
+              "inv": 0.9825843572777528,
+              "opr": 1.6401600425328642
+            },
+            {
+              "g": "G7 mnt",
+              "inv": 0.9825843572777528,
+              "opr": 1.6401600425328642
+            }
+          ]
+        },
+        {
+          "name": "CO Mod Tandem",
+          "Mw": 223.11541984732833,
+          "gov": "G3",
+          "inv": 0.94314305363877,
+          "opr": 1.5975238783377415,
+          "per": [
+            {
+              "g": "G1",
+              "inv": 3.474044777749747,
+              "opr": 5.885155623685155
+            },
+            {
+              "g": "G2",
+              "inv": 1.0407095764289875,
+              "opr": 1.7627849692002664
+            },
+            {
+              "g": "G3",
+              "inv": 0.94314305363877,
+              "opr": 1.5975238783377415
+            },
+            {
+              "g": "G4",
+              "inv": 0.94314305363877,
+              "opr": 1.5975238783377415
+            },
+            {
+              "g": "G5",
+              "inv": 0.94314305363877,
+              "opr": 1.5975238783377415
+            },
+            {
+              "g": "G6",
+              "inv": 1.0407095764289875,
+              "opr": 1.7627849692002664
+            },
+            {
+              "g": "G7",
+              "inv": 3.474044777749747,
+              "opr": 5.885155623685155
+            },
+            {
+              "g": "G1 mnt",
+              "inv": 0.9825843572777528,
+              "opr": 1.6401600425328642
+            },
+            {
+              "g": "G7 mnt",
+              "inv": 0.9825843572777528,
+              "opr": 1.6401600425328642
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "name": "AUR08.0-J.3",
+    "bridge": {
+      "_sources": {
+        "sia": "AUR08.0-J.3 SIA 2025-10-16; 2023 full SIA",
+        "sketch": "AUR08.0-J.3 SKETCH 2025-10-16"
+      },
+      "id": "AUR08.0-J.3",
+      "facility": "1st Avenue",
+      "feature": "East Toll Gate Creek",
+      "owner": "City of Aurora",
+      "year_built": 1983,
+      "nbi_super": 6,
+      "load_induced_distress": false,
+      "within_1mi_of_interstate": false,
+      "span_ft": 66,
+      "_span": "Two simple spans, 66'-0\" CL brg to CL pier each (sketch); deck has a compression joint over Pier 2, so spans are rated as identical simple spans",
+      "structure_length_ft": 66,
+      "num_spans": 2,
+      "skew_deg": 15,
+      "review_items": [
+        "2023 SIA: CS4 deck spall over Pier 2 (42\" x 18\" x 4\" deep, exposed corroded rebar) with an Essential Repair Letter sent to the owner 11/16/2023. 2025 SIA notes asphalt patches failing. Confirm repair status; the deck is not rated here.",
+        "Girder bottoms at Pier 2 (and 2A at Abutment 3): longitudinal cracks up to 0.125\" with delamination, some with rust staining (CS3), plus spalls with exposed corroded rebar in 1P, 2C and 2R. Possible strand corrosion near the bearings; shear is waived per BRM 1.4(O) but end-region strand condition should be considered.",
+        "Span taken as 66'-0\" (CL abutment bearing to CL pier); the actual bearing-to-bearing span is slightly shorter, so this is slightly conservative.",
+        "15 degree skew: no LFD moment reduction applied (SSHB). Enter the skew in BrR.",
+        "Sidewalks (5'-0\" plus 12\" rail edge each side) treated as mountable per the two-model rule: rated with trucks curb-to-curb plus 60 psf pedestrian load, and with trucks on the sidewalk without pedestrian load. Two BrR models needed.",
+        "Stem spacing within units 4'-7 1/2\" and unit spacing 6'-10 1/2\" from the sketch; precast depth 45\" (38\" stem + 7\" flange) matches the CDOT 1982 double-tee standard for 66 ft spans.",
+        "Midspan 8\" x 30\" concrete diaphragms on skew included as a 1.72 kip point load per girder (DC1)."
+      ],
+      "assumption_flag": "Sidewalk thickness, rail weight, deck f'c and diaphragm weight are assumed; confirm before the BrR run.",
+      "units": {
+        "count": 9,
+        "spacing_in": 82.5,
+        "_spacing": "(9) DTs, 6'-10 1/2\" (typ.) (sketch); 18 girder lines",
+        "flange_width_in": 82.5,
+        "depth_in": 45,
+        "_depth": "3'-2\" stems (sketch) + 7\" precast flange (SIA) = 45\" (CDOT 1982 standard section for 66 ft spans)",
+        "flange_thk_in": 7,
+        "stem_spacing_in": 55.5,
+        "_stem_spacing": "4'-7 1/2\" (typ.) (sketch)",
+        "stem_top_in": 7.5,
+        "stem_bot_in": 4.5,
+        "_stem_widths": "4 1/2\" bottom (sketch); 7.5\" top per CDOT 1982 standard",
+        "exterior_trimmed_flush": false
+      },
+      "deck": {
+        "thk_in": 8.5,
+        "fc_ksi": 4.5,
+        "pcf": 150,
+        "_deck": "8.5\" reinforced CIP topping on 7\" precast flanges (SIA). f'c ASSUMED 4.5 ksi for post-1981 construction per the BRM unknown-concrete table."
+      },
+      "roadway": {
+        "rail_to_rail_ft": 62,
+        "_rail_to_rail": "Out-to-out 62'-0\" (SIA G05, sketch)",
+        "rail_face_offset_in": 9,
+        "_rail_face": "Steel plate posts on the 12\" edge; face of rail taken 9\" inside the deck edge (assumed)",
+        "curb_to_curb_ft": 50,
+        "curb_face_offset_in": 72
+      },
+      "loads": {
+        "asphalt_in": 0,
+        "asphalt_pcf": 146.667,
+        "conc_pcf_dl": 155,
+        "sidewalks": [
+          {
+            "width_ft": 6,
+            "thk_in": 6
+          },
+          {
+            "width_ft": 6,
+            "thk_in": 6
+          }
+        ],
+        "_sidewalks": "5'-0\" sidewalk + 12\" edge each side, 6\" above the deck (sketch); pedestrian load on 5'-0\" each side",
+        "ped_width_ft": 10,
+        "rail_klf_each_side": 0.045,
+        "_rail_load": "Sum of rail_components (41.4 plf) rounded up",
+        "rail_components": [
+          {
+            "name": "rails",
+            "eq": "2 · 12.02 plf",
+            "plf": 24.04,
+            "desc": "(2) TS6x2x1/4 galvanized rails (Type \"T\"), 12.02 plf"
+          },
+          {
+            "name": "posts",
+            "eq": "9 · 30 plf · 3.58 ft / 66 ft",
+            "plf": 14.65,
+            "desc": "Galvanized steel plate posts, ~30 plf, (9) per side per span assumed, 3'-7\" high"
+          },
+          {
+            "name": "base.pl.hardware",
+            "eq": "9 · 20 lbf / 66 ft",
+            "plf": 2.73,
+            "desc": "Base plates and anchor bolts, assumed"
+          }
+        ],
+        "utilities": [
+          {
+            "desc": "6\" dia PVC pipe, south exterior",
+            "klf": 0.01,
+            "unit": 9,
+            "_note": "Assumed water-filled (~4 plf pipe + 12 plf water would be 0.016); 0.010 used, confirm contents."
+          }
+        ],
+        "diaphragm_kip_per_girder": 1.72,
+        "_diaphragm": "8\" x 30\" concrete at midspan: 0.150 kcf x (8/12) x (30/12) ft x 6.875 ft per girder"
+      },
+      "materials": {
+        "fc_ksi": 6,
+        "fci_ksi": 4,
+        "_concrete": "Precast girder concrete assumed, same as other CDOT DT ratings",
+        "strand": "1/2\" 270 ksi stress-relieved",
+        "fpu_ksi": 270,
+        "aps_in2": 0.153,
+        "gamma_star": 0.4,
+        "jacking_ratio": 0.7,
+        "_strand": "Built 1983 -> 1980s stress-relieved 1/2\" 270 ksi, 0.153 in2 per the BRM era table",
+        "strands_per_row_per_stem": 2,
+        "first_row_in": 2,
+        "row_spacing_in": 2
+      },
+      "options": {
+        "solve_with_overlay": true,
+        "lldf_interior": "table_3.23.1",
+        "round_strands": true,
+        "legal_lldf": "single",
+        "_legal_lldf": "Built <= 1985 -> single-lane LLDF for legal & permit (BRM 1.3(D))"
+      }
+    },
+    "expected": {
+      "As": 3.06,
+      "nStrands": 20,
+      "Pj": 578,
+      "gov": "G1 mnt",
+      "govRF": 1.01657691674422,
+      "crackGoverns": false,
+      "M_HS20": 456.969690909091,
+      "girders": [
+        {
+          "name": "G1",
+          "dfMulti": 0.33636363636363636,
+          "dfSingle": 0.33636363636363636,
+          "Mnow": 1092.3481250000002,
+          "Mn": 3108.281031933287
+        },
+        {
+          "name": "G2",
+          "dfMulti": 1.25,
+          "dfSingle": 0.9821428571428571,
+          "Mnow": 1092.3481250000002,
+          "Mn": 3108.281031933287
+        },
+        {
+          "name": "G3",
+          "dfMulti": 1.25,
+          "dfSingle": 0.9821428571428571,
+          "Mnow": 1092.3481250000002,
+          "Mn": 3108.281031933287
+        },
+        {
+          "name": "G4",
+          "dfMulti": 1.25,
+          "dfSingle": 0.9821428571428571,
+          "Mnow": 1092.3481250000002,
+          "Mn": 3108.281031933287
+        },
+        {
+          "name": "G5",
+          "dfMulti": 1.25,
+          "dfSingle": 0.9821428571428571,
+          "Mnow": 1092.3481250000002,
+          "Mn": 3108.281031933287
+        },
+        {
+          "name": "G6",
+          "dfMulti": 1.25,
+          "dfSingle": 0.9821428571428571,
+          "Mnow": 1092.3481250000002,
+          "Mn": 3108.281031933287
+        },
+        {
+          "name": "G7",
+          "dfMulti": 1.25,
+          "dfSingle": 0.9821428571428571,
+          "Mnow": 1092.3481250000002,
+          "Mn": 3108.281031933287
+        },
+        {
+          "name": "G8",
+          "dfMulti": 1.25,
+          "dfSingle": 0.9821428571428571,
+          "Mnow": 1092.3481250000002,
+          "Mn": 3108.281031933287
+        },
+        {
+          "name": "G9",
+          "dfMulti": 0.33636363636363636,
+          "dfSingle": 0.33636363636363636,
+          "Mnow": 1092.3481250000002,
+          "Mn": 3108.281031933287
+        },
+        {
+          "name": "G1 mnt",
+          "dfMulti": 1.3272727272727274,
+          "dfSingle": 1.3272727272727274,
+          "Mnow": 1092.3481250000002,
+          "Mn": 3108.281031933287
+        },
+        {
+          "name": "G9 mnt",
+          "dfMulti": 1.3272727272727274,
+          "dfSingle": 1.3272727272727274,
+          "Mnow": 1092.3481250000002,
+          "Mn": 3108.281031933287
+        }
+      ],
+      "ratings": [
+        {
+          "name": "HS-20",
+          "Mw": 456.969690909091,
+          "gov": "G1 mnt",
+          "inv": 1.01657691674422,
+          "opr": 1.6969014687191977,
+          "per": [
+            {
+              "g": "G1",
+              "inv": 3.824191754744725,
+              "opr": 6.508715662537881
+            },
+            {
+              "g": "G2",
+              "inv": 1.0290552358222171,
+              "opr": 1.7514362146465574
+            },
+            {
+              "g": "G3",
+              "inv": 1.0290552358222171,
+              "opr": 1.7514362146465574
+            },
+            {
+              "g": "G4",
+              "inv": 1.0290552358222171,
+              "opr": 1.7514362146465574
+            },
+            {
+              "g": "G5",
+              "inv": 1.0290552358222171,
+              "opr": 1.7514362146465574
+            },
+            {
+              "g": "G6",
+              "inv": 1.0290552358222171,
+              "opr": 1.7514362146465574
+            },
+            {
+              "g": "G7",
+              "inv": 1.0290552358222171,
+              "opr": 1.7514362146465574
+            },
+            {
+              "g": "G8",
+              "inv": 1.0290552358222171,
+              "opr": 1.7514362146465574
+            },
+            {
+              "g": "G9",
+              "inv": 3.824191754744725,
+              "opr": 6.508715662537881
+            },
+            {
+              "g": "G1 mnt",
+              "inv": 1.01657691674422,
+              "opr": 1.6969014687191977
+            },
+            {
+              "g": "G9 mnt",
+              "inv": 1.01657691674422,
+              "opr": 1.6969014687191977
+            }
+          ]
+        },
+        {
+          "name": "CO Type 3",
+          "Mw": 378.66670151515154,
+          "gov": "G1 mnt",
+          "inv": 1.226790836297855,
+          "opr": 2.0477970113587265,
+          "per": [
+            {
+              "g": "G1",
+              "inv": 4.614981241155865,
+              "opr": 7.854627229233901
+            },
+            {
+              "g": "G2",
+              "inv": 1.5805357242437938,
+              "opr": 2.690047540326057
+            },
+            {
+              "g": "G3",
+              "inv": 1.5805357242437938,
+              "opr": 2.690047540326057
+            },
+            {
+              "g": "G4",
+              "inv": 1.5805357242437938,
+              "opr": 2.690047540326057
+            },
+            {
+              "g": "G5",
+              "inv": 1.5805357242437938,
+              "opr": 2.690047540326057
+            },
+            {
+              "g": "G6",
+              "inv": 1.5805357242437938,
+              "opr": 2.690047540326057
+            },
+            {
+              "g": "G7",
+              "inv": 1.5805357242437938,
+              "opr": 2.690047540326057
+            },
+            {
+              "g": "G8",
+              "inv": 1.5805357242437938,
+              "opr": 2.690047540326057
+            },
+            {
+              "g": "G9",
+              "inv": 4.614981241155865,
+              "opr": 7.854627229233901
+            },
+            {
+              "g": "G1 mnt",
+              "inv": 1.226790836297855,
+              "opr": 2.0477970113587265
+            },
+            {
+              "g": "G9 mnt",
+              "inv": 1.226790836297855,
+              "opr": 2.0477970113587265
+            }
+          ]
+        },
+        {
+          "name": "CO Type 3S2",
+          "Mw": 419.0374545454546,
+          "gov": "G1 mnt",
+          "inv": 1.1085998026926542,
+          "opr": 1.850508901417738,
+          "per": [
+            {
+              "g": "G1",
+              "inv": 4.170366408030071,
+              "opr": 7.097899608404726
+            },
+            {
+              "g": "G2",
+              "inv": 1.428264330155092,
+              "opr": 2.4308839650602634
+            },
+            {
+              "g": "G3",
+              "inv": 1.428264330155092,
+              "opr": 2.4308839650602634
+            },
+            {
+              "g": "G4",
+              "inv": 1.428264330155092,
+              "opr": 2.4308839650602634
+            },
+            {
+              "g": "G5",
+              "inv": 1.428264330155092,
+              "opr": 2.4308839650602634
+            },
+            {
+              "g": "G6",
+              "inv": 1.428264330155092,
+              "opr": 2.4308839650602634
+            },
+            {
+              "g": "G7",
+              "inv": 1.428264330155092,
+              "opr": 2.4308839650602634
+            },
+            {
+              "g": "G8",
+              "inv": 1.428264330155092,
+              "opr": 2.4308839650602634
+            },
+            {
+              "g": "G9",
+              "inv": 4.170366408030071,
+              "opr": 7.097899608404726
+            },
+            {
+              "g": "G1 mnt",
+              "inv": 1.1085998026926542,
+              "opr": 1.850508901417738
+            },
+            {
+              "g": "G9 mnt",
+              "inv": 1.1085998026926542,
+              "opr": 1.850508901417738
+            }
+          ]
+        },
+        {
+          "name": "CO Type 3-2",
+          "Mw": 434.7316363636364,
+          "gov": "G1 mnt",
+          "inv": 1.0685784069355122,
+          "opr": 1.783703956192355,
+          "per": [
+            {
+              "g": "G1",
+              "inv": 4.0198126337441,
+              "opr": 6.841659395676506
+            },
+            {
+              "g": "G2",
+              "inv": 1.3767027730773183,
+              "opr": 2.343126986420119
+            },
+            {
+              "g": "G3",
+              "inv": 1.3767027730773183,
+              "opr": 2.343126986420119
+            },
+            {
+              "g": "G4",
+              "inv": 1.3767027730773183,
+              "opr": 2.343126986420119
+            },
+            {
+              "g": "G5",
+              "inv": 1.3767027730773183,
+              "opr": 2.343126986420119
+            },
+            {
+              "g": "G6",
+              "inv": 1.3767027730773183,
+              "opr": 2.343126986420119
+            },
+            {
+              "g": "G7",
+              "inv": 1.3767027730773183,
+              "opr": 2.343126986420119
+            },
+            {
+              "g": "G8",
+              "inv": 1.3767027730773183,
+              "opr": 2.343126986420119
+            },
+            {
+              "g": "G9",
+              "inv": 4.0198126337441,
+              "opr": 6.841659395676506
+            },
+            {
+              "g": "G1 mnt",
+              "inv": 1.0685784069355122,
+              "opr": 1.783703956192355
+            },
+            {
+              "g": "G9 mnt",
+              "inv": 1.0685784069355122,
+              "opr": 1.783703956192355
+            }
+          ]
+        },
+        {
+          "name": "SU4",
+          "Mw": 379.1111090909091,
+          "gov": "G1 mnt",
+          "inv": 1.225352748285008,
+          "opr": 2.0453965105988208,
+          "per": [
+            {
+              "g": "G1",
+              "inv": 4.609571395397278,
+              "opr": 7.84541975479773
+            },
+            {
+              "g": "G2",
+              "inv": 1.5786829638451505,
+              "opr": 2.686894170568743
+            },
+            {
+              "g": "G3",
+              "inv": 1.5786829638451505,
+              "opr": 2.686894170568743
+            },
+            {
+              "g": "G4",
+              "inv": 1.5786829638451505,
+              "opr": 2.686894170568743
+            },
+            {
+              "g": "G5",
+              "inv": 1.5786829638451505,
+              "opr": 2.686894170568743
+            },
+            {
+              "g": "G6",
+              "inv": 1.5786829638451505,
+              "opr": 2.686894170568743
+            },
+            {
+              "g": "G7",
+              "inv": 1.5786829638451505,
+              "opr": 2.686894170568743
+            },
+            {
+              "g": "G8",
+              "inv": 1.5786829638451505,
+              "opr": 2.686894170568743
+            },
+            {
+              "g": "G9",
+              "inv": 4.609571395397278,
+              "opr": 7.84541975479773
+            },
+            {
+              "g": "G1 mnt",
+              "inv": 1.225352748285008,
+              "opr": 2.0453965105988208
+            },
+            {
+              "g": "G9 mnt",
+              "inv": 1.225352748285008,
+              "opr": 2.0453965105988208
+            }
+          ]
+        },
+        {
+          "name": "SU5",
+          "Mw": 418.3186681818181,
+          "gov": "G1 mnt",
+          "inv": 1.1105046816318822,
+          "opr": 1.8536885839547574,
+          "per": [
+            {
+              "g": "G1",
+              "inv": 4.177532242914965,
+              "opr": 7.110095749378201
+            },
+            {
+              "g": "G2",
+              "inv": 1.4307184805487285,
+              "opr": 2.4350608913572946
+            },
+            {
+              "g": "G3",
+              "inv": 1.4307184805487285,
+              "opr": 2.4350608913572946
+            },
+            {
+              "g": "G4",
+              "inv": 1.4307184805487285,
+              "opr": 2.4350608913572946
+            },
+            {
+              "g": "G5",
+              "inv": 1.4307184805487285,
+              "opr": 2.4350608913572946
+            },
+            {
+              "g": "G6",
+              "inv": 1.4307184805487285,
+              "opr": 2.4350608913572946
+            },
+            {
+              "g": "G7",
+              "inv": 1.4307184805487285,
+              "opr": 2.4350608913572946
+            },
+            {
+              "g": "G8",
+              "inv": 1.4307184805487285,
+              "opr": 2.4350608913572946
+            },
+            {
+              "g": "G9",
+              "inv": 4.177532242914965,
+              "opr": 7.110095749378201
+            },
+            {
+              "g": "G1 mnt",
+              "inv": 1.1105046816318822,
+              "opr": 1.8536885839547574
+            },
+            {
+              "g": "G9 mnt",
+              "inv": 1.1105046816318822,
+              "opr": 1.8536885839547574
+            }
+          ]
+        },
+        {
+          "name": "CO SU6",
+          "Mw": 465.4218443181819,
+          "gov": "G1 mnt",
+          "inv": 0.9981156774247592,
+          "opr": 1.6660854000090208,
+          "per": [
+            {
+              "g": "G1",
+              "inv": 3.754743670664714,
+              "opr": 6.39051608951072
+            },
+            {
+              "g": "G2",
+              "inv": 1.285922129854097,
+              "opr": 2.188619725201027
+            },
+            {
+              "g": "G3",
+              "inv": 1.285922129854097,
+              "opr": 2.188619725201027
+            },
+            {
+              "g": "G4",
+              "inv": 1.285922129854097,
+              "opr": 2.188619725201027
+            },
+            {
+              "g": "G5",
+              "inv": 1.285922129854097,
+              "opr": 2.188619725201027
+            },
+            {
+              "g": "G6",
+              "inv": 1.285922129854097,
+              "opr": 2.188619725201027
+            },
+            {
+              "g": "G7",
+              "inv": 1.285922129854097,
+              "opr": 2.188619725201027
+            },
+            {
+              "g": "G8",
+              "inv": 1.285922129854097,
+              "opr": 2.188619725201027
+            },
+            {
+              "g": "G9",
+              "inv": 3.754743670664714,
+              "opr": 6.39051608951072
+            },
+            {
+              "g": "G1 mnt",
+              "inv": 0.9981156774247592,
+              "opr": 1.6660854000090208
+            },
+            {
+              "g": "G9 mnt",
+              "inv": 0.9981156774247592,
+              "opr": 1.6660854000090208
+            }
+          ]
+        },
+        {
+          "name": "CO SU7",
+          "Mw": 506.7624545454546,
+          "gov": "G1 mnt",
+          "inv": 0.9166915095290571,
+          "opr": 1.5301696735985029,
+          "per": [
+            {
+              "g": "G1",
+              "inv": 3.4484396159740442,
+              "opr": 5.869191290410235
+            },
+            {
+              "g": "G2",
+              "inv": 1.181019319718714,
+              "opr": 2.010076752682646
+            },
+            {
+              "g": "G3",
+              "inv": 1.181019319718714,
+              "opr": 2.010076752682646
+            },
+            {
+              "g": "G4",
+              "inv": 1.181019319718714,
+              "opr": 2.010076752682646
+            },
+            {
+              "g": "G5",
+              "inv": 1.181019319718714,
+              "opr": 2.010076752682646
+            },
+            {
+              "g": "G6",
+              "inv": 1.181019319718714,
+              "opr": 2.010076752682646
+            },
+            {
+              "g": "G7",
+              "inv": 1.181019319718714,
+              "opr": 2.010076752682646
+            },
+            {
+              "g": "G8",
+              "inv": 1.181019319718714,
+              "opr": 2.010076752682646
+            },
+            {
+              "g": "G9",
+              "inv": 3.4484396159740442,
+              "opr": 5.869191290410235
+            },
+            {
+              "g": "G1 mnt",
+              "inv": 0.9166915095290571,
+              "opr": 1.5301696735985029
+            },
+            {
+              "g": "G9 mnt",
+              "inv": 0.9166915095290571,
+              "opr": 1.5301696735985029
+            }
+          ]
+        },
+        {
+          "name": "NRL",
+          "Mw": 528.4909090909092,
+          "gov": "G1 mnt",
+          "inv": 0.8790025172410554,
+          "opr": 1.4672580480100692,
+          "per": [
+            {
+              "g": "G1",
+              "inv": 3.306659952105601,
+              "opr": 5.627884478923872
+            },
+            {
+              "g": "G2",
+              "inv": 1.1324627141756705,
+              "opr": 1.9274341554264898
+            },
+            {
+              "g": "G3",
+              "inv": 1.1324627141756705,
+              "opr": 1.9274341554264898
+            },
+            {
+              "g": "G4",
+              "inv": 1.1324627141756705,
+              "opr": 1.9274341554264898
+            },
+            {
+              "g": "G5",
+              "inv": 1.1324627141756705,
+              "opr": 1.9274341554264898
+            },
+            {
+              "g": "G6",
+              "inv": 1.1324627141756705,
+              "opr": 1.9274341554264898
+            },
+            {
+              "g": "G7",
+              "inv": 1.1324627141756705,
+              "opr": 1.9274341554264898
+            },
+            {
+              "g": "G8",
+              "inv": 1.1324627141756705,
+              "opr": 1.9274341554264898
+            },
+            {
+              "g": "G9",
+              "inv": 3.306659952105601,
+              "opr": 5.627884478923872
+            },
+            {
+              "g": "G1 mnt",
+              "inv": 0.8790025172410554,
+              "opr": 1.4672580480100692
+            },
+            {
+              "g": "G9 mnt",
+              "inv": 0.8790025172410554,
+              "opr": 1.4672580480100692
+            }
+          ]
+        },
+        {
+          "name": "EV2",
+          "Mw": 388.6437746212122,
+          "gov": "G1 mnt",
+          "inv": 1.1952972613100183,
+          "opr": 1.9952269669559535,
+          "per": [
+            {
+              "g": "G1",
+              "inv": 4.496507697430671,
+              "opr": 7.652987076465982
+            },
+            {
+              "g": "G2",
+              "inv": 1.5399609833184051,
+              "opr": 2.620989954121904
+            },
+            {
+              "g": "G3",
+              "inv": 1.5399609833184051,
+              "opr": 2.620989954121904
+            },
+            {
+              "g": "G4",
+              "inv": 1.5399609833184051,
+              "opr": 2.620989954121904
+            },
+            {
+              "g": "G5",
+              "inv": 1.5399609833184051,
+              "opr": 2.620989954121904
+            },
+            {
+              "g": "G6",
+              "inv": 1.5399609833184051,
+              "opr": 2.620989954121904
+            },
+            {
+              "g": "G7",
+              "inv": 1.5399609833184051,
+              "opr": 2.620989954121904
+            },
+            {
+              "g": "G8",
+              "inv": 1.5399609833184051,
+              "opr": 2.620989954121904
+            },
+            {
+              "g": "G9",
+              "inv": 4.496507697430671,
+              "opr": 7.652987076465982
+            },
+            {
+              "g": "G1 mnt",
+              "inv": 1.1952972613100183,
+              "opr": 1.9952269669559535
+            },
+            {
+              "g": "G9 mnt",
+              "inv": 1.1952972613100183,
+              "opr": 1.9952269669559535
+            }
+          ]
+        },
+        {
+          "name": "EV3",
+          "Mw": 589.7265651515152,
+          "gov": "G1 mnt",
+          "inv": 0.7877292068580463,
+          "opr": 1.3149018299092001,
+          "per": [
+            {
+              "g": "G1",
+              "inv": 2.9633050763005833,
+              "opr": 5.043499751042975
+            },
+            {
+              "g": "G2",
+              "inv": 1.0148707633214558,
+              "opr": 1.7272944601919078
+            },
+            {
+              "g": "G3",
+              "inv": 1.0148707633214558,
+              "opr": 1.7272944601919078
+            },
+            {
+              "g": "G4",
+              "inv": 1.0148707633214558,
+              "opr": 1.7272944601919078
+            },
+            {
+              "g": "G5",
+              "inv": 1.0148707633214558,
+              "opr": 1.7272944601919078
+            },
+            {
+              "g": "G6",
+              "inv": 1.0148707633214558,
+              "opr": 1.7272944601919078
+            },
+            {
+              "g": "G7",
+              "inv": 1.0148707633214558,
+              "opr": 1.7272944601919078
+            },
+            {
+              "g": "G8",
+              "inv": 1.0148707633214558,
+              "opr": 1.7272944601919078
+            },
+            {
+              "g": "G9",
+              "inv": 2.9633050763005833,
+              "opr": 5.043499751042975
+            },
+            {
+              "g": "G1 mnt",
+              "inv": 0.7877292068580463,
+              "opr": 1.3149018299092001
+            },
+            {
+              "g": "G9 mnt",
+              "inv": 0.7877292068580463,
+              "opr": 1.3149018299092001
+            }
+          ]
+        },
+        {
+          "name": "CO Permit",
+          "Mw": 726.4438068181817,
+          "gov": "G1 mnt",
+          "inv": 0.6394780092690525,
+          "opr": 1.0674363693183415,
+          "per": [
+            {
+              "g": "G1",
+              "inv": 2.405608951085979,
+              "opr": 4.0943095069561455
+            },
+            {
+              "g": "G2",
+              "inv": 0.8238713630826693,
+              "opr": 1.402216412960849
+            },
+            {
+              "g": "G3",
+              "inv": 0.8238713630826693,
+              "opr": 1.402216412960849
+            },
+            {
+              "g": "G4",
+              "inv": 0.8238713630826693,
+              "opr": 1.402216412960849
+            },
+            {
+              "g": "G5",
+              "inv": 0.8238713630826693,
+              "opr": 1.402216412960849
+            },
+            {
+              "g": "G6",
+              "inv": 0.8238713630826693,
+              "opr": 1.402216412960849
+            },
+            {
+              "g": "G7",
+              "inv": 0.8238713630826693,
+              "opr": 1.402216412960849
+            },
+            {
+              "g": "G8",
+              "inv": 0.8238713630826693,
+              "opr": 1.402216412960849
+            },
+            {
+              "g": "G9",
+              "inv": 2.405608951085979,
+              "opr": 4.0943095069561455
+            },
+            {
+              "g": "G1 mnt",
+              "inv": 0.6394780092690525,
+              "opr": 1.0674363693183415
+            },
+            {
+              "g": "G9 mnt",
+              "inv": 0.6394780092690525,
+              "opr": 1.0674363693183415
+            }
+          ]
+        },
+        {
+          "name": "CO Mod Tandem",
+          "Mw": 631.8181818181819,
+          "gov": "G1 mnt",
+          "inv": 0.7352508249970005,
+          "opr": 1.2273033001873006,
+          "per": [
+            {
+              "g": "G1",
+              "inv": 2.765890210873483,
+              "opr": 4.707502680543316
+            },
+            {
+              "g": "G2",
+              "inv": 0.9472602507322077,
+              "opr": 1.6122224056340082
+            },
+            {
+              "g": "G3",
+              "inv": 0.9472602507322077,
+              "opr": 1.6122224056340082
+            },
+            {
+              "g": "G4",
+              "inv": 0.9472602507322077,
+              "opr": 1.6122224056340082
+            },
+            {
+              "g": "G5",
+              "inv": 0.9472602507322077,
+              "opr": 1.6122224056340082
+            },
+            {
+              "g": "G6",
+              "inv": 0.9472602507322077,
+              "opr": 1.6122224056340082
+            },
+            {
+              "g": "G7",
+              "inv": 0.9472602507322077,
+              "opr": 1.6122224056340082
+            },
+            {
+              "g": "G8",
+              "inv": 0.9472602507322077,
+              "opr": 1.6122224056340082
+            },
+            {
+              "g": "G9",
+              "inv": 2.765890210873483,
+              "opr": 4.707502680543316
+            },
+            {
+              "g": "G1 mnt",
+              "inv": 0.7352508249970005,
+              "opr": 1.2273033001873006
+            },
+            {
+              "g": "G9 mnt",
+              "inv": 0.7352508249970005,
+              "opr": 1.2273033001873006
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "name": "AUR12.0-Y.0",
+    "bridge": {
+      "_sources": {
+        "sia": "AUR12.0-Y.0 SIA 2025-10-15; 2023 full SIA",
+        "sketch": "AUR12.0-Y.0 SKETCH 2025-10-15 and 2023-10-17"
+      },
+      "id": "AUR12.0-Y.0",
+      "facility": "Jewell Avenue",
+      "feature": "Coal Creek",
+      "owner": "City of Aurora",
+      "year_built": 1973,
+      "nbi_super": 5,
+      "load_induced_distress": false,
+      "within_1mi_of_interstate": false,
+      "span_ft": 60,
+      "_span": "CL brg to CL brg 60'-0\" (sketch); SIA max span 60 ft",
+      "structure_length_ft": 61.33,
+      "skew_deg": 40,
+      "review_items": [
+        "GIRDER DEPTH UNKNOWN: no sketch, SIA or prior rating gives it. Assumed 45\" overall including the 2\" precast flange and 5.5\" deck (37.5\" stems + 2\" flange + 5.5\" deck), matching the CDOT double-tee standard section for 60-66 ft spans. Field-measure before the BrR run; depth sets the strand count and force but has little effect on the legal-load ratings.",
+        "Girders: 0.02\" fillet cracks with efflorescence full length (CS3); Girder J at Abutment 2, 0.25\" longitudinal crack with rust stains and delamination; Girder A at Abutment 1, horizontal web crack up to 0.05\" with rust staining and delamination (2025). Possible strand corrosion at the exterior girders near the bearings.",
+        "Substructure: progressive settlement at the north end of both abutments (Abutment 1 crack 0.09\" in 2011 to 1.25\" in 2023) and exposed footings. Not part of this superstructure rating; flag to the owner.",
+        "40 degree skew: no LFD moment reduction applied (SSHB). Enter the skew in BrR.",
+        "Deck f'c assumed 3.0 ksi for 1973 construction; the SIA lists 1992 reconstruction, so the deck may be newer (4.5 ksi). Higher deck f'c slightly increases capacity.",
+        "Rail dead load includes the 14\" concrete curb under the posts (assumed 10\" high)."
+      ],
+      "assumption_flag": "Girder depth is assumed (45\" overall) and is the most important item to field-verify. Stem widths, deck f'c and curb height are also assumed.",
+      "units": {
+        "count": 5,
+        "spacing_in": 77.25,
+        "_spacing": "(5) DTs at 6'-5 1/4\" o.c. (sketch); 10 girder lines",
+        "flange_width_in": 77.25,
+        "depth_in": 39.5,
+        "_depth": "ASSUMED: 45\" overall standard section less the 5.5\" CIP deck",
+        "flange_thk_in": 2,
+        "stem_spacing_in": 38.625,
+        "_stem_spacing": "Stems evenly spaced across the bridge in the sketch: 77.25 / 2",
+        "stem_top_in": 7.5,
+        "stem_bot_in": 4.5,
+        "_stem_widths": "ASSUMED per CDOT 1982 standard (7.5\" top, 4.5\" bottom)",
+        "exterior_trimmed_flush": false
+      },
+      "deck": {
+        "thk_in": 5.5,
+        "fc_ksi": 3,
+        "pcf": 150,
+        "_deck": "5.5\" CIP topping on 2\" precast flange (SIA). f'c ASSUMED 3.0 ksi for 1960-1976 construction per the BRM unknown-concrete table."
+      },
+      "roadway": {
+        "rail_to_rail_ft": 32.5,
+        "_rail_to_rail": "Out-to-out 32'-6\" (sketch, SIA)",
+        "rail_face_offset_in": 15,
+        "_rail_face": "30'-0\" rail to rail within 32'-6\" O/O: (32.5 - 30)/2 x 12 = 15\""
+      },
+      "loads": {
+        "asphalt_in": 0,
+        "asphalt_pcf": 146.667,
+        "conc_pcf_dl": 155,
+        "rail_klf_each_side": 0.18,
+        "_rail_load": "Sum of rail_components (180.1 plf)",
+        "rail_components": [
+          {
+            "name": "curb",
+            "eq": "14 in · 10 in · 150 pcf",
+            "plf": 145.83,
+            "desc": "14\" wide concrete curb under the posts (sketch), 10\" high assumed"
+          },
+          {
+            "name": "rails",
+            "eq": "2 · 11.97 plf",
+            "plf": 23.94,
+            "desc": "(2) TS5x5 galvanized rails, 3/16\" wall assumed (11.97 plf)"
+          },
+          {
+            "name": "posts",
+            "eq": "7 · 24 plf · 2.75 ft / 61.33 ft",
+            "plf": 7.53,
+            "desc": "(7) W8x24 galvanized posts per side at 10'-0\" (sketch), 2'-9\" high"
+          },
+          {
+            "name": "base.pl.hardware",
+            "eq": "7 · 25 lbf / 61.33 ft",
+            "plf": 2.85,
+            "desc": "Base plates and anchor bolts, assumed"
+          }
+        ],
+        "utilities": []
+      },
+      "materials": {
+        "fc_ksi": 6,
+        "fci_ksi": 4,
+        "_concrete": "Precast girder concrete assumed, same as other CDOT DT ratings",
+        "strand": "1/2\" 250 ksi stress-relieved",
+        "fpu_ksi": 250,
+        "aps_in2": 0.144,
+        "gamma_star": 0.4,
+        "jacking_ratio": 0.7,
+        "_strand": "Built 1973, pre-1980 era -> stress-relieved 250 ksi per the BRM era table",
+        "strands_per_row_per_stem": 2,
+        "first_row_in": 2,
+        "row_spacing_in": 2
+      },
+      "options": {
+        "solve_with_overlay": true,
+        "lldf_interior": "table_3.23.1",
+        "round_strands": true,
+        "legal_lldf": "single",
+        "_legal_lldf": "Built <= 1985 -> single-lane LLDF for legal & permit (BRM 1.3(D))"
+      }
+    },
+    "expected": {
+      "As": 2.7359999999999998,
+      "nStrands": 19,
+      "Pj": 478,
+      "gov": "G2",
+      "govRF": 1.0625702178186094,
+      "crackGoverns": false,
+      "M_HS20": 403.26666,
+      "girders": [
+        {
+          "name": "G1",
+          "dfMulti": 1.058252427184466,
+          "dfSingle": 1.058252427184466,
+          "Mnow": 524.36484375,
+          "Mn": 2064.159137068156
+        },
+        {
+          "name": "G2",
+          "dfMulti": 1.1704545454545454,
+          "dfSingle": 0.9196428571428571,
+          "Mnow": 524.36484375,
+          "Mn": 2064.159137068156
+        },
+        {
+          "name": "G3",
+          "dfMulti": 1.1704545454545454,
+          "dfSingle": 0.9196428571428571,
+          "Mnow": 524.36484375,
+          "Mn": 2064.159137068156
+        },
+        {
+          "name": "G4",
+          "dfMulti": 1.1704545454545454,
+          "dfSingle": 0.9196428571428571,
+          "Mnow": 524.36484375,
+          "Mn": 2064.159137068156
+        },
+        {
+          "name": "G5",
+          "dfMulti": 1.058252427184466,
+          "dfSingle": 1.058252427184466,
+          "Mnow": 524.36484375,
+          "Mn": 2064.159137068156
+        }
+      ],
+      "ratings": [
+        {
+          "name": "HS-20",
+          "Mw": 403.26666,
+          "gov": "G2",
+          "inv": 1.0625702178186094,
+          "opr": 1.7736749020510632,
+          "per": [
+            {
+              "g": "G1",
+              "inv": 1.1752301335318627,
+              "opr": 1.9617302998185708
+            },
+            {
+              "g": "G2",
+              "inv": 1.0625702178186094,
+              "opr": 1.7736749020510632
+            },
+            {
+              "g": "G3",
+              "inv": 1.0625702178186094,
+              "opr": 1.7736749020510632
+            },
+            {
+              "g": "G4",
+              "inv": 1.0625702178186094,
+              "opr": 1.7736749020510632
+            },
+            {
+              "g": "G5",
+              "inv": 1.1752301335318627,
+              "opr": 1.9617302998185708
+            }
+          ]
+        },
+        {
+          "name": "CO Type 3",
+          "Mw": 338.20837166666666,
+          "gov": "G1",
+          "inv": 1.4012992296590696,
+          "opr": 2.339091791046293,
+          "per": [
+            {
+              "g": "G1",
+              "inv": 1.4012992296590696,
+              "opr": 2.339091791046293
+            },
+            {
+              "g": "G2",
+              "inv": 1.6125045711827621,
+              "opr": 2.691642245743534
+            },
+            {
+              "g": "G3",
+              "inv": 1.6125045711827621,
+              "opr": 2.691642245743534
+            },
+            {
+              "g": "G4",
+              "inv": 1.6125045711827621,
+              "opr": 2.691642245743534
+            },
+            {
+              "g": "G5",
+              "inv": 1.4012992296590696,
+              "opr": 2.339091791046293
+            }
+          ]
+        },
+        {
+          "name": "CO Type 3S2",
+          "Mw": 356.1412,
+          "gov": "G1",
+          "inv": 1.3307394108874464,
+          "opr": 2.2213111704813526,
+          "per": [
+            {
+              "g": "G1",
+              "inv": 1.3307394108874464,
+              "opr": 2.2213111704813526
+            },
+            {
+              "g": "G2",
+              "inv": 1.531309899907055,
+              "opr": 2.5561096021525453
+            },
+            {
+              "g": "G3",
+              "inv": 1.531309899907055,
+              "opr": 2.5561096021525453
+            },
+            {
+              "g": "G4",
+              "inv": 1.531309899907055,
+              "opr": 2.5561096021525453
+            },
+            {
+              "g": "G5",
+              "inv": 1.3307394108874464,
+              "opr": 2.2213111704813526
+            }
+          ]
+        },
+        {
+          "name": "CO Type 3-2",
+          "Mw": 373.78113625000003,
+          "gov": "G1",
+          "inv": 1.2679375300624156,
+          "opr": 2.116480338642648,
+          "per": [
+            {
+              "g": "G1",
+              "inv": 1.2679375300624156,
+              "opr": 2.116480338642648
+            },
+            {
+              "g": "G2",
+              "inv": 1.4590424514093667,
+              "opr": 2.4354785535064045
+            },
+            {
+              "g": "G3",
+              "inv": 1.4590424514093667,
+              "opr": 2.4354785535064045
+            },
+            {
+              "g": "G4",
+              "inv": 1.4590424514093667,
+              "opr": 2.4354785535064045
+            },
+            {
+              "g": "G5",
+              "inv": 1.2679375300624156,
+              "opr": 2.116480338642648
+            }
+          ]
+        },
+        {
+          "name": "SU4",
+          "Mw": 338.67222000000004,
+          "gov": "G1",
+          "inv": 1.3993799983971176,
+          "opr": 2.335888151170573,
+          "per": [
+            {
+              "g": "G1",
+              "inv": 1.3993799983971176,
+              "opr": 2.335888151170573
+            },
+            {
+              "g": "G2",
+              "inv": 1.6102960713009722,
+              "opr": 2.6879557497870072
+            },
+            {
+              "g": "G3",
+              "inv": 1.6102960713009722,
+              "opr": 2.6879557497870072
+            },
+            {
+              "g": "G4",
+              "inv": 1.6102960713009722,
+              "opr": 2.6879557497870072
+            },
+            {
+              "g": "G5",
+              "inv": 1.3993799983971176,
+              "opr": 2.335888151170573
+            }
+          ]
+        },
+        {
+          "name": "SU5",
+          "Mw": 372.000535,
+          "gov": "G1",
+          "inv": 1.274006583567812,
+          "opr": 2.126610989493963,
+          "per": [
+            {
+              "g": "G1",
+              "inv": 1.274006583567812,
+              "opr": 2.126610989493963
+            },
+            {
+              "g": "G2",
+              "inv": 1.4660262392493026,
+              "opr": 2.4471361070546047
+            },
+            {
+              "g": "G3",
+              "inv": 1.4660262392493026,
+              "opr": 2.4471361070546047
+            },
+            {
+              "g": "G4",
+              "inv": 1.4660262392493026,
+              "opr": 2.4471361070546047
+            },
+            {
+              "g": "G5",
+              "inv": 1.274006583567812,
+              "opr": 2.126610989493963
+            }
+          ]
+        },
+        {
+          "name": "CO SU6",
+          "Mw": 413.37652875000003,
+          "gov": "G1",
+          "inv": 1.1464877604779786,
+          "opr": 1.9137526463363181,
+          "per": [
+            {
+              "g": "G1",
+              "inv": 1.1464877604779786,
+              "opr": 1.9137526463363181
+            },
+            {
+              "g": "G2",
+              "inv": 1.3192876406744427,
+              "opr": 2.202195523279647
+            },
+            {
+              "g": "G3",
+              "inv": 1.3192876406744427,
+              "opr": 2.202195523279647
+            },
+            {
+              "g": "G4",
+              "inv": 1.3192876406744427,
+              "opr": 2.202195523279647
+            },
+            {
+              "g": "G5",
+              "inv": 1.1464877604779786,
+              "opr": 1.9137526463363181
+            }
+          ]
+        },
+        {
+          "name": "CO SU7",
+          "Mw": 448.6512,
+          "gov": "G1",
+          "inv": 1.056346513016678,
+          "opr": 1.7632861024970703,
+          "per": [
+            {
+              "g": "G1",
+              "inv": 1.056346513016678,
+              "opr": 1.7632861024970703
+            },
+            {
+              "g": "G2",
+              "inv": 1.2155602065140547,
+              "opr": 2.029050498565768
+            },
+            {
+              "g": "G3",
+              "inv": 1.2155602065140547,
+              "opr": 2.029050498565768
+            },
+            {
+              "g": "G4",
+              "inv": 1.2155602065140547,
+              "opr": 2.029050498565768
+            },
+            {
+              "g": "G5",
+              "inv": 1.056346513016678,
+              "opr": 1.7632861024970703
+            }
+          ]
+        },
+        {
+          "name": "NRL",
+          "Mw": 468.53999999999996,
+          "gov": "G1",
+          "inv": 1.0115062335782394,
+          "opr": 1.6884373283575227,
+          "per": [
+            {
+              "g": "G1",
+              "inv": 1.0115062335782394,
+              "opr": 1.6884373283575227
+            },
+            {
+              "g": "G2",
+              "inv": 1.1639615514679187,
+              "opr": 1.9429204359118333
+            },
+            {
+              "g": "G3",
+              "inv": 1.1639615514679187,
+              "opr": 1.9429204359118333
+            },
+            {
+              "g": "G4",
+              "inv": 1.1639615514679187,
+              "opr": 1.9429204359118333
+            },
+            {
+              "g": "G5",
+              "inv": 1.0115062335782394,
+              "opr": 1.6884373283575227
+            }
+          ]
+        },
+        {
+          "name": "EV2",
+          "Mw": 345.9456520833334,
+          "gov": "G1",
+          "inv": 1.3699583383305103,
+          "opr": 2.2867766109055436,
+          "per": [
+            {
+              "g": "G1",
+              "inv": 1.3699583383305103,
+              "opr": 2.2867766109055436
+            },
+            {
+              "g": "G2",
+              "inv": 1.5764399466810135,
+              "opr": 2.6314420648444603
+            },
+            {
+              "g": "G3",
+              "inv": 1.5764399466810135,
+              "opr": 2.6314420648444603
+            },
+            {
+              "g": "G4",
+              "inv": 1.5764399466810135,
+              "opr": 2.6314420648444603
+            },
+            {
+              "g": "G5",
+              "inv": 1.3699583383305103,
+              "opr": 2.2867766109055436
+            }
+          ]
+        },
+        {
+          "name": "EV3",
+          "Mw": 525.3492216666667,
+          "gov": "G1",
+          "inv": 0.9021258833832572,
+          "opr": 1.5058562822628214,
+          "per": [
+            {
+              "g": "G1",
+              "inv": 0.9021258833832572,
+              "opr": 1.5058562822628214
+            },
+            {
+              "g": "G2",
+              "inv": 1.0380952761186542,
+              "opr": 1.7328205762903688
+            },
+            {
+              "g": "G3",
+              "inv": 1.0380952761186542,
+              "opr": 1.7328205762903688
+            },
+            {
+              "g": "G4",
+              "inv": 1.0380952761186542,
+              "opr": 1.7328205762903688
+            },
+            {
+              "g": "G5",
+              "inv": 0.9021258833832572,
+              "opr": 1.5058562822628214
+            }
+          ]
+        },
+        {
+          "name": "CO Permit",
+          "Mw": 631.2131875,
+          "gov": "G1",
+          "inv": 0.7508257749775678,
+          "opr": 1.2533014859240938,
+          "per": [
+            {
+              "g": "G1",
+              "inv": 0.7508257749775678,
+              "opr": 1.2533014859240938
+            },
+            {
+              "g": "G2",
+              "inv": 0.8639910510817369,
+              "opr": 1.4422004468056684
+            },
+            {
+              "g": "G3",
+              "inv": 0.8639910510817369,
+              "opr": 1.4422004468056684
+            },
+            {
+              "g": "G4",
+              "inv": 0.8639910510817369,
+              "opr": 1.4422004468056684
+            },
+            {
+              "g": "G5",
+              "inv": 0.7508257749775678,
+              "opr": 1.2533014859240938
+            }
+          ]
+        },
+        {
+          "name": "CO Mod Tandem",
+          "Mw": 557.5,
+          "gov": "G1",
+          "inv": 0.8501006828354231,
+          "opr": 1.4190142167329753,
+          "per": [
+            {
+              "g": "G1",
+              "inv": 0.8501006828354231,
+              "opr": 1.4190142167329753
+            },
+            {
+              "g": "G2",
+              "inv": 0.9782287808516208,
+              "opr": 1.6328895803446284
+            },
+            {
+              "g": "G3",
+              "inv": 0.9782287808516208,
+              "opr": 1.6328895803446284
+            },
+            {
+              "g": "G4",
+              "inv": 0.9782287808516208,
+              "opr": 1.6328895803446284
+            },
+            {
+              "g": "G5",
+              "inv": 0.8501006828354231,
+              "opr": 1.4190142167329753
+            }
+          ]
+        }
+      ]
+    }
+  }
+]
