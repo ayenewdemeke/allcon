@@ -19,8 +19,8 @@ const kindOf = (sec: number) => (sec <= 3 ? "girder" : sec === 20 ? "diaphragm" 
 
 type State = { renderer: THREE.WebGLRenderer; scene: THREE.Scene; camera: THREE.PerspectiveCamera; controls: OrbitControls; group: THREE.Group; render: () => void; framed: string; box: THREE.Box3; pickable: THREE.LineSegments[] };
 
-export const BridgeView = forwardRef<BridgeViewHandle, { model: Model; displacements?: Map<number, Dof6<number>> | null; overlay?: Overlay | null; selected?: Set<number>; onPick?: (elementId: number | null) => void; className?: string }>(function BridgeView(
-  { model, displacements, overlay, selected, onPick, className },
+export const BridgeView = forwardRef<BridgeViewHandle, { model: Model; displacements?: Map<number, Dof6<number>> | null; overlay?: Overlay | null; selected?: Set<number>; onPick?: (elementId: number | null) => void; /** An imported model: its section numbers say nothing of what a member is, so all are drawn alike. */ plain?: boolean; className?: string }>(function BridgeView(
+  { model, displacements, overlay, selected, onPick, plain, className },
   ref,
 ) {
   const host = useRef<HTMLDivElement>(null);
@@ -42,7 +42,8 @@ export const BridgeView = forwardRef<BridgeViewHandle, { model: Model; displacem
     const tan = Math.tan((s.camera.fov * Math.PI) / 360);
     const distance = Math.max((0.6 * across) / (tan * Math.max(s.camera.aspect, 0.2)), (0.45 * (name === "top" ? size.y : Math.max(size.z, 0.25 * across))) / tan);
     s.controls.target.copy(c);
-    s.camera.position.copy(c).addScaledVector(dir, distance);
+    // From a corner the near end looms larger: stand back a little more.
+    s.camera.position.copy(c).addScaledVector(dir, name === "iso" ? 1.3 * distance : distance);
     s.camera.near = span / 1000;
     s.camera.far = span * 100;
     s.camera.updateProjectionMatrix();
@@ -137,7 +138,7 @@ export const BridgeView = forwardRef<BridgeViewHandle, { model: Model; displacem
     const picked: [number, number][] = [];
     for (const e of model.elements) {
       if (!at.has(e.n1) || !at.has(e.n2)) continue;
-      const k = kindOf(e.sec);
+      const k = plain ? "girder" : kindOf(e.sec);
       const cur = byKind.get(k) ?? byKind.set(k, { pairs: [], ids: [] }).get(k)!;
       cur.pairs.push([e.n1, e.n2]);
       cur.ids.push(e.id);
@@ -176,7 +177,7 @@ export const BridgeView = forwardRef<BridgeViewHandle, { model: Model; displacem
         const u = displacements.get(id);
         return u ? [u[0] * factor, u[1] * factor, u[2] * factor] : [0, 0, 0];
       };
-      lines(segments(model.elements.filter((e) => kindOf(e.sec) !== "strip" && at.has(e.n1) && at.has(e.n2)).map((e) => [e.n1, e.n2]), moved), COLORS.deflected);
+      lines(segments(model.elements.filter((e) => (plain || kindOf(e.sec) !== "strip") && at.has(e.n1) && at.has(e.n2)).map((e) => [e.n1, e.n2]), moved), COLORS.deflected);
     }
     if (overlay) {
       if (overlay.hatch.length) lines(overlay.hatch, overlay.color, 0.35);
@@ -189,7 +190,7 @@ export const BridgeView = forwardRef<BridgeViewHandle, { model: Model; displacem
       look("iso");
     }
     s.render();
-  }, [model, displacements, overlay, selected]);
+  }, [model, displacements, overlay, selected, plain]);
 
   return <div ref={host} className={className} />;
 });

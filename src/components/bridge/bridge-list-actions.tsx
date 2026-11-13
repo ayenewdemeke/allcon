@@ -1,11 +1,13 @@
 "use client";
 
-import { useTransition } from "react";
+import { useRef, useState, useTransition } from "react";
 import { unstable_rethrow, useRouter } from "next/navigation";
-import { Loader2, Pencil, Plus, Trash2 } from "lucide-react";
+import { FileUp, Loader2, Pencil, Plus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { createBridge, deleteBridge, renameBridge } from "@/app/actions/bridge";
 import { Button } from "@/components/ui/button";
+import { parseMct } from "@/lib/bridge/mct";
+import { analyze } from "@/lib/bridge/solver";
 
 export function NewBridgeButton() {
   const [pending, start] = useTransition();
@@ -26,6 +28,41 @@ export function NewBridgeButton() {
       {pending ? <Loader2 className="animate-spin" /> : <Plus />}
       New bridge
     </Button>
+  );
+}
+
+/** Import a midas Civil text model (MCT): read in the browser, checked by analyzing it, then kept as a bridge. */
+export function ImportBridgeButton() {
+  const router = useRouter();
+  const input = useRef<HTMLInputElement>(null);
+  const [busy, setBusy] = useState(false);
+  const take = async (file: File) => {
+    setBusy(true);
+    try {
+      const { model, report } = parseMct(await file.text());
+      if (model.nodes.length < 2 || !model.elements.length) throw new Error("No beam or truss members were found in the file. Export it from midas Civil as an MCT file (File > Export > midas Civil MCT File).");
+      if (!model.loadCases.length) model.loadCases.push({ name: "No load", type: "USER" });
+      analyze(model); // an unstable or incomplete model is refused here, with the reason
+      const res = await fetch("/api/bridges/import", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: file.name.replace(/\.[^.]+$/, "").slice(0, 200) || "Imported model", source: file.name.slice(0, 200), model, report }) });
+      if (!res.ok) throw new Error((await res.text()) || "Could not keep the model");
+      const { id } = (await res.json()) as { id: string };
+      toast.success(`Imported: ${model.nodes.length} nodes, ${model.elements.length} members${report.warnings.length ? `, ${report.warnings.length} notes to read` : ""}`);
+      router.push(`/bridges/${id}`);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not read the file");
+    } finally {
+      setBusy(false);
+      if (input.current) input.current.value = "";
+    }
+  };
+  return (
+    <>
+      <input ref={input} type="file" accept=".mct,.txt" className="hidden" onChange={(e) => e.target.files?.[0] && void take(e.target.files[0])} />
+      <Button variant="outline" disabled={busy} onClick={() => input.current?.click()} title="A midas Civil text model: File > Export > midas Civil MCT File">
+        {busy ? <Loader2 className="animate-spin" /> : <FileUp />}
+        Import MCT
+      </Button>
+    </>
   );
 }
 

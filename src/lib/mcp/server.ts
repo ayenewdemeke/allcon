@@ -18,6 +18,7 @@ import { searchManuals } from "@/lib/tools/library";
 import { createModel, editModel, getModel, ifcHelp, ifcQuery, listModels } from "@/lib/tools/models3d";
 import { listElementGroups, mapGroups } from "@/lib/tools/mapping";
 import { getProject, listProjects, takeoffSummary } from "@/lib/tools/projects";
+import { BRIDGE_DEFINITION_GUIDE, createBridge, editBridge, getBridge, listBridges } from "@/lib/tools/bridges";
 import { createGirderDesignFromPlans, getDesign, listDesigns, planInputsGuide } from "@/lib/tools/designs";
 
 // allcon as an MCP server: the user's own AI app (Claude, ChatGPT, Gemini...) does the thinking and
@@ -39,7 +40,7 @@ To measure SOV / BoQ items from the models, use list_element_groups and map_grou
 To draft 2D drawings (plans, details, sheets), use the drafting tools: list_drawings / create_drawing, get_drawing to read one (with a picture), run_commands to draw with AutoCAD command scripts, add_objects and edit_objects for direct edits, and publish_layouts to put its layouts into a project's Sheets. The draft_drawing prompt has the procedure.
 
 To write engineering calculations (like Mathcad: math with units, worked out live), use the Calcs tools: list_calcs / create_calc (optionally from a template), get_calc to read a worksheet and what it works out to, edit_calc to add math, text, steel sections, tables, plots and solve blocks or change them, and publish_calc to put it in a project's Sheets. The write_calc prompt has the procedure.
-To check bridge designs (AASHTO LRFD design checks such as the prestressed girder check), use list_designs and get_design; to start a girder check from a project's uploaded plans, read the sheets with read_sheet and call create_girder_design_from_plans with each value and the sheet lines it came from. The engineer confirms every value in allcon before the results count. The girder_check_from_plans prompt has the procedure.
+To model and analyze a girder bridge (the Bridge section: an analysis model with allcon's own solver, permanent loads and HL-93), use list_bridges, get_bridge, create_bridge and edit_bridge; its results are not yet verified, so say they need an independent check.\n\nTo check bridge designs (AASHTO LRFD design checks such as the prestressed girder check), use list_designs and get_design; to start a girder check from a project's uploaded plans, read the sheets with read_sheet and call create_girder_design_from_plans with each value and the sheet lines it came from. The engineer confirms every value in allcon before the results count. The girder_check_from_plans prompt has the procedure.
 
 Models are built to a target level of development (LOD 100, 200, 300 or 350): check the drawings support it and ask the user before modelling what they don't. Keep a model's description current: ifc_edit takes a new description.`;
 
@@ -605,6 +606,49 @@ Edits in one request build one revision of the model; the user can undo the whol
   // --- skills (ready-made prompts) ------------------------------------------------
 
   const user = (text: string) => ({ messages: [{ role: "user" as const, content: { type: "text" as const, text } }] });
+
+  server.registerTool(
+    "list_bridges",
+    {
+      title: "List bridges",
+      description: "The bridges modeled in the Bridge section (analysis models of girder bridges), optionally in one project, with links.",
+      inputSchema: z.object({ project_id: uuid.optional() }),
+      annotations: readOnly,
+    },
+    async ({ project_id }) => out(await run("list_bridges", "Listed bridges", () => listBridges(ctx, project_id), () => ({ projectId: project_id ?? null }))),
+  );
+
+  server.registerTool(
+    "get_bridge",
+    {
+      title: "Read a bridge and its analysis",
+      description:
+        "A bridge's definition and its analysis results: equilibrium, load cases, HL-93 lanes, each girder's, pier cap's and column's governing Strength I moments, shears and axial force (envelopes with live load), the bearing reactions at Service I, and the designs started from it. Results are marked not verified: tell the user to check them independently.",
+      inputSchema: z.object({ bridge_id: uuid }),
+      annotations: readOnly,
+    },
+    async ({ bridge_id }) => out(await run("get_bridge", "Read a bridge", () => getBridge(ctx, bridge_id), (v) => ({ projectId: v.projectId, summary: `Read bridge ${v.name}` }))),
+  );
+
+  server.registerTool(
+    "create_bridge",
+    {
+      title: "Model a bridge",
+      description: `Starts a precast prestressed girder bridge in the Bridge section from the wizard's inputs; allcon generates the analysis model (a grillage with its piers), analyzes it for the permanent loads and HL-93, and returns the results. ${BRIDGE_DEFINITION_GUIDE}`,
+      inputSchema: z.object({ name: z.string().min(1).max(200), project_id: uuid.optional(), definition: z.record(z.string(), z.unknown()).optional() }),
+    },
+    async (a) => out(await run("create_bridge", "Modeled a bridge", () => createBridge(ctx, { name: a.name, projectId: a.project_id, definition: a.definition }), (v) => ({ projectId: v.projectId, summary: `Modeled bridge ${v.name}` }))),
+  );
+
+  server.registerTool(
+    "edit_bridge",
+    {
+      title: "Change a bridge",
+      description: `Changes a bridge's name or definition (only the fields given), then returns it re-analyzed. ${BRIDGE_DEFINITION_GUIDE}`,
+      inputSchema: z.object({ bridge_id: uuid, name: z.string().min(1).max(200).optional(), definition: z.record(z.string(), z.unknown()).optional() }),
+    },
+    async (a) => out(await run("edit_bridge", "Changed a bridge", () => editBridge(ctx, { bridgeId: a.bridge_id, name: a.name, definition: a.definition }), (v) => ({ projectId: v.projectId, summary: `Changed bridge ${v.name}` }))),
+  );
 
   server.registerTool(
     "list_designs",

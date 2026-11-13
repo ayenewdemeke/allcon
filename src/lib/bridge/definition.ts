@@ -29,7 +29,11 @@ export type BridgeDefinition = {
   piers: { model: boolean; capWidth: number; capDepth: number; columns: number; columnDiameter: number; columnHeight: number; columnSpacing: number; fc: number; bearingHeight: number }; // ft; ksi; in
   // Loads
   loads: { barrierWeight: number; barrierWidth: number; wearingSurface: number }; // klf each side; ft; psf
+  /** The designs started from this bridge (Design tab): which part each is for. */
+  designs: DesignLink[];
 };
+
+export type DesignLink = { id: string; target: string; kind: string };
 
 export const BRIDGE_DEFAULTS: BridgeDefinition = {
   spans: [120],
@@ -45,6 +49,7 @@ export const BRIDGE_DEFAULTS: BridgeDefinition = {
   diaphragms: { perSpan: 2, weight: 2.5, thickness: 0.75, atSupports: true },
   piers: { model: true, capWidth: 4, capDepth: 4, columns: 3, columnDiameter: 3.5, columnHeight: 20, columnSpacing: 16, fc: 4, bearingHeight: 3 },
   loads: { barrierWeight: 0.4, barrierWidth: 1.5, wearingSurface: 25 },
+  designs: [],
 };
 
 const num = (v: unknown, d: number, lo = -Infinity, hi = Infinity) => (typeof v === "number" && Number.isFinite(v) ? Math.min(Math.max(v, lo), hi) : d);
@@ -98,6 +103,11 @@ export function bridgeDefinition(saved: unknown): BridgeDefinition {
       bearingHeight: num(piers.bearingHeight, d.piers.bearingHeight, 0, 24),
     },
     loads: { barrierWeight: num(loads.barrierWeight, d.loads.barrierWeight, 0, 5), barrierWidth: num(loads.barrierWidth, d.loads.barrierWidth, 0, 5), wearingSurface: num(loads.wearingSurface, d.loads.wearingSurface, 0, 200) },
+    designs: (Array.isArray(s.designs) ? s.designs : [])
+      .map(obj)
+      .filter((l) => typeof l.id === "string" && /^[0-9a-f-]{36}$/i.test(l.id) && typeof l.target === "string" && typeof l.kind === "string")
+      .slice(0, 100)
+      .map((l) => ({ id: l.id as string, target: (l.target as string).slice(0, 40), kind: (l.kind as string).slice(0, 40) })),
   };
 }
 

@@ -45,6 +45,35 @@ to what midas doesn't have. Standard bridges only (see Scope).
 - Not yet: the FHWA examples and midas's tutorial as fixtures (benchmarks 3 to 5), the fatigue
   truck and permit vehicles, live-load deflection, temperature and wind.
 
+## Status (2026-11-13): steps 3 and 4 built
+
+- **Design from the model** (`design-links.ts`, the workspace's Design tab): the girders, the deck,
+  each line's bearings, each pier's columns and the expansion abutments' joints each start a design
+  in the Design section with the bridge's values filled in: geometry and loads for the girder check
+  and the deck; the largest bearing reaction (dead and live) and the expansion length for a
+  bearing; Strength I cases at the top of the hardest-worked column with their concurrent forces
+  for a pier column; the expansion length and skew for a joint. The tab lists each part's design
+  with whether its checks pass. Links are kept in the bridge's definition (`designs`).
+  - As built, differing from section 8: a design is filled in once, not fed live ("Start again"
+    makes a new one); the girder check keeps its own line-girder analysis with distribution
+    factors; pier caps (strut-and-tie) and Camber and Haunch aren't linked yet.
+- **Calc package** (`report.ts`): the analysis as a Calcs worksheet: the bridge, the model, section
+  properties, load cases with equilibrium, the live load's basis, girder moment and shear tables
+  (an exterior and an interior girder in each span), bearing reactions, pier column forces.
+- **MCP** (`tools/bridges.ts`): `list_bridges`, `get_bridge` (definition and results),
+  `create_bridge`, `edit_bridge`.
+- **Import** (`mct.ts`): a midas MCT file is read in the browser into the analysis model (units,
+  nodes, beams and trusses, materials, sections by value or user dimensions, supports, springs,
+  elastic links, end releases, load cases, nodal and beam loads, self-weight), with a report of
+  what was read, what wasn't and what was assumed. Kept as a bridge whose model is a file in
+  storage (`imported.ts`, `/api/bridges/import`, `/api/bridges/[id]/model`).
+- **Imported workspace and compare** (`imported-workspace.tsx`, `compare.ts`): the model analyzed
+  as it is, results on the model and in tables, and another program's beam force table pasted in
+  beside allcon's, with the differences.
+- Not yet: design from an imported model (its members need naming), importing result tables as
+  the source of design forces, SAP2000/CSiBridge files, reading a real midas-written file end to
+  end (the reader follows midas's documented format and is tested on a file laid out that way).
+
 ## 1. What is taken from midas Civil
 
 Read from midas's manual (the PS Composite Bridge Wizard, Traffic Line Lanes, the MCT file

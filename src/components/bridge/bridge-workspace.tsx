@@ -1,9 +1,9 @@
 "use client";
 
 import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
-import { Activity, AlertCircle, Anchor, ArrowDownUp, ArrowLeft, Box, Check, ChevronDown, ChevronRight, ClipboardCheck, Columns3, EyeOff, Grid3x3, Layers, Loader2, MoveVertical, PanelBottom, Play, Ruler, Spline, Table2, TriangleAlert, Truck, Weight } from "lucide-react";
+import { Activity, AlertCircle, Anchor, ArrowDownUp, ArrowLeft, Box, Check, ChevronDown, ChevronRight, ClipboardCheck, Columns3, EyeOff, FileText, Grid3x3, Layers, Loader2, MoveVertical, PanelBottom, PencilRuler, Play, Ruler, Spline, Table2, TriangleAlert, Truck, Weight } from "lucide-react";
 import { toast } from "sonner";
-import { renameBridge, saveBridgeDefinition, setBridgeProject } from "@/app/actions/bridge";
+import { createBridgeCalc, renameBridge, saveBridgeDefinition, setBridgeProject } from "@/app/actions/bridge";
 import { DesignErrorCard, fmt } from "@/components/design/design-kit";
 import { LinkButton } from "@/components/ui/link-button";
 import { analyzeBridge, type BridgeAnalysis, type Selection } from "@/lib/bridge/bridge";
@@ -11,6 +11,7 @@ import type { BridgeDefinition } from "@/lib/bridge/definition";
 import type { Member } from "@/lib/bridge/generate";
 import { movingLoadSteps, type LiveLoad } from "@/lib/bridge/moving";
 import { cn } from "@/lib/utils";
+import { DesignPanel } from "./bridge-design";
 import { BridgeForm, FORM_TITLES, type FormKey } from "./bridge-forms";
 import { ChecksPanel, MemberPanel, ReactionsPanel } from "./bridge-results";
 import { BridgeView, type BridgeViewHandle, type Overlay, type ViewName } from "./bridge-view";
@@ -21,9 +22,9 @@ import { BridgeView, type BridgeViewHandle, type Overlay, type ViewName } from "
 // the right, the result tables below, and a status bar. The model is re-analyzed as its inputs
 // change; the moving load analysis follows a moment later.
 
-type Tab = "structure" | "boundary" | "load" | "analysis" | "results" | "view";
+type Tab = "structure" | "boundary" | "load" | "analysis" | "results" | "design" | "view";
 type Show = "none" | "deformed" | "My" | "Vz" | "N";
-type Table = "member" | "reactions" | "checks";
+type Table = "member" | "reactions" | "checks" | "design";
 type Save = "saved" | "saving" | "unsaved" | "error";
 
 const SHOW: Record<Exclude<Show, "none" | "deformed">, { label: string; unit: string; color: number }> = {
@@ -66,7 +67,20 @@ export function BridgeWorkspace({ bridge, projects }: { bridge: { id: string; na
   const [selKey, setSelKey] = useState("combination:Strength I");
   const [show, setShow] = useState<Show>("My");
   const [table, setTable] = useState<Table | null>(null);
+  const [making, setMaking] = useState(false);
   const view = useRef<BridgeViewHandle>(null);
+  const makeCalc = async () => {
+    setMaking(true);
+    try {
+      await saveBridgeDefinition(bridge.id, def);
+      const { calcId } = await createBridgeCalc(bridge.id);
+      toast.success("Analysis calc package created in Calcs", { action: { label: "Open", onClick: () => window.open(`/calcs/${calcId}`, "_blank") } });
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not create the calc package");
+    } finally {
+      setMaking(false);
+    }
+  };
   const setDef = (update: (d: BridgeDefinition) => BridgeDefinition) => setDefState(update);
 
   const first = useRef(true);
@@ -87,13 +101,15 @@ export function BridgeWorkspace({ bridge, projects }: { bridge: { id: string; na
 
   // The static analysis follows the inputs a beat behind, so typing stays quick.
   const current = useDeferredValue(def);
+  // The designs started from the bridge don't change its model: analyzed again only when the rest does.
+  const modelKey = JSON.stringify({ ...current, designs: [] });
   const outcome = useMemo((): { analysis: BridgeAnalysis | null; error: string | null } => {
     try {
-      return { analysis: analyzeBridge(current), error: null };
+      return { analysis: analyzeBridge(JSON.parse(modelKey) as BridgeDefinition), error: null };
     } catch (e) {
       return { analysis: null, error: e instanceof Error ? e.message : "The bridge could not be analyzed." };
     }
-  }, [current]);
+  }, [modelKey]);
   const a = outcome.analysis;
 
   // The moving load analysis: started once the inputs rest, run in slices so the page keeps responding.
@@ -234,6 +250,7 @@ export function BridgeWorkspace({ bridge, projects }: { bridge: { id: string; na
               ["load", "Load"],
               ["analysis", "Analysis"],
               ["results", "Results"],
+              ["design", "Design"],
               ["view", "View"],
             ] as const
           ).map(([t, label]) => (
@@ -334,6 +351,19 @@ export function BridgeWorkspace({ bridge, projects }: { bridge: { id: string; na
                 <Big icon={Table2} label="Member" title="The selected member's diagrams and forces" onClick={() => setTable("member")} active={table === "member"} />
                 <Big icon={Anchor} label="Reactions" onClick={() => setTable("reactions")} active={table === "reactions"} />
                 <Big icon={PanelBottom} label="Hide" onClick={() => setTable(null)} disabled={!table} />
+              </Panel>
+            </>
+          )}
+          {tab === "design" && (
+            <>
+              <Panel title="Members">
+                <Big icon={PencilRuler} label="Designs" title="Each part of the bridge and its design" onClick={() => setTable("design")} active={table === "design"} />
+              </Panel>
+              <Panel title="Report">
+                <Big icon={making ? Loader2 : FileText} label="Calc package" title="The analysis written out as a Calcs worksheet: the model, the loads, and the result tables" onClick={() => void makeCalc()} disabled={making || !a?.ok} />
+              </Panel>
+              <Panel title="How it works">
+                <div className="w-80 pt-1 text-[11px] leading-snug text-muted-foreground">The girders, deck, bearings, pier columns and joints each start a design in the Design section, with the bridge&apos;s geometry and this analysis&apos;s forces filled in.</div>
               </Panel>
             </>
           )}
@@ -442,13 +472,14 @@ export function BridgeWorkspace({ bridge, projects }: { bridge: { id: string; na
                 ["member", "Member forces"],
                 ["reactions", "Reactions"],
                 ["checks", "Checks and properties"],
+                ["design", "Design"],
               ] as const
             ).map(([k, label]) => (
               <button key={k} type="button" onClick={() => setTable(k)} className={cn("rounded px-2 py-0.5", table === k ? "bg-background font-medium shadow-sm" : "text-muted-foreground hover:text-foreground")}>
                 {label}
               </button>
             ))}
-            <span className="ml-2 text-muted-foreground">{table !== "checks" && selectionLabel}</span>
+            <span className="ml-2 text-muted-foreground">{table !== "checks" && table !== "design" && selectionLabel}</span>
             <button type="button" onClick={() => setTable(null)} className="ml-auto rounded px-2 py-0.5 text-muted-foreground hover:bg-accent hover:text-foreground" aria-label="Close the tables">
               Close
             </button>
@@ -457,6 +488,7 @@ export function BridgeWorkspace({ bridge, projects }: { bridge: { id: string; na
             {table === "member" && (member ? <MemberPanel a={a} member={member} sel={sel} live={live} /> : <p className="p-3 text-xs text-muted-foreground">Pick a member in the tree or in the model to see its diagrams and forces.</p>)}
             {table === "reactions" && <ReactionsPanel a={a} sel={sel} def={current} live={live} />}
             {table === "checks" && <ChecksPanel a={a} live={live} />}
+            {table === "design" && <DesignPanel bridgeId={bridge.id} def={def} saved={save === "saved"} onLinks={(designs) => setDefState((d) => ({ ...d, designs }))} />}
           </div>
         </div>
       )}
