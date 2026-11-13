@@ -750,6 +750,89 @@ def create(params):
     return model, handles
 
 
+# --- a bridge from the Bridge section -------------------------------------------------------
+
+# What each part of a bridge is in IFC 4.3 (class, predefined type), and its material.
+BRIDGE_PARTS = {
+    "girder": ("IfcBeam", "GIRDER_SEGMENT"),
+    "diaphragm": ("IfcBeam", "DIAPHRAGM"),
+    "cap": ("IfcBeam", "PIERCAP"),
+    "column": ("IfcColumn", "PIERSTEM"),
+    "deck": ("IfcSlab", None),
+    "barrier": ("IfcRailing", "GUARDRAIL"),
+    "bearing": ("IfcBearing", "ELASTOMERIC"),
+}
+MAX_BRIDGE_ELEMENTS = 5000
+
+
+def bridge(params):
+    """A bridge as an IFC model: each element an extrusion (its section along its length, or its
+    plan outline up through its depth), placed, classed as a bridge part and given its material.
+    Coordinates in feet, as the Bridge section's model."""
+    elements = params.get("elements") or []
+    if len(elements) > MAX_BRIDGE_ELEMENTS:
+        raise ValueError(f"At most {MAX_BRIDGE_ELEMENTS} elements")
+    model, handles = create({**params, "schema": "IFC4X3", "units": "ft", "facility": "bridge", "levels": []})
+    api = ifcopenshell.api
+    body = model.by_id(handles["body_context"])
+    facility = model.by_id(handles["facility"])
+    materials = {}
+    origin = model.createIfcAxis2Placement3D(model.createIfcCartesianPoint((0.0, 0.0, 0.0)), None, None)
+    up = model.createIfcDirection((0.0, 0.0, 1.0))
+    made = []
+    for spec in elements:
+        kind = spec.get("kind")
+        ifc_class, predefined = BRIDGE_PARTS.get(kind, ("IfcBuildingElementProxy", None))
+        try:
+            element = api.root.create_entity(model, ifc_class=ifc_class, name=str(spec.get("name") or kind), predefined_type=predefined)
+        except Exception:
+            element = api.root.create_entity(model, ifc_class=ifc_class, name=str(spec.get("name") or kind))
+        if kind == "deck":
+            api.attribute.edit_attributes(model, product=element, attributes={"PredefinedType": "USERDEFINED", "ObjectType": "DECK"})
+        if "plan" in spec:
+            # A slab: its outline in plan, extruded up from its underside.
+            points = [(float(x), float(y)) for x, y in spec["plan"]]
+            depth = float(spec["z1"]) - float(spec["z0"])
+            placement = matrix((0.0, 0.0, float(spec["z0"])))
+        else:
+            # A member: its section in its own y (across) and z (up), extruded along its axis.
+            a = numpy.array(spec["a"], dtype=float)
+            b = numpy.array(spec["b"], dtype=float)
+            depth = float(numpy.linalg.norm(b - a))
+            if depth < 1e-6:
+                continue
+            ex = (b - a) / depth
+            ey = numpy.array([0.0, 1.0, 0.0]) if numpy.hypot(ex[0], ex[1]) < 1e-6 else numpy.cross([0.0, 0.0, 1.0], ex)
+            ey = ey / numpy.linalg.norm(ey)
+            ez = numpy.cross(ex, ey)
+            placement = numpy.eye(4)
+            placement[:3, 0], placement[:3, 1], placement[:3, 2], placement[:3, 3] = ey, ez, ex, a
+            points = [(float(y), float(z)) for y, z in spec.get("outline") or []]
+        if spec.get("radius"):
+            profile = model.createIfcCircleProfileDef("AREA", None, None, float(spec["radius"]))
+        else:
+            if len(points) < 3:
+                continue
+            loop = [model.createIfcCartesianPoint(p) for p in points]
+            profile = model.createIfcArbitraryClosedProfileDef("AREA", None, model.createIfcPolyline(loop + [loop[0]]))
+        solid = model.createIfcExtrudedAreaSolid(profile, origin, up, depth)
+        shape = model.createIfcShapeRepresentation(body, "Body", "SweptSolid", [solid])
+        api.geometry.assign_representation(model, product=element, representation=shape)
+        api.geometry.edit_object_placement(model, product=element, matrix=placement, is_si=False)
+        api.spatial.assign_container(model, products=[element], relating_structure=facility)
+        name = spec.get("material")
+        if name:
+            if name not in materials:
+                materials[name] = api.material.add_material(model, name=name, category="concrete")
+            api.material.assign_material(model, products=[element], material=materials[name])
+        properties = {k: v for k, v in (spec.get("properties") or {}).items() if isinstance(v, (str, int, float, bool))}
+        if properties:
+            pset = api.pset.add_pset(model, product=element, name="Pset_Conkit")
+            api.pset.edit_pset(model, pset=pset, properties=properties)
+        made.append(element.id())
+    return model, {**handles, "elements": len(made)}
+
+
 # --- HTTP ---------------------------------------------------------------------------------
 
 
@@ -764,6 +847,9 @@ def handle(payload):
         return dxf_import(payload, params)
     if action == "create":
         model, handles = create(params)
+        return {"size": dump(model, payload), "handles": handles, "summary": summary(model)}
+    if action == "bridge":
+        model, handles = bridge(params)
         return {"size": dump(model, payload), "handles": handles, "summary": summary(model)}
     model = load(payload)
     if action == "edit":

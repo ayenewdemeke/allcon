@@ -1,9 +1,9 @@
 "use client";
 
 import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
-import { Activity, AlertCircle, Anchor, ArrowDownUp, ArrowLeft, ArrowUpFromLine, Box, Check, Cuboid, Database, Frame, Maximize, Moon, Palette, Route, Tag, ChevronDown, ChevronRight, ClipboardCheck, Columns3, EyeOff, FileText, Grid3x3, Layers, Loader2, MoveVertical, PanelBottom, PencilRuler, Play, Ruler, Spline, Table2, TriangleAlert, Truck, Weight } from "lucide-react";
+import { Activity, AlertCircle, Anchor, PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen, ArrowDownUp, ArrowLeft, ArrowUpFromLine, Box, Check, Cuboid, Database, Frame, Maximize, Moon, Palette, Route, Tag, ChevronDown, ChevronRight, ClipboardCheck, Columns3, EyeOff, FileText, Grid3x3, Layers, Loader2, MoveVertical, PanelBottom, PencilRuler, Play, Ruler, Spline, Table2, TriangleAlert, Truck, Weight } from "lucide-react";
 import { toast } from "sonner";
-import { createBridgeCalc, renameBridge, saveBridgeDefinition, setBridgeProject } from "@/app/actions/bridge";
+import { createBridgeCalc, exportBridgeIfc, renameBridge, saveBridgeDefinition, setBridgeProject } from "@/app/actions/bridge";
 import { DesignErrorCard, fmt } from "@/components/design/design-kit";
 import { LinkButton } from "@/components/ui/link-button";
 import { analyzeBridge, type BridgeAnalysis, type Selection } from "@/lib/bridge/bridge";
@@ -71,8 +71,25 @@ export function BridgeWorkspace({ bridge, projects }: { bridge: { id: string; na
   const [table, setTable] = useState<Table | null>(null);
   const [making, setMaking] = useState(false);
   const [display, setDisplay] = useState<Display>({ solid: true, deck: true, contour: true, values: true, names: false, reactions: false, lanes: false, grid: true, dark: false });
+  const [panels, setPanels] = useState({ tree: true, properties: true });
   const flip = (k: keyof Display) => setDisplay((d) => ({ ...d, [k]: !d[k] }));
   const view = useRef<BridgeViewHandle>(null);
+  const [exporting, setExporting] = useState(false);
+  const [ifc, setIfc] = useState<{ modelId: string; projectId: string } | null>(bridge.definition.ifcModelId && bridge.projectId ? { modelId: bridge.definition.ifcModelId, projectId: bridge.projectId } : null);
+  const exportIfc = async () => {
+    setExporting(true);
+    try {
+      await saveBridgeDefinition(bridge.id, def);
+      const r = await exportBridgeIfc(bridge.id);
+      setIfc({ modelId: r.modelId, projectId: r.projectId });
+      setDefState((d) => ({ ...d, ifcModelId: r.modelId }));
+      toast.success(`3D model written: ${r.elements} elements, under the project's Models`, { action: { label: "Open", onClick: () => window.open(`/projects/${r.projectId}/models/ifc/${r.modelId}`, "_blank") } });
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not export the model");
+    } finally {
+      setExporting(false);
+    }
+  };
   const makeCalc = async () => {
     setMaking(true);
     try {
@@ -272,6 +289,7 @@ export function BridgeWorkspace({ bridge, projects }: { bridge: { id: string; na
     }
   };
   const openForm = (f: FormKey) => {
+    setPanels((p) => ({ ...p, properties: true }));
     setForm(f);
     setMemberId(null);
   };
@@ -436,6 +454,10 @@ export function BridgeWorkspace({ bridge, projects }: { bridge: { id: string; na
               <Panel title="Report">
                 <Big icon={making ? Loader2 : FileText} label="Calc package" title="The analysis written out as a Calcs worksheet: the model, the loads, and the result tables" onClick={() => void makeCalc()} disabled={making || !a?.ok} />
               </Panel>
+              <Panel title="3D model (IFC)">
+                <Big icon={exporting ? Loader2 : Cuboid} label={ifc ? "Export again" : "Export IFC"} title="The bridge as an IFC 4.3 model under its project's Models: for the model viewer, the site, sharing and quantities" onClick={() => void exportIfc()} disabled={exporting || !a?.ok} />
+                {ifc && projectId === ifc.projectId && <Big icon={Box} label="View model" title="Open the exported model in the 3D model viewer" onClick={() => window.open(`/projects/${ifc.projectId}/models/ifc/${ifc.modelId}`, "_blank")} />}
+              </Panel>
               <Panel title="How it works">
                 <div className="w-80 pt-1 text-[11px] leading-snug text-muted-foreground">The girders, deck, bearings, pier columns and joints each start a design in the Design section, with the bridge&apos;s geometry and this analysis&apos;s forces filled in.</div>
               </Panel>
@@ -460,7 +482,7 @@ export function BridgeWorkspace({ bridge, projects }: { bridge: { id: string; na
 
       {/* Tree, canvas, properties */}
       <div className="flex min-h-0 flex-1">
-        <aside className="w-56 shrink-0 overflow-y-auto border-r bg-muted/20 py-1 text-xs">
+        <aside className={cn("w-56 shrink-0 overflow-y-auto border-r bg-muted/20 py-1 text-xs", !panels.tree && "hidden")}>
           <Tree title="Bridge">
             {(Object.keys(FORM_TITLES) as FormKey[]).map((k) => (
               <Leaf key={k} label={FORM_TITLES[k]} active={form === k} onClick={() => openForm(k)} />
@@ -493,7 +515,7 @@ export function BridgeWorkspace({ bridge, projects }: { bridge: { id: string; na
           )}
         </aside>
 
-        <main className={cn("relative min-w-0 flex-1", display.dark ? "dark bg-gradient-to-b from-slate-800 to-slate-950 text-slate-100" : "bg-gradient-to-b from-slate-100 to-white")}>
+        <main className={cn("relative min-w-0 flex-1 overflow-hidden", display.dark ? "dark bg-gradient-to-b from-slate-800 to-slate-950 text-slate-100" : "bg-gradient-to-b from-slate-100 to-white")}>
           {a ? (
             <BridgeView
               ref={view}
@@ -537,7 +559,14 @@ export function BridgeWorkspace({ bridge, projects }: { bridge: { id: string; na
               )}
             </div>
           )}
-          <p className="pointer-events-none absolute right-14 bottom-2 text-[10px] text-muted-foreground">Drag to turn · scroll to zoom · right-drag to move · click a member</p>
+          <p className="pointer-events-none absolute right-32 bottom-2 text-[10px] text-muted-foreground">Drag to turn · scroll to zoom · right-drag to move · click a member</p>
+          {/* Side panels: fold them away for a wider view */}
+          <button type="button" onClick={() => setPanels((p) => ({ ...p, tree: !p.tree }))} title={panels.tree ? "Hide the model tree" : "Show the model tree"} aria-label={panels.tree ? "Hide the model tree" : "Show the model tree"} className="absolute top-1/2 left-0 flex h-10 w-4 -translate-y-1/2 items-center justify-center rounded-r border border-l-0 bg-background/90 text-muted-foreground shadow-sm hover:text-foreground">
+            {panels.tree ? <PanelLeftClose className="size-3" /> : <PanelLeftOpen className="size-3" />}
+          </button>
+          <button type="button" onClick={() => setPanels((p) => ({ ...p, properties: !p.properties }))} title={panels.properties ? "Hide the properties" : "Show the properties"} aria-label={panels.properties ? "Hide the properties" : "Show the properties"} className="absolute top-1/2 right-0 flex h-10 w-4 -translate-y-1/2 items-center justify-center rounded-l border border-r-0 bg-background/90 text-muted-foreground shadow-sm hover:text-foreground">
+            {panels.properties ? <PanelRightClose className="size-3" /> : <PanelRightOpen className="size-3" />}
+          </button>
           {/* Color scale */}
           {a && field && useContour && (
             <div className="pointer-events-none absolute bottom-3 left-3 flex items-stretch gap-1.5 text-[10px] tabular-nums">
@@ -576,7 +605,7 @@ export function BridgeWorkspace({ bridge, projects }: { bridge: { id: string; na
           </div>
         </main>
 
-        <aside className="w-72 shrink-0 overflow-y-auto border-l px-3 py-2">
+        <aside className={cn("w-72 shrink-0 overflow-y-auto border-l px-3 py-2", !panels.properties && "hidden")}>
           {member && a ? (
             <MemberProperties a={a} member={member} sel={sel} live={live} label={selectionLabel} onTable={() => setTable("member")} />
           ) : form ? (

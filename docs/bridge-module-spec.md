@@ -271,3 +271,18 @@ spectrum; drawings into Drafting; a free node-and-element editor; SI display.
   materials, nodes, elements).
 - Not yet: the truck drawn at its governing position, load arrows for the static cases, node and
   element numbers as labels, zoom window and select by window, editing the model in tables.
+
+## Status (2026-11-13): the 3D model viewer's camera, and IFC export
+
+- The Bridge view uses the same camera engine as the 3D model viewer (`camera-controls`: damped
+  turning, zooming toward the pointer, animated view changes) and its view cube. Both side panels
+  fold away. The canvas now stays inside its area on high-resolution screens (it had spilled over
+  the properties panel and taken its clicks).
+- **Export IFC** (Design tab; `exportBridgeIfc`, `ifcElements` in `solids.ts`, the worker's
+  `bridge` action in `api/ifc.py`): the bridge written as an IFC 4.3 model under its project's
+  Models: girders (IfcBeam GIRDER_SEGMENT), diaphragms, pier caps (PIERCAP), columns (IfcColumn
+  PIERSTEM), the deck (IfcSlab), barriers (IfcRailing), bearings (IfcBearing), with their shapes
+  and materials. Exported again, the same model gets a new revision. One way: the IFC model
+  doesn't feed the bridge.
+- Not yet: a bridge started from an IFC model; quantities sets (Qto) written into the IFC (the
+  mapping reads them from the geometry).

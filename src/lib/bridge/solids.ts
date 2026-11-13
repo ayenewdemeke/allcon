@@ -119,3 +119,37 @@ export function modelSolids(model: Model): Solid[] {
   }
   return out;
 }
+
+/** What a part is called in the exported model, and what it's made of. */
+const PART: Record<SolidKind, { name: string; material?: string }> = {
+  girder: { name: "Girder", material: "Girder concrete" },
+  deck: { name: "Deck", material: "Deck concrete" },
+  barrier: { name: "Barrier", material: "Deck concrete" },
+  diaphragm: { name: "Diaphragm", material: "Deck concrete" },
+  cap: { name: "Pier cap", material: "Pier concrete" },
+  column: { name: "Pier column", material: "Pier concrete" },
+  bearing: { name: "Bearing", material: "Elastomer" },
+  member: { name: "Member" },
+};
+
+export type IfcElementSpec = { kind: string; name: string; material?: string } & ({ a: Vec3; b: Vec3; outline?: [number, number][]; radius?: number } | { plan: [number, number][]; z0: number; z1: number });
+
+/** The bridge's solids as elements for the IFC engine: each member one extrusion from its first point to its last, named in order. */
+export function ifcElements(d: BridgeDefinition, g: Generated): IfcElementSpec[] {
+  const { solids } = bridgeSolids(d, g);
+  const girders = g.members.filter((m) => m.kind === "girder");
+  const columns = g.members.filter((m) => m.kind === "column");
+  const caps = g.members.filter((m) => m.kind === "cap");
+  const count: Partial<Record<SolidKind, number>> = {};
+  return solids.flatMap((s): IfcElementSpec[] => {
+    const n = (count[s.kind] = (count[s.kind] ?? 0) + 1);
+    const part = PART[s.kind];
+    const name = s.kind === "girder" ? (girders[n - 1]?.name ?? `Girder ${n}`) : s.kind === "column" ? (columns[n - 1]?.name ?? `Column ${n}`) : s.kind === "cap" ? (caps[n - 1]?.name ?? `Pier cap ${n}`) : s.kind === "deck" ? "Deck" : `${part.name} ${n}`;
+    const material = s.kind === "girder" ? `Girder concrete, f'c ${d.girder.fc} ksi` : s.kind === "cap" || s.kind === "column" ? `Pier concrete, f'c ${d.piers.fc} ksi` : s.kind === "deck" || s.kind === "barrier" || s.kind === "diaphragm" ? `Deck concrete, f'c ${d.deck.fc} ksi` : part.material;
+    if (s.type === "slab") return [{ kind: s.kind, name, material, plan: s.plan, z0: s.z0, z1: s.z1 }];
+    if (!s.segments.length) return [];
+    const a = s.segments[0].a;
+    const b = s.segments[s.segments.length - 1].b;
+    return [{ kind: s.kind, name, material, a, b, ...("radius" in s.section ? { radius: s.section.radius } : { outline: s.section.outline }) }];
+  });
+}

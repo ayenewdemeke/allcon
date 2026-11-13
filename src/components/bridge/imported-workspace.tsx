@@ -169,7 +169,7 @@ export function ImportedWorkspace({ bridge, info }: { bridge: { id: string; name
         </div>
       </div>
 
-      <main className="relative min-h-0 flex-1 bg-slate-50 dark:bg-slate-900">
+      <main className="relative min-h-0 flex-1 overflow-hidden bg-gradient-to-b from-slate-100 to-white">
         {a ? <BridgeView ref={view} model={model} plain solids={solids} mode={solid ? "solid" : "wire"} displacements={displacements} overlay={diagram?.overlay ?? null} selected={selected} onPick={(id) => (setPicked(id), id !== null && setTable("forces"))} className="absolute inset-0" /> : <div className="p-6"><DesignErrorCard message={outcome.error ?? "The model could not be analyzed."} /></div>}
         {a && (
           <div className="pointer-events-none absolute top-2 left-3 space-y-0.5 text-[11px]">

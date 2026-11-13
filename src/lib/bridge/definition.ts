@@ -31,6 +31,8 @@ export type BridgeDefinition = {
   loads: { barrierWeight: number; barrierWidth: number; wearingSurface: number }; // klf each side; ft; psf
   /** The designs started from this bridge (Design tab): which part each is for. */
   designs: DesignLink[];
+  /** The 3D model (IFC) the bridge was last exported to, under its project's Models. */
+  ifcModelId?: string;
 };
 
 export type DesignLink = { id: string; target: string; kind: string };
@@ -108,6 +110,7 @@ export function bridgeDefinition(saved: unknown): BridgeDefinition {
       .filter((l) => typeof l.id === "string" && /^[0-9a-f-]{36}$/i.test(l.id) && typeof l.target === "string" && typeof l.kind === "string")
       .slice(0, 100)
       .map((l) => ({ id: l.id as string, target: (l.target as string).slice(0, 40), kind: (l.kind as string).slice(0, 40) })),
+    ...(typeof s.ifcModelId === "string" && /^[0-9a-f-]{36}$/i.test(s.ifcModelId) ? { ifcModelId: s.ifcModelId } : {}),
   };
 }
 

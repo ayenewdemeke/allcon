@@ -12,6 +12,8 @@ import { designPrefill, designTargets } from "@/lib/bridge/design-links";
 import { importedOf } from "@/lib/bridge/imported";
 import { movingLoad } from "@/lib/bridge/moving";
 import { bridgeCalcLines } from "@/lib/bridge/report";
+import { ifcElements } from "@/lib/bridge/solids";
+import { newModelFileKey, workerBridge, WorkerError, type WorkerSummary } from "@/lib/ifc/worker";
 import { layout } from "@/lib/calcs/library/templates";
 import { CALC_FILE, newCalcKey } from "@/lib/calcs/server";
 import { emptyCalc } from "@/lib/calcs/types";
@@ -48,7 +50,8 @@ export async function saveBridgeDefinition(bridgeId: string, definition: unknown
   const { bridge } = await ownBridge(bridgeId);
   if (importedOf(bridge.definition)) throw new Error("An imported model has no definition to save");
   // The designs started from the bridge are kept as the server has them (they're added by createBridgeDesign).
-  const next = { ...bridgeDefinition(definition), designs: bridgeDefinition(bridge.definition).designs };
+  const kept = bridgeDefinition(bridge.definition);
+  const next = { ...bridgeDefinition(definition), designs: kept.designs, ...(kept.ifcModelId ? { ifcModelId: kept.ifcModelId } : {}) };
   await db.bridge.update({ where: { id: bridge.id }, data: { definition: next as unknown as Prisma.InputJsonValue } });
 }
 
@@ -149,4 +152,38 @@ export async function createBridgeCalc(bridgeId: string): Promise<{ calcId: stri
   await db.calc.update({ where: { id: calc.id }, data: { fileKey: key, revision: 1, regionCount: data.regions.length } });
   revalidatePath("/calcs");
   return { calcId: calc.id };
+}
+
+/**
+ * The bridge written as an IFC 4.3 model under its project's Models: its girders, deck, barriers,
+ * diaphragms, bearings, pier caps and columns as bridge elements with their shapes and materials.
+ * Exported again, the same model gets the bridge as it is now, as a new revision.
+ */
+export async function exportBridgeIfc(bridgeId: string): Promise<{ modelId: string; projectId: string; elements: number }> {
+  const { user, bridge } = await ownBridge(bridgeId);
+  if (importedOf(bridge.definition)) throw new Error("The IFC export is for bridges made with the wizard");
+  if (!bridge.projectId) throw new Error("File the bridge under a project first (the project list at the top right): its 3D model goes to that project's Models");
+  const project = await db.project.findFirst({ where: { id: bridge.projectId, orgId: user.orgId } });
+  if (!project) throw new Error("Project not found");
+  const definition = bridgeDefinition(bridge.definition);
+  const elements = ifcElements(definition, analyzeBridge(definition).generated);
+  const existing = definition.ifcModelId ? await db.ifcModel.findFirst({ where: { id: definition.ifcModelId, projectId: project.id } }) : null;
+  const id = existing?.id ?? crypto.randomUUID();
+  const fileKey = newModelFileKey(id);
+  let made: { summary: WorkerSummary; size: number | null };
+  try {
+    made = await workerBridge(fileKey, { name: bridge.name, elements, location: project.latitude !== null && project.longitude !== null ? { lat: project.latitude, lon: project.longitude, heading: 0 } : undefined });
+  } catch (e) {
+    throw new Error(e instanceof WorkerError ? e.message : "The IFC engine couldn't write the model");
+  }
+  const data = { name: bridge.name, description: `Exported from the bridge "${bridge.name}" (Bridge section).`, fileKey, fileSize: made.size, summary: made.summary as unknown as Prisma.InputJsonValue, elementCount: made.summary.elements, editedAt: new Date() };
+  if (existing) {
+    await db.ifcModel.update({ where: { id }, data: { ...data, revision: existing.revision + 1, backupKey: existing.fileKey, backupRevision: existing.revision } });
+    await deleteFiles([existing.backupKey]).catch(() => undefined);
+  } else {
+    await db.ifcModel.create({ data: { id, projectId: project.id, ...data, createdById: user.id } });
+    await db.bridge.update({ where: { id: bridge.id }, data: { definition: { ...definition, ifcModelId: id } as unknown as Prisma.InputJsonValue } });
+  }
+  revalidatePath(`/projects/${project.id}`, "layout");
+  return { modelId: id, projectId: project.id, elements: made.summary.elements };
 }

@@ -2,9 +2,10 @@
 
 import { forwardRef, useEffect, useImperativeHandle, useRef } from "react";
 import * as THREE from "three";
-import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+import CameraControls from "camera-controls";
 import type { Dof6, Model } from "@/lib/bridge/model";
 import type { Solid, SolidKind, Vec3 } from "@/lib/bridge/solids";
+import { OrientationCube, type OrientationCubeHandle } from "@/components/models/orientation-cube";
 
 // The workspace's canvas: the model in 3D as analysis programs draw one. Members as shaded solids
 // in their real shapes (or as lines, in wireframe), supports as pyramids, a ground grid and the
@@ -20,6 +21,8 @@ export type Contour = { values: Map<number, [number, number]>; min: number; max:
 export type Label = { p: Vec3; text: string; tone?: "value" | "name" | "axis" };
 export type Arrow = { p: Vec3; d: Vec3; color?: number }; // from p − d to p (the head at p)
 export type Strip = { plan: [number, number][]; z: number; color: number };
+
+CameraControls.install({ THREE });
 
 const STOPS = [0x1d4ed8, 0x06b6d4, 0x22c55e, 0xeab308, 0xdc2626].map((c) => new THREE.Color(c));
 /** The contour scale: blue (lowest) through green to red (highest), t from 0 to 1. */
@@ -38,7 +41,7 @@ type State = {
   renderer: THREE.WebGLRenderer;
   scene: THREE.Scene;
   camera: THREE.PerspectiveCamera;
-  controls: OrbitControls;
+  controls: CameraControls;
   group: THREE.Group;
   render: () => void;
   framed: string;
@@ -76,33 +79,50 @@ export const BridgeView = forwardRef<BridgeViewHandle, BridgeViewProps>(function
     pick.current = onPick;
   }, [onPick]);
 
-  const look = (name: ViewName) => {
+  const cube = useRef<OrientationCubeHandle>(null);
+  /** Looks at the whole model from a direction (toward the camera), gliding there unless `jump`. */
+  const lookFrom = (direction: [number, number, number], jump = false) => {
     const s = state.current;
     if (!s || s.box.isEmpty()) return;
     const c = s.box.getCenter(new THREE.Vector3());
     const size = s.box.getSize(new THREE.Vector3());
     const span = Math.max(size.x, size.y, size.z, 1);
-    const dir = new THREE.Vector3(...(name === "iso" ? [-0.5, -0.8, 0.42] : name === "top" ? [0, -0.001, 1] : name === "front" ? [0, -1, 0.02] : [-1, 0, 0.02])).normalize();
-    // Far enough to see the whole extent across the view, whatever its shape.
-    const across = name === "side" ? Math.max(size.y, 1) : name === "iso" ? span : Math.max(size.x, 1);
+    const dir = new THREE.Vector3(...direction);
+    // Straight down or up: a hair off the axis, so "up" stays defined.
+    if (Math.hypot(dir.x, dir.y) < 1e-6) dir.y = -0.001 * Math.sign(dir.z || 1);
+    dir.normalize();
+    // Far enough to see the model's whole extent across the view: its corners, as seen from there.
+    const right = new THREE.Vector3().crossVectors(new THREE.Vector3(0, 0, 1), dir).normalize();
+    const up = new THREE.Vector3().crossVectors(dir, right);
+    let halfW = 0, halfH = 0, depth = 0;
+    for (const x of [-0.5, 0.5]) for (const y of [-0.5, 0.5]) for (const z of [-0.5, 0.5]) {
+      const v = new THREE.Vector3(x * size.x, y * size.y, z * size.z);
+      halfW = Math.max(halfW, Math.abs(v.dot(right)));
+      halfH = Math.max(halfH, Math.abs(v.dot(up)));
+      depth = Math.max(depth, v.dot(dir));
+    }
     const tan = Math.tan((s.camera.fov * Math.PI) / 360);
-    const distance = Math.max((0.6 * across) / (tan * Math.max(s.camera.aspect, 0.2)), (0.45 * (name === "top" ? size.y : Math.max(size.z, 0.25 * across))) / tan);
-    s.controls.target.copy(c);
-    // From a corner the near end looms larger: stand back a little more.
-    s.camera.position.copy(c).addScaledVector(dir, name === "iso" ? 1.05 * distance : distance);
-    s.camera.near = span / 1000;
+    const distance = depth + 1.18 * Math.max(halfW / (tan * Math.max(s.camera.aspect, 0.2)), halfH / tan, span * 0.05);
+    const to = c.clone().addScaledVector(dir, distance);
+    s.camera.near = span / 2000;
     s.camera.far = span * 100;
     s.camera.updateProjectionMatrix();
-    s.controls.update();
+    s.controls.minDistance = span / 500;
+    s.controls.maxDistance = span * 20;
+    void s.controls.setLookAt(to.x, to.y, to.z, c.x, c.y, c.z, !jump);
     s.render();
   };
-  useImperativeHandle(ref, () => ({ view: look }));
+  const DIRECTIONS: Record<ViewName, [number, number, number]> = { iso: [-0.5, -0.8, 0.42], top: [0, 0, 1], front: [0, -1, 0.02], side: [-1, 0, 0.02] };
+  const look = (name: ViewName, jump = false) => lookFrom(DIRECTIONS[name], jump);
+  useImperativeHandle(ref, () => ({ view: (name) => look(name) }));
 
   useEffect(() => {
     const el = host.current;
     if (!el) return;
     const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    // The canvas fills its host: its drawing size is in device pixels, its size on the page isn't.
+    renderer.domElement.style.cssText = "display:block;width:100%;height:100%";
     el.appendChild(renderer.domElement);
     const scene = new THREE.Scene();
     scene.add(new THREE.AmbientLight(0xffffff, 1.6));
@@ -114,13 +134,25 @@ export const BridgeView = forwardRef<BridgeViewHandle, BridgeViewProps>(function
     scene.add(fill);
     const camera = new THREE.PerspectiveCamera(35, 1, 0.1, 100000);
     camera.up.set(0, 0, 1);
-    const controls = new OrbitControls(camera, renderer.domElement);
+    // The same camera as the 3D model viewer's: damped turning, zooming toward the pointer.
+    const controls = new CameraControls(camera, renderer.domElement);
+    controls.smoothTime = 0.2;
+    controls.draggingSmoothTime = 0.08;
+    controls.dollyToCursor = true;
+    controls.infinityDolly = true;
     const group = new THREE.Group();
     scene.add(group);
     const s: State = { renderer, scene, camera, controls, group, render: () => undefined, framed: "", box: new THREE.Box3(), pickable: [], labels: [] };
     const v = new THREE.Vector3();
+    const turn = new THREE.Matrix4().set(1, 0, 0, 0, 0, 0, -1, 0, 0, 1, 0, 0, 0, 0, 0, 1); // the cube's axes (y up, z south) in the model's (z up)
+    const seen = new THREE.Matrix4();
+    let dirty = true;
     s.render = () => {
+      dirty = true;
+    };
+    const draw = () => {
       renderer.render(scene, camera);
+      cube.current?.setCamera(seen.multiplyMatrices(camera.matrixWorldInverse, turn).elements);
       // The labels follow their points.
       const w = renderer.domElement.clientWidth;
       const h = renderer.domElement.clientHeight;
@@ -131,7 +163,18 @@ export const BridgeView = forwardRef<BridgeViewHandle, BridgeViewProps>(function
         if (shown) l.el.style.transform = `translate(-50%, -50%) translate(${((v.x + 1) / 2) * w}px, ${((1 - v.y) / 2) * h}px)`;
       }
     };
-    controls.addEventListener("change", s.render);
+    // Drawn when the camera is moving or something changed, not every frame.
+    const clock = new THREE.Clock();
+    let frame = 0;
+    const tick = () => {
+      const moved = controls.update(clock.getDelta());
+      if (moved || dirty) {
+        dirty = false;
+        draw();
+      }
+      frame = requestAnimationFrame(tick);
+    };
+    frame = requestAnimationFrame(tick);
     const resize = () => {
       const { width, height } = el.getBoundingClientRect();
       if (!width || !height) return;
@@ -168,6 +211,7 @@ export const BridgeView = forwardRef<BridgeViewHandle, BridgeViewProps>(function
     renderer.domElement.addEventListener("pointerup", onUp);
     resize();
     return () => {
+      cancelAnimationFrame(frame);
       observer.disconnect();
       renderer.domElement.removeEventListener("pointerdown", onDown);
       renderer.domElement.removeEventListener("pointerup", onUp);
@@ -402,15 +446,21 @@ export const BridgeView = forwardRef<BridgeViewHandle, BridgeViewProps>(function
     const key = [box.min.x, box.min.y, box.min.z, box.max.x, box.max.y, box.max.z].map((v) => v.toFixed(1)).join(",");
     if (key !== s.framed) {
       s.framed = key;
-      look("iso");
+      look("iso", true);
     }
     s.render();
+    // `look` reads the view's state through a ref: it isn't something this drawing depends on.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [model, solids, mode, hidden, displacements, overlay, contour, selected, labels, arrows, strips, grid, dark, plain]);
 
   return (
     <div className={className}>
       <div ref={host} className="absolute inset-0" />
       <div ref={layer} className="pointer-events-none absolute inset-0 overflow-hidden" />
+      {/* The view cube: its axes are y up and z toward the viewer; the model's are z up. */}
+      <div className="absolute bottom-6 right-2 origin-bottom-right scale-75">
+        <OrientationCube ref={cube} onOrient={([x, y, z]) => lookFrom([x, -z, y])} onHome={() => look("iso")} />
+      </div>
     </div>
   );
 });
